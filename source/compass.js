@@ -7,7 +7,7 @@ compass.ModelFactory = class {
     match(context) {
         const identifier = context.identifier;
         const extension = identifier.split('.').pop().toLowerCase();
-        if (extension == 'def') {
+        if (extension == 'def' || extension== 'txt') {
             return 'compass.def';
         }
         return undefined;
