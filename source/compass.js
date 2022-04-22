@@ -7,7 +7,7 @@ compass.ModelFactory = class {
     match(context) {
         const identifier = context.identifier;
         const extension = identifier.split('.').pop().toLowerCase();
-        if (extension == 'def' || extension== 'txt') {
+        if (extension == 'def' || extension == 'txt') {
             return 'compass.def';
         }
         return undefined;
@@ -17,7 +17,7 @@ compass.ModelFactory = class {
         return compass.Metadata.open(context).then((metadata) => {
             const identifier = context.identifier.toLowerCase();
             const openText = (param, bin) => {
-                const reader = new compass.TextParamReader(param);
+                const reader = new compass.TextParamReader(metadata, param);
                 return new compass.Model(metadata, reader.net, bin);
             };
             let bin = null;
@@ -153,8 +153,8 @@ compass.Node = class {
         }
         // initializers = layer.layer.blobs.map((blob) => new compass.Tensor(blob));
 
-        this._inputs = layer.inputs.map((t)=>new compass.Parameter(t.name, [new compass.Argument(t.name, new compass.TensorType(t.type, t.shape), null)]));
-        this._outputs = layer.outputs.map((t)=>new compass.Parameter(t.name, [new compass.Argument(t.name, new compass.TensorType(t.type, t.shape), null)]));
+        this._inputs = layer.inputs.map((t) => new compass.Parameter(t.name, [new compass.Argument(t.name, new compass.TensorType(t.type, t.shape), null)]));
+        this._outputs = layer.outputs.map((t) => new compass.Parameter(t.name, [new compass.Argument(t.name, new compass.TensorType(t.type, t.shape), null)]));
 
     }
 
@@ -422,7 +422,7 @@ compass.Metadata = class {
 
 compass.TextParamReader = class {
 
-    constructor(buffer) {
+    constructor(metadata, buffer) {
         const reader = text.Reader.open(buffer);
         const sections = []
         let lines = {};
@@ -447,6 +447,14 @@ compass.TextParamReader = class {
             }
         }
         const net = sections.shift();
+        const header_meta = metadata.type("header");
+        if (header_meta) {
+            for (const k of header_meta["require"]) {
+                if (!Object.keys(net).includes(k)) {
+                    throw new compass.Error("Missing required field '" + JSON.stringify(k) + "'.");
+                }
+            }
+        }
         net.layers = [];
         for (const i of sections) {
             net.layers.push(this.parse_layer(i));
@@ -502,8 +510,7 @@ compass.TextParamReader = class {
                 }
                 idx++;
             }
-            if(ret.length==1)
-            {
+            if (ret.length == 1) {
                 return ret[0];
             }
             return ret;
@@ -547,12 +554,50 @@ compass.TextParamReader = class {
         layer.type = section["layer_type"];
         layer.name = section["layer_name"];
         layer.id = section["layer_id"];
-        layer.outputs = this.parse_tensor(section,"layer_top");
-        layer.inputs = this.parse_tensor(section,"layer_bottom");
+        layer.outputs = this.parse_tensor(section, "layer_top");
+        layer.inputs = this.parse_tensor(section, "layer_bottom");
         layer.param = {};
         for (const k of Object.keys(section)) {
             if (!k.startsWith("layer_")) {
                 layer.param[k] = this.parse_param(section[k]);
+            }
+        }
+        for (const k of Object.keys(layer.param)) {
+            if (k.endsWith("_shape")) {
+                const shape = layer.param[k];
+                const type = k.replace("_shape", "_type");
+                const offset = k.replace("_shape", "_offset");
+                const s = k.replace("_shape", "_size");
+                const t = {};
+                // t.name = k.replace("_shape", "");
+                t.type = layer.param[type];
+                t.shape = new compass.TensorShape(shape);
+                delete layer.param[k];
+                delete layer.param[type];
+                delete layer.param[offset];
+                delete layer.param[s];
+                layer.param[k.replace("_shape", "")] = t;
+            }
+            else if (k.endsWith("_value") && Object.keys(layer.param).includes(k.replace("_value", "_type"))) {
+                const t = {};
+                t.type = layer.param[k.replace("_value", "_type")];
+                t.value = layer.param[k];
+                layer.param[k.replace("_value", "")] = t;
+                delete layer.param[k];
+                delete layer.param[k.replace("_value", "_type")];
+            }
+            else {
+                for (const prefix of ["kernel", "pad", "stride", "dilation"]) {
+                    if (k.startsWith(prefix + "_")) {
+                        let v = layer.param[prefix];
+                        if (!v) {
+                            v = {};
+                        }
+                        v[k.replace(prefix + "_", "")] = layer.param[k];
+                        delete layer.param[k];
+                        layer.param[prefix] = v;
+                    }
+                }
             }
         }
         return layer;
@@ -565,7 +610,7 @@ compass.Error = class extends Error {
 
     constructor(message) {
         super(message);
-        this.name = 'Error loading Caffe model.';
+        this.name = 'Error loading Compass model.';
     }
 };
 

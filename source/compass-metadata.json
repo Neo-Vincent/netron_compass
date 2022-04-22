@@ -1,3 +1,14 @@
 [
-  
+    {
+        "name": "header",
+        "optional": [
+            "model_bin",
+            "input_tensors",
+            "output_tensors"
+        ],
+        "require": [
+            "model_name",
+            "layer_number"
+        ]
+    }
 ]
