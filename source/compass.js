@@ -533,8 +533,8 @@ compass.TextParamReader = class {
         }
         for (let i = 0; i < names.length; ++i) {
             const t = {};
-            t.name = str(names[i]);
-            t.type = str(types[i]);
+            t.name = String(names[i]);
+            t.type = String(types[i]);
             t.shape = new compass.TensorShape(shapes[i]);
             t.scale = 1.;
             t.zp = 0.;
@@ -551,8 +551,8 @@ compass.TextParamReader = class {
     }
     parse_layer(section) {
         const layer = {};
-        layer.type = str(section["layer_type"]);
-        layer.name = str(section["layer_name"]);
+        layer.type = String(section["layer_type"]);
+        layer.name = String(section["layer_name"]);
         layer.id = section["layer_id"];
         layer.outputs = this.parse_tensor(section, "layer_top");
         layer.inputs = this.parse_tensor(section, "layer_bottom");
