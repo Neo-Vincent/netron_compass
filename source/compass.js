@@ -73,6 +73,16 @@ compass.Graph = class {
             else {
                 const node = new compass.Node(metadata, layer);
                 this._nodes.push(node);
+                for(const t of layer.outputs)
+                {
+                    if(net.output_tensors.includes(t.name))
+                    {
+                        const output = new compass.Parameter(t.name,
+                            [t].map((output) =>new compass.Argument(output.name,
+                                new compass.TensorType(output.type, output.shape), null)));
+                        this._outputs.push(output);
+                    }
+                }
             }
         }
     }
@@ -454,6 +464,10 @@ compass.TextParamReader = class {
                     throw new compass.Error("Missing required field '" + JSON.stringify(k) + "'.");
                 }
             }
+        }
+        for(const k of Object.keys(net))
+        {
+            net[k]=this.parse_param(net[k]);
         }
         net.layers = [];
         for (const i of sections) {
