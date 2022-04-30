@@ -10,5 +10,861 @@
             "model_name",
             "layer_number"
         ]
+    },
+    {
+        "name": "Any",
+        "operator": 0
+    },
+    {
+        "name": "Abs",
+        "operator": 101
+    },
+    {
+        "name": "AccidentalHits",
+        "operator": 83
+    },
+    {
+        "name": "Acos",
+        "operator": 175
+    },
+    {
+        "name": "Acosh",
+        "operator": 176
+    },
+    {
+        "name": "Activation",
+        "operator": 10
+    },
+    {
+        "name": "ArgMinMax",
+        "operator": 87
+    },
+    {
+        "name": "Asin",
+        "operator": 177
+    },
+    {
+        "name": "Asinh",
+        "operator": 178
+    },
+    {
+        "name": "BBreg",
+        "operator": 47
+    },
+    {
+        "name": "BNLL",
+        "operator": 140
+    },
+    {
+        "name": "BasicLSTM",
+        "operator": 14
+    },
+    {
+        "name": "BatchNorm",
+        "operator": 16
+    },
+    {
+        "name": "BatchReindex",
+        "operator": 129
+    },
+    {
+        "name": "BatchToDepth",
+        "operator": 1000
+    },
+    {
+        "name": "BatchToSpace",
+        "operator": 1020
+    },
+    {
+        "name": "BatchToSpaceND",
+        "operator": 1120
+    },
+    {
+        "name": "BiasAdd",
+        "operator": 78
+    },
+    {
+        "name": "BitShift",
+        "operator": 171
+    },
+    {
+        "name": "BoundingBox",
+        "operator": 147
+    },
+    {
+        "name": "BoxReg",
+        "operator": 42
+    },
+    {
+        "name": "BoxScore",
+        "operator": 49
+    },
+    {
+        "name": "BoxScore2",
+        "operator": 50
+    },
+    {
+        "name": "BoxWithNmsLimit",
+        "operator": 118
+    },
+    {
+        "name": "CTCGreedyDecoder",
+        "operator": 63
+    },
+    {
+        "name": "CTCGreedySearch",
+        "operator": 55
+    },
+    {
+        "name": "Call",
+        "operator": 2005
+    },
+    {
+        "name": "Cast",
+        "operator": 115
+    },
+    {
+        "name": "Ceil",
+        "operator": 157
+    },
+    {
+        "name": "ChannelShuffle",
+        "operator": 68
+    },
+    {
+        "name": "ChannelToSpace",
+        "operator": 1024
+    },
+    {
+        "name": "Clip",
+        "operator": 108
+    },
+    {
+        "name": "CollapseRepeated",
+        "operator": 123
+    },
+    {
+        "name": "Compress",
+        "operator": 187
+    },
+    {
+        "name": "ComputeAccidentalHits",
+        "operator": 83
+    },
+    {
+        "name": "Concat",
+        "operator": 9
+    },
+    {
+        "name": "Constant",
+        "operator": 99
+    },
+    {
+        "name": "ConvInteger",
+        "operator": 184
+    },
+    {
+        "name": "ConvTranspose",
+        "operator": 18
+    },
+    {
+        "name": "ConvTranspose3D",
+        "operator": 158
+    },
+    {
+        "name": "Convolution",
+        "operator": 2
+    },
+    {
+        "name": "Convolution3D",
+        "operator": 154
+    },
+    {
+        "name": "Cosh",
+        "operator": 179
+    },
+    {
+        "name": "Cosine",
+        "operator": 134
+    },
+    {
+        "name": "Count",
+        "operator": 167
+    },
+    {
+        "name": "Crop",
+        "operator": 15
+    },
+    {
+        "name": "CropAndResize",
+        "operator": 38
+    },
+    {
+        "name": "Customize",
+        "operator": 8193
+    },
+    {
+        "name": "DataStride",
+        "operator": 30
+    },
+    {
+        "name": "DecodeBox",
+        "operator": 54
+    },
+    {
+        "name": "DecodeBoxSoftmax",
+        "operator": 61
+    },
+    {
+        "name": "Deconvolution",
+        "operator": 18
+    },
+    {
+        "name": "DepthToBatch",
+        "operator": 1001
+    },
+    {
+        "name": "DepthToSpace",
+        "operator": 1022
+    },
+    {
+        "name": "DepthwiseConv",
+        "operator": 3
+    },
+    {
+        "name": "Det",
+        "operator": 113
+    },
+    {
+        "name": "DetectionOutput",
+        "operator": 62
+    },
+    {
+        "name": "Dilation2D",
+        "operator": 119
+    },
+    {
+        "name": "Div",
+        "operator": 80
+    },
+    {
+        "name": "Eltwise",
+        "operator": 5
+    },
+    {
+        "name": "EmbeddingLookup",
+        "operator": 96
+    },
+    {
+        "name": "Erf",
+        "operator": 172
+    },
+    {
+        "name": "Erosion2D",
+        "operator": 120
+    },
+    {
+        "name": "Exp",
+        "operator": 132
+    },
+    {
+        "name": "FCNNMS",
+        "operator": 56
+    },
+    {
+        "name": "FakeQuantWithMinMaxVars",
+        "operator": 1500
+    },
+    {
+        "name": "FasterRcnnNMS",
+        "operator": 65
+    },
+    {
+        "name": "FcnPost1",
+        "operator": 28
+    },
+    {
+        "name": "FcnPost2",
+        "operator": 29
+    },
+    {
+        "name": "Filter",
+        "operator": 142
+    },
+    {
+        "name": "FilterBoxes",
+        "operator": 155
+    },
+    {
+        "name": "Floor",
+        "operator": 159
+    },
+    {
+        "name": "ForRange",
+        "operator": 4098
+    },
+    {
+        "name": "ForRangeEnder",
+        "operator": 2004
+    },
+    {
+        "name": "ForRangeHeader",
+        "operator": 2003
+    },
+    {
+        "name": "FractionalPool",
+        "operator": 91
+    },
+    {
+        "name": "FullyConnected",
+        "operator": 4
+    },
+    {
+        "name": "GRUv1",
+        "operator": 139
+    },
+    {
+        "name": "GRUv3",
+        "operator": 138
+    },
+    {
+        "name": "Gather",
+        "operator": 95
+    },
+    {
+        "name": "GatherElements",
+        "operator": 186
+    },
+    {
+        "name": "GatherND",
+        "operator": 148
+    },
+    {
+        "name": "GatherV2",
+        "operator": 73
+    },
+    {
+        "name": "Gbb",
+        "operator": 41
+    },
+    {
+        "name": "Gemm",
+        "operator": 160
+    },
+    {
+        "name": "GenerateProposals",
+        "operator": 126
+    },
+    {
+        "name": "Gru",
+        "operator": 66
+    },
+    {
+        "name": "GruSeq",
+        "operator": 13
+    },
+    {
+        "name": "HardSigmoid",
+        "operator": 156
+    },
+    {
+        "name": "HardSwish",
+        "operator": 151
+    },
+    {
+        "name": "HashLookupTable",
+        "operator": 98
+    },
+    {
+        "name": "HeatmapMaxKeypoint",
+        "operator": 76
+    },
+    {
+        "name": "Histogram",
+        "operator": 143
+    },
+    {
+        "name": "I420ToYUV444pkd",
+        "operator": 165
+    },
+    {
+        "name": "InTopK",
+        "operator": 74
+    },
+    {
+        "name": "Input",
+        "operator": 1
+    },
+    {
+        "name": "InstanceNorm",
+        "operator": 103
+    },
+    {
+        "name": "InternalConcatenated",
+        "operator": 2001
+    },
+    {
+        "name": "InternalCrop",
+        "operator": 2002
+    },
+    {
+        "name": "InternalSlice",
+        "operator": 2006
+    },
+    {
+        "name": "InternalSpliter",
+        "operator": 2000
+    },
+    {
+        "name": "Interp",
+        "operator": 11
+    },
+    {
+        "name": "Intersection",
+        "operator": 141
+    },
+    {
+        "name": "L2Norm",
+        "operator": 24
+    },
+    {
+        "name": "LRN",
+        "operator": 90
+    },
+    {
+        "name": "LUT",
+        "operator": 102
+    },
+    {
+        "name": "LayerNorm",
+        "operator": 70
+    },
+    {
+        "name": "LayoutConvertor",
+        "operator": 1026
+    },
+    {
+        "name": "LeakyRELU",
+        "operator": 150
+    },
+    {
+        "name": "Log",
+        "operator": 131
+    },
+    {
+        "name": "LogSoftmax",
+        "operator": 84
+    },
+    {
+        "name": "Logical",
+        "operator": 79
+    },
+    {
+        "name": "Loop",
+        "operator": 4099
+    },
+    {
+        "name": "MVN",
+        "operator": 130
+    },
+    {
+        "name": "Mask",
+        "operator": 40
+    },
+    {
+        "name": "MatMul",
+        "operator": 106
+    },
+    {
+        "name": "MatMulInteger",
+        "operator": 183
+    },
+    {
+        "name": "MaxPooling3D",
+        "operator": 161
+    },
+    {
+        "name": "MaxPoolingWithArgMax",
+        "operator": 75
+    },
+    {
+        "name": "MaxRoiPool",
+        "operator": 109
+    },
+    {
+        "name": "MaxUnPool",
+        "operator": 188
+    },
+    {
+        "name": "Mfcc",
+        "operator": 33
+    },
+    {
+        "name": "Mod",
+        "operator": 110
+    },
+    {
+        "name": "Moments",
+        "operator": 69
+    },
+    {
+        "name": "MtPad",
+        "operator": 44
+    },
+    {
+        "name": "NMS",
+        "operator": 52
+    },
+    {
+        "name": "NMSSSD",
+        "operator": 53
+    },
+    {
+        "name": "Negative",
+        "operator": 71
+    },
+    {
+        "name": "Normalization",
+        "operator": 100
+    },
+    {
+        "name": "NormalizedMoments",
+        "operator": 104
+    },
+    {
+        "name": "OneHot",
+        "operator": 146
+    },
+    {
+        "name": "OverlapAdd",
+        "operator": 124
+    },
+    {
+        "name": "PRELU",
+        "operator": 94
+    },
+    {
+        "name": "Pad",
+        "operator": 17
+    },
+    {
+        "name": "Permute",
+        "operator": 20
+    },
+    {
+        "name": "Pick",
+        "operator": 51
+    },
+    {
+        "name": "Pooling",
+        "operator": 7
+    },
+    {
+        "name": "Pooling3D",
+        "operator": 72
+    },
+    {
+        "name": "PostNMS1",
+        "operator": 34
+    },
+    {
+        "name": "PostNMS2",
+        "operator": 35
+    },
+    {
+        "name": "Post_NMS1",
+        "operator": 36
+    },
+    {
+        "name": "Post_NMS2",
+        "operator": 37
+    },
+    {
+        "name": "Pow",
+        "operator": 111
+    },
+    {
+        "name": "Proposal",
+        "operator": 60
+    },
+    {
+        "name": "ProposalWithoutSoftmax",
+        "operator": 117
+    },
+    {
+        "name": "PyramidROIAlign",
+        "operator": 149
+    },
+    {
+        "name": "RELU",
+        "operator": 32
+    },
+    {
+        "name": "RELU1",
+        "operator": 92
+    },
+    {
+        "name": "RELU6",
+        "operator": 93
+    },
+    {
+        "name": "ROIPooling",
+        "operator": 39
+    },
+    {
+        "name": "Rank",
+        "operator": 170
+    },
+    {
+        "name": "ReRec",
+        "operator": 43
+    },
+    {
+        "name": "Reciprocal",
+        "operator": 112
+    },
+    {
+        "name": "Reduce",
+        "operator": 88
+    },
+    {
+        "name": "RefineDetDetection",
+        "operator": 173
+    },
+    {
+        "name": "Region",
+        "operator": 57
+    },
+    {
+        "name": "Region2",
+        "operator": 27
+    },
+    {
+        "name": "RegionFuse",
+        "operator": 127
+    },
+    {
+        "name": "RegionReshape",
+        "operator": 26
+    },
+    {
+        "name": "Reorg",
+        "operator": 58
+    },
+    {
+        "name": "Repeat",
+        "operator": 23
+    },
+    {
+        "name": "Resample",
+        "operator": 45
+    },
+    {
+        "name": "Reshape",
+        "operator": 8
+    },
+    {
+        "name": "Resize",
+        "operator": 81
+    },
+    {
+        "name": "ReverseSequence",
+        "operator": 31
+    },
+    {
+        "name": "RgbToYuv",
+        "operator": 162
+    },
+    {
+        "name": "RnnSeq",
+        "operator": 21
+    },
+    {
+        "name": "RoiAlign",
+        "operator": 82
+    },
+    {
+        "name": "RoiAlign29",
+        "operator": 128
+    },
+    {
+        "name": "Round",
+        "operator": 182
+    },
+    {
+        "name": "Rsqrt",
+        "operator": 135
+    },
+    {
+        "name": "SSDNMS",
+        "operator": 59
+    },
+    {
+        "name": "ScatterElements",
+        "operator": 185
+    },
+    {
+        "name": "ScatterND",
+        "operator": 168
+    },
+    {
+        "name": "ScoreGaussUpdate",
+        "operator": 121
+    },
+    {
+        "name": "SecondBoxMv",
+        "operator": 46
+    },
+    {
+        "name": "SegmentReduce",
+        "operator": 169
+    },
+    {
+        "name": "Sign",
+        "operator": 145
+    },
+    {
+        "name": "Silu",
+        "operator": 163
+    },
+    {
+        "name": "Sine",
+        "operator": 133
+    },
+    {
+        "name": "Sinh",
+        "operator": 180
+    },
+    {
+        "name": "Slice",
+        "operator": 22
+    },
+    {
+        "name": "Softmax",
+        "operator": 6
+    },
+    {
+        "name": "Sort",
+        "operator": 152
+    },
+    {
+        "name": "SpaceToBatch",
+        "operator": 1021
+    },
+    {
+        "name": "SpaceToBatchND",
+        "operator": 1121
+    },
+    {
+        "name": "SpaceToChannel",
+        "operator": 1025
+    },
+    {
+        "name": "SpaceToDepth",
+        "operator": 1023
+    },
+    {
+        "name": "SparseGather",
+        "operator": 107
+    },
+    {
+        "name": "Split",
+        "operator": 25
+    },
+    {
+        "name": "Sqrt",
+        "operator": 136
+    },
+    {
+        "name": "Square",
+        "operator": 137
+    },
+    {
+        "name": "SquaredDifference",
+        "operator": 174
+    },
+    {
+        "name": "Squeeze",
+        "operator": 97
+    },
+    {
+        "name": "StridedSlice",
+        "operator": 86
+    },
+    {
+        "name": "SubGraphOp",
+        "operator": 4096
+    },
+    {
+        "name": "SuffiStatis",
+        "operator": 125
+    },
+    {
+        "name": "Tan",
+        "operator": 181
+    },
+    {
+        "name": "Testing",
+        "operator": 8192
+    },
+    {
+        "name": "ThirdBoxPtmv",
+        "operator": 48
+    },
+    {
+        "name": "ThresholdedRelu",
+        "operator": 114
+    },
+    {
+        "name": "Tile",
+        "operator": 67
+    },
+    {
+        "name": "TopK",
+        "operator": 122
+    },
+    {
+        "name": "TopKV2",
+        "operator": 105
+    },
+    {
+        "name": "Transpose",
+        "operator": 77
+    },
+    {
+        "name": "Transpose4D",
+        "operator": 19
+    },
+    {
+        "name": "Unique",
+        "operator": 116
+    },
+    {
+        "name": "Upsample",
+        "operator": 12
+    },
+    {
+        "name": "UpsampleByIndex",
+        "operator": 144
+    },
+    {
+        "name": "Where",
+        "operator": 85
+    },
+    {
+        "name": "YUV444pkdToI420",
+        "operator": 166
+    },
+    {
+        "name": "YoloNMS",
+        "operator": 64
+    },
+    {
+        "name": "YuvToRgb",
+        "operator": 164
+    },
+    {
+        "name": "ZeroFraction",
+        "operator": 89
     }
 ]
