@@ -13,858 +13,1085 @@
     },
     {
         "name": "Any",
-        "operator": 0
+        "operator": 0,
+        "category": "Custom"
     },
     {
         "name": "Abs",
-        "operator": 101
+        "operator": 101,
+        "category": "Custom"
     },
     {
         "name": "AccidentalHits",
-        "operator": 83
+        "operator": 83,
+        "category": "Custom"
     },
     {
         "name": "Acos",
-        "operator": 175
+        "operator": 175,
+        "category": "Custom"
     },
     {
         "name": "Acosh",
-        "operator": 176
+        "operator": 176,
+        "category": "Custom"
     },
     {
         "name": "Activation",
-        "operator": 10
+        "operator": 10,
+        "category": "Activation"
     },
     {
         "name": "ArgMinMax",
-        "operator": 87
+        "operator": 87,
+        "category": "Custom"
     },
     {
         "name": "Asin",
-        "operator": 177
+        "operator": 177,
+        "category": "Custom"
     },
     {
         "name": "Asinh",
-        "operator": 178
+        "operator": 178,
+        "category": "Custom"
     },
     {
         "name": "BBreg",
-        "operator": 47
+        "operator": 47,
+        "category": "Custom"
     },
     {
         "name": "BNLL",
-        "operator": 140
+        "operator": 140,
+        "category": "Custom"
     },
     {
         "name": "BasicLSTM",
-        "operator": 14
+        "operator": 14,
+        "category": "Custom"
     },
     {
         "name": "BatchNorm",
-        "operator": 16
+        "operator": 16,
+        "category": "Normalization"
     },
     {
         "name": "BatchReindex",
-        "operator": 129
+        "operator": 129,
+        "category": "Custom"
     },
     {
         "name": "BatchToDepth",
-        "operator": 1000
+        "operator": 1000,
+        "category": "Custom"
     },
     {
         "name": "BatchToSpace",
-        "operator": 1020
+        "operator": 1020,
+        "category": "Custom"
     },
     {
         "name": "BatchToSpaceND",
-        "operator": 1120
+        "operator": 1120,
+        "category": "Custom"
     },
     {
         "name": "BiasAdd",
-        "operator": 78
+        "operator": 78,
+        "category": "Custom"
     },
     {
         "name": "BitShift",
-        "operator": 171
+        "operator": 171,
+        "category": "Custom"
     },
     {
         "name": "BoundingBox",
-        "operator": 147
+        "operator": 147,
+        "category": "Custom"
     },
     {
         "name": "BoxReg",
-        "operator": 42
+        "operator": 42,
+        "category": "Custom"
     },
     {
         "name": "BoxScore",
-        "operator": 49
+        "operator": 49,
+        "category": "Custom"
     },
     {
         "name": "BoxScore2",
-        "operator": 50
+        "operator": 50,
+        "category": "Custom"
     },
     {
         "name": "BoxWithNmsLimit",
-        "operator": 118
+        "operator": 118,
+        "category": "Custom"
     },
     {
         "name": "CTCGreedyDecoder",
-        "operator": 63
+        "operator": 63,
+        "category": "Custom"
     },
     {
         "name": "CTCGreedySearch",
-        "operator": 55
+        "operator": 55,
+        "category": "Custom"
     },
     {
         "name": "Call",
-        "operator": 2005
+        "operator": 2005,
+        "category": "Custom"
     },
     {
         "name": "Cast",
-        "operator": 115
+        "operator": 115,
+        "category": "Custom"
     },
     {
         "name": "Ceil",
-        "operator": 157
+        "operator": 157,
+        "category": "Custom"
     },
     {
         "name": "ChannelShuffle",
-        "operator": 68
+        "operator": 68,
+        "category": "Custom"
     },
     {
         "name": "ChannelToSpace",
-        "operator": 1024
+        "operator": 1024,
+        "category": "Custom"
     },
     {
         "name": "Clip",
-        "operator": 108
+        "operator": 108,
+        "category": "Custom"
     },
     {
         "name": "CollapseRepeated",
-        "operator": 123
+        "operator": 123,
+        "category": "Custom"
     },
     {
         "name": "Compress",
-        "operator": 187
+        "operator": 187,
+        "category": "Custom"
     },
     {
         "name": "ComputeAccidentalHits",
-        "operator": 83
+        "operator": 83,
+        "category": "Custom"
     },
     {
         "name": "Concat",
-        "operator": 9
+        "operator": 9,
+        "category": "Tensor"
     },
     {
         "name": "Constant",
-        "operator": 99
+        "operator": 99,
+        "category": "Constant"
     },
     {
         "name": "ConvInteger",
-        "operator": 184
+        "operator": 184,
+        "category": "Layer"
     },
     {
         "name": "ConvTranspose",
-        "operator": 18
+        "operator": 18,
+        "category": "Layer"
     },
     {
         "name": "ConvTranspose3D",
-        "operator": 158
+        "operator": 158,
+        "category": "Layer"
     },
     {
         "name": "Convolution",
-        "operator": 2
+        "operator": 2,
+        "attributes": [
+            {
+                "name": "channels",
+                "type": "int32",
+                "default": 0
+            },
+            {
+                "name": "eps",
+                "type": "float32",
+                "default": 0
+            }
+        ],
+        "category": "Layer"
     },
     {
         "name": "Convolution3D",
-        "operator": 154
+        "operator": 154,
+        "category": "Layer"
     },
     {
         "name": "Cosh",
-        "operator": 179
+        "operator": 179,
+        "category": "Custom"
     },
     {
         "name": "Cosine",
-        "operator": 134
+        "operator": 134,
+        "category": "Custom"
     },
     {
         "name": "Count",
-        "operator": 167
+        "operator": 167,
+        "category": "Custom"
     },
     {
         "name": "Crop",
-        "operator": 15
+        "operator": 15,
+        "attributes": [],
+        "category": "Transform"
     },
     {
         "name": "CropAndResize",
-        "operator": 38
+        "operator": 38,
+        "category": "Transform"
     },
     {
         "name": "Customize",
-        "operator": 8193
+        "operator": 8193,
+        "category": "Custom"
     },
     {
         "name": "DataStride",
-        "operator": 30
+        "operator": 30,
+        "category": "Custom"
     },
     {
         "name": "DecodeBox",
-        "operator": 54
+        "operator": 54,
+        "category": "Custom"
     },
     {
         "name": "DecodeBoxSoftmax",
-        "operator": 61
+        "operator": 61,
+        "category": "Custom"
     },
     {
         "name": "Deconvolution",
-        "operator": 18
+        "operator": 18,
+        "category": "Layer"
     },
     {
         "name": "DepthToBatch",
-        "operator": 1001
+        "operator": 1001,
+        "category": "Custom"
     },
     {
         "name": "DepthToSpace",
-        "operator": 1022
+        "operator": 1022,
+        "category": "Custom"
     },
     {
         "name": "DepthwiseConv",
-        "operator": 3
+        "operator": 3,
+        "category": "Layer"
     },
     {
         "name": "Det",
-        "operator": 113
+        "operator": 113,
+        "category": "Custom"
     },
     {
         "name": "DetectionOutput",
-        "operator": 62
+        "operator": 62,
+        "category": "Custom"
     },
     {
         "name": "Dilation2D",
-        "operator": 119
+        "operator": 119,
+        "category": "Custom"
     },
     {
         "name": "Div",
-        "operator": 80
+        "operator": 80,
+        "category": "Custom"
     },
     {
         "name": "Eltwise",
-        "operator": 5
+        "operator": 5,
+        "category": "Layer"
     },
     {
         "name": "EmbeddingLookup",
-        "operator": 96
+        "operator": 96,
+        "category": "Custom"
     },
     {
         "name": "Erf",
-        "operator": 172
+        "operator": 172,
+        "category": "Custom"
     },
     {
         "name": "Erosion2D",
-        "operator": 120
+        "operator": 120,
+        "category": "Custom"
     },
     {
         "name": "Exp",
-        "operator": 132
+        "operator": 132,
+        "category": "Custom"
     },
     {
         "name": "FCNNMS",
-        "operator": 56
+        "operator": 56,
+        "category": "Custom"
     },
     {
         "name": "FakeQuantWithMinMaxVars",
-        "operator": 1500
+        "operator": 1500,
+        "category": "Custom"
     },
     {
         "name": "FasterRcnnNMS",
-        "operator": 65
+        "operator": 65,
+        "category": "Custom"
     },
     {
         "name": "FcnPost1",
-        "operator": 28
+        "operator": 28,
+        "category": "Custom"
     },
     {
         "name": "FcnPost2",
-        "operator": 29
+        "operator": 29,
+        "category": "Custom"
     },
     {
         "name": "Filter",
-        "operator": 142
+        "operator": 142,
+        "category": "Custom"
     },
     {
         "name": "FilterBoxes",
-        "operator": 155
+        "operator": 155,
+        "category": "Custom"
     },
     {
         "name": "Floor",
-        "operator": 159
+        "operator": 159,
+        "category": "Custom"
     },
     {
         "name": "ForRange",
-        "operator": 4098
+        "operator": 4098,
+        "category": "Custom"
     },
     {
         "name": "ForRangeEnder",
-        "operator": 2004
+        "operator": 2004,
+        "category": "Custom"
     },
     {
         "name": "ForRangeHeader",
-        "operator": 2003
+        "operator": 2003,
+        "category": "Custom"
     },
     {
         "name": "FractionalPool",
-        "operator": 91
+        "operator": 91,
+        "category": "Pool"
     },
     {
         "name": "FullyConnected",
-        "operator": 4
+        "operator": 4,
+        "category": "Custom"
     },
     {
         "name": "GRUv1",
-        "operator": 139
+        "operator": 139,
+        "category": "Custom"
     },
     {
         "name": "GRUv3",
-        "operator": 138
+        "operator": 138,
+        "category": "Custom"
     },
     {
         "name": "Gather",
-        "operator": 95
+        "operator": 95,
+        "category": "Custom"
     },
     {
         "name": "GatherElements",
-        "operator": 186
+        "operator": 186,
+        "category": "Custom"
     },
     {
         "name": "GatherND",
-        "operator": 148
+        "operator": 148,
+        "category": "Custom"
     },
     {
         "name": "GatherV2",
-        "operator": 73
+        "operator": 73,
+        "category": "Custom"
     },
     {
         "name": "Gbb",
-        "operator": 41
+        "operator": 41,
+        "category": "Custom"
     },
     {
         "name": "Gemm",
-        "operator": 160
+        "operator": 160,
+        "category": "Custom"
     },
     {
         "name": "GenerateProposals",
-        "operator": 126
+        "operator": 126,
+        "category": "Custom"
     },
     {
         "name": "Gru",
-        "operator": 66
+        "operator": 66,
+        "category": "Custom"
     },
     {
         "name": "GruSeq",
-        "operator": 13
+        "operator": 13,
+        "category": "Custom"
     },
     {
         "name": "HardSigmoid",
-        "operator": 156
+        "operator": 156,
+        "category": "Activation"
     },
     {
         "name": "HardSwish",
-        "operator": 151
+        "operator": 151,
+        "category": "Activation"
     },
     {
         "name": "HashLookupTable",
-        "operator": 98
+        "operator": 98,
+        "category": "Custom"
     },
     {
         "name": "HeatmapMaxKeypoint",
-        "operator": 76
+        "operator": 76,
+        "category": "Custom"
     },
     {
         "name": "Histogram",
-        "operator": 143
+        "operator": 143,
+        "category": "Custom"
     },
     {
         "name": "I420ToYUV444pkd",
-        "operator": 165
+        "operator": 165,
+        "category": "Custom"
     },
     {
         "name": "InTopK",
-        "operator": 74
+        "operator": 74,
+        "category": "Custom"
     },
     {
         "name": "Input",
-        "operator": 1
+        "operator": 1,
+        "category": "Data"
     },
     {
         "name": "InstanceNorm",
-        "operator": 103
+        "operator": 103,
+        "category": "Normalization"
     },
     {
         "name": "InternalConcatenated",
-        "operator": 2001
+        "operator": 2001,
+        "category": "Tensor"
     },
     {
         "name": "InternalCrop",
-        "operator": 2002
+        "operator": 2002,
+        "category": "Transform"
     },
     {
         "name": "InternalSlice",
-        "operator": 2006
+        "operator": 2006,
+        "category": "Transform"
     },
     {
         "name": "InternalSpliter",
-        "operator": 2000
+        "operator": 2000,
+        "category": "Tensor"
     },
     {
         "name": "Interp",
-        "operator": 11
+        "operator": 11,
+        "category": "Custom"
     },
     {
         "name": "Intersection",
-        "operator": 141
+        "operator": 141,
+        "category": "Custom"
     },
     {
         "name": "L2Norm",
-        "operator": 24
+        "operator": 24,
+        "category": "Normalization"
     },
     {
         "name": "LRN",
-        "operator": 90
+        "operator": 90,
+        "category": "Custom"
     },
     {
         "name": "LUT",
-        "operator": 102
+        "operator": 102,
+        "category": "Activation"
     },
     {
         "name": "LayerNorm",
-        "operator": 70
+        "operator": 70,
+        "category": "Normalization"
     },
     {
         "name": "LayoutConvertor",
-        "operator": 1026
+        "operator": 1026,
+        "category": "Layer"
     },
     {
         "name": "LeakyRELU",
-        "operator": 150
+        "operator": 150,
+        "category": "Activation"
     },
     {
         "name": "Log",
-        "operator": 131
+        "operator": 131,
+        "category": "Custom"
     },
     {
         "name": "LogSoftmax",
-        "operator": 84
+        "operator": 84,
+        "category": "Custom"
     },
     {
         "name": "Logical",
-        "operator": 79
+        "operator": 79,
+        "category": "Custom"
     },
     {
         "name": "Loop",
-        "operator": 4099
+        "operator": 4099,
+        "category": "Custom"
     },
     {
         "name": "MVN",
-        "operator": 130
+        "operator": 130,
+        "category": "Custom"
     },
     {
         "name": "Mask",
-        "operator": 40
+        "operator": 40,
+        "category": "Custom"
     },
     {
         "name": "MatMul",
-        "operator": 106
+        "operator": 106,
+        "category": "Custom"
     },
     {
         "name": "MatMulInteger",
-        "operator": 183
+        "operator": 183,
+        "category": "Custom"
     },
     {
         "name": "MaxPooling3D",
-        "operator": 161
+        "operator": 161,
+        "category": "Pool"
     },
     {
         "name": "MaxPoolingWithArgMax",
-        "operator": 75
+        "operator": 75,
+        "category": "Pool"
     },
     {
         "name": "MaxRoiPool",
-        "operator": 109
+        "operator": 109,
+        "category": "Pool"
     },
     {
         "name": "MaxUnPool",
-        "operator": 188
+        "operator": 188,
+        "category": "Pool"
     },
     {
         "name": "Mfcc",
-        "operator": 33
+        "operator": 33,
+        "category": "Custom"
     },
     {
         "name": "Mod",
-        "operator": 110
+        "operator": 110,
+        "category": "Custom"
     },
     {
         "name": "Moments",
-        "operator": 69
+        "operator": 69,
+        "category": "Custom"
     },
     {
         "name": "MtPad",
-        "operator": 44
+        "operator": 44,
+        "category": "Transform"
     },
     {
         "name": "NMS",
-        "operator": 52
+        "operator": 52,
+        "category": "Custom"
     },
     {
         "name": "NMSSSD",
-        "operator": 53
+        "operator": 53,
+        "category": "Custom"
     },
     {
         "name": "Negative",
-        "operator": 71
+        "operator": 71,
+        "category": "Custom"
     },
     {
         "name": "Normalization",
-        "operator": 100
+        "operator": 100,
+        "category": "Normalization"
     },
     {
         "name": "NormalizedMoments",
-        "operator": 104
+        "operator": 104,
+        "category": "Normalization"
     },
     {
         "name": "OneHot",
-        "operator": 146
+        "operator": 146,
+        "category": "Custom"
     },
     {
         "name": "OverlapAdd",
-        "operator": 124
+        "operator": 124,
+        "category": "Transform"
     },
     {
         "name": "PRELU",
-        "operator": 94
+        "operator": 94,
+        "category": "Activation"
     },
     {
         "name": "Pad",
-        "operator": 17
+        "operator": 17,
+        "category": "Transform"
     },
     {
         "name": "Permute",
-        "operator": 20
+        "operator": 20,
+        "category": "Custom"
     },
     {
         "name": "Pick",
-        "operator": 51
+        "operator": 51,
+        "category": "Custom"
     },
     {
         "name": "Pooling",
-        "operator": 7
+        "operator": 7,
+        "category": "Pool"
     },
     {
         "name": "Pooling3D",
-        "operator": 72
+        "operator": 72,
+        "category": "Pool"
     },
     {
         "name": "PostNMS1",
-        "operator": 34
+        "operator": 34,
+        "category": "Custom"
     },
     {
         "name": "PostNMS2",
-        "operator": 35
+        "operator": 35,
+        "category": "Custom"
     },
     {
         "name": "Post_NMS1",
-        "operator": 36
+        "operator": 36,
+        "category": "Custom"
     },
     {
         "name": "Post_NMS2",
-        "operator": 37
+        "operator": 37,
+        "category": "Custom"
     },
     {
         "name": "Pow",
-        "operator": 111
+        "operator": 111,
+        "category": "Custom"
     },
     {
         "name": "Proposal",
-        "operator": 60
+        "operator": 60,
+        "category": "Custom"
     },
     {
         "name": "ProposalWithoutSoftmax",
-        "operator": 117
+        "operator": 117,
+        "category": "Custom"
     },
     {
         "name": "PyramidROIAlign",
-        "operator": 149
+        "operator": 149,
+        "category": "Custom"
     },
     {
         "name": "RELU",
-        "operator": 32
+        "operator": 32,
+        "category": "Activation"
     },
     {
         "name": "RELU1",
-        "operator": 92
+        "operator": 92,
+        "category": "Activation"
     },
     {
         "name": "RELU6",
-        "operator": 93
+        "operator": 93,
+        "category": "Activation"
     },
     {
         "name": "ROIPooling",
-        "operator": 39
+        "operator": 39,
+        "category": "Pool"
     },
     {
         "name": "Rank",
-        "operator": 170
+        "operator": 170,
+        "category": "Custom"
     },
     {
         "name": "ReRec",
-        "operator": 43
+        "operator": 43,
+        "category": "Custom"
     },
     {
         "name": "Reciprocal",
-        "operator": 112
+        "operator": 112,
+        "category": "Custom"
     },
     {
         "name": "Reduce",
-        "operator": 88
+        "operator": 88,
+        "category": "Custom"
     },
     {
         "name": "RefineDetDetection",
-        "operator": 173
+        "operator": 173,
+        "category": "Custom"
     },
     {
         "name": "Region",
-        "operator": 57
+        "operator": 57,
+        "category": "Custom"
     },
     {
         "name": "Region2",
-        "operator": 27
+        "operator": 27,
+        "category": "Custom"
     },
     {
         "name": "RegionFuse",
-        "operator": 127
+        "operator": 127,
+        "category": "Custom"
     },
     {
         "name": "RegionReshape",
-        "operator": 26
+        "operator": 26,
+        "category": "Shape"
     },
     {
         "name": "Reorg",
-        "operator": 58
+        "operator": 58,
+        "category": "Custom"
     },
     {
         "name": "Repeat",
-        "operator": 23
+        "operator": 23,
+        "category": "Custom"
     },
     {
         "name": "Resample",
-        "operator": 45
+        "operator": 45,
+        "category": "Custom"
     },
     {
         "name": "Reshape",
-        "operator": 8
+        "operator": 8,
+        "category": "Shape"
     },
     {
         "name": "Resize",
-        "operator": 81
+        "operator": 81,
+        "category": "Transform"
     },
     {
         "name": "ReverseSequence",
-        "operator": 31
+        "operator": 31,
+        "category": "Custom"
     },
     {
         "name": "RgbToYuv",
-        "operator": 162
+        "operator": 162,
+        "category": "Custom"
     },
     {
         "name": "RnnSeq",
-        "operator": 21
+        "operator": 21,
+        "category": "Custom"
     },
     {
         "name": "RoiAlign",
-        "operator": 82
+        "operator": 82,
+        "category": "Custom"
     },
     {
         "name": "RoiAlign29",
-        "operator": 128
+        "operator": 128,
+        "category": "Custom"
     },
     {
         "name": "Round",
-        "operator": 182
+        "operator": 182,
+        "category": "Custom"
     },
     {
         "name": "Rsqrt",
-        "operator": 135
+        "operator": 135,
+        "category": "Custom"
     },
     {
         "name": "SSDNMS",
-        "operator": 59
+        "operator": 59,
+        "category": "Custom"
     },
     {
         "name": "ScatterElements",
-        "operator": 185
+        "operator": 185,
+        "category": "Custom"
     },
     {
         "name": "ScatterND",
-        "operator": 168
+        "operator": 168,
+        "category": "Custom"
     },
     {
         "name": "ScoreGaussUpdate",
-        "operator": 121
+        "operator": 121,
+        "category": "Custom"
     },
     {
         "name": "SecondBoxMv",
-        "operator": 46
+        "operator": 46,
+        "category": "Custom"
     },
     {
         "name": "SegmentReduce",
-        "operator": 169
+        "operator": 169,
+        "category": "Custom"
     },
     {
         "name": "Sign",
-        "operator": 145
+        "operator": 145,
+        "category": "Custom"
     },
     {
         "name": "Silu",
-        "operator": 163
+        "operator": 163,
+        "category": "Activation"
     },
     {
         "name": "Sine",
-        "operator": 133
+        "operator": 133,
+        "category": "Custom"
     },
     {
         "name": "Sinh",
-        "operator": 180
+        "operator": 180,
+        "category": "Custom"
     },
     {
         "name": "Slice",
-        "operator": 22
+        "operator": 22,
+        "category": "Transform"
     },
     {
         "name": "Softmax",
-        "operator": 6
+        "operator": 6,
+        "category": "Custom"
     },
     {
         "name": "Sort",
-        "operator": 152
+        "operator": 152,
+        "category": "Custom"
     },
     {
         "name": "SpaceToBatch",
-        "operator": 1021
+        "operator": 1021,
+        "category": "Custom"
     },
     {
         "name": "SpaceToBatchND",
-        "operator": 1121
+        "operator": 1121,
+        "category": "Custom"
     },
     {
         "name": "SpaceToChannel",
-        "operator": 1025
+        "operator": 1025,
+        "category": "Custom"
     },
     {
         "name": "SpaceToDepth",
-        "operator": 1023
+        "operator": 1023,
+        "category": "Custom"
     },
     {
         "name": "SparseGather",
-        "operator": 107
+        "operator": 107,
+        "category": "Custom"
     },
     {
         "name": "Split",
-        "operator": 25
+        "operator": 25,
+        "category": "Tensor"
     },
     {
         "name": "Sqrt",
-        "operator": 136
+        "operator": 136,
+        "category": "Custom"
     },
     {
         "name": "Square",
-        "operator": 137
+        "operator": 137,
+        "category": "Custom"
     },
     {
         "name": "SquaredDifference",
-        "operator": 174
+        "operator": 174,
+        "category": "Custom"
     },
     {
         "name": "Squeeze",
-        "operator": 97
+        "operator": 97,
+        "category": "Custom"
     },
     {
         "name": "StridedSlice",
-        "operator": 86
+        "operator": 86,
+        "category": "Transform"
     },
     {
         "name": "SubGraphOp",
-        "operator": 4096
+        "operator": 4096,
+        "category": "Custom"
     },
     {
         "name": "SuffiStatis",
-        "operator": 125
+        "operator": 125,
+        "category": "Custom"
     },
     {
         "name": "Tan",
-        "operator": 181
+        "operator": 181,
+        "category": "Custom"
     },
     {
         "name": "Testing",
-        "operator": 8192
+        "operator": 8192,
+        "category": "Custom"
     },
     {
         "name": "ThirdBoxPtmv",
-        "operator": 48
+        "operator": 48,
+        "category": "Custom"
     },
     {
         "name": "ThresholdedRelu",
-        "operator": 114
+        "operator": 114,
+        "category": "Activation"
     },
     {
         "name": "Tile",
-        "operator": 67
+        "operator": 67,
+        "category": "Tensor"
     },
     {
         "name": "TopK",
-        "operator": 122
+        "operator": 122,
+        "category": "Custom"
     },
     {
         "name": "TopKV2",
-        "operator": 105
+        "operator": 105,
+        "category": "Custom"
     },
     {
         "name": "Transpose",
-        "operator": 77
+        "operator": 77,
+        "category": "Transform"
     },
     {
         "name": "Transpose4D",
-        "operator": 19
+        "operator": 19,
+        "category": "Transform"
     },
     {
         "name": "Unique",
-        "operator": 116
+        "operator": 116,
+        "category": "Custom"
     },
     {
         "name": "Upsample",
-        "operator": 12
+        "operator": 12,
+        "category": "Custom"
     },
     {
         "name": "UpsampleByIndex",
-        "operator": 144
+        "operator": 144,
+        "category": "Custom"
     },
     {
         "name": "Where",
-        "operator": 85
+        "operator": 85,
+        "category": "Custom"
     },
     {
         "name": "YUV444pkdToI420",
-        "operator": 166
+        "operator": 166,
+        "category": "Custom"
     },
     {
         "name": "YoloNMS",
-        "operator": 64
+        "operator": 64,
+        "category": "Custom"
     },
     {
         "name": "YuvToRgb",
-        "operator": 164
+        "operator": 164,
+        "category": "Custom"
     },
     {
         "name": "ZeroFraction",
-        "operator": 89
+        "operator": 89,
+        "category": "Custom"
     }
 ]
