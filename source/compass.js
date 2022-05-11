@@ -150,6 +150,7 @@ compass.Node = class {
     constructor(metadata, layer) {
         this._chain = [];
         this._attributes = [];
+        this._name = layer.name;
         let type = layer.type;
         this._type = metadata.type(type) || { name: type };
 
