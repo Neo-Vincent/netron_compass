@@ -17,7 +17,7 @@ compass.ModelFactory = class {
         return compass.Metadata.open(context).then((metadata) => {
             const identifier = context.identifier.toLowerCase();
             const openText = (param, bin) => {
-                const reader = new compass.TextParamReader(metadata, param,bin);
+                const reader = new compass.TextParamReader(metadata, param, bin);
                 return new compass.Model(metadata, reader.net);
             };
             let bin = null;
@@ -313,7 +313,9 @@ compass.Tensor = class {
             case 'float16':
             case 'float32':
             case 'int32':
+            case 'uint32':
             case 'int16':
+            case 'uint16':
                 context.data = new DataView(this._data.buffer, this._data.byteOffset, this._data.byteLength);
                 break;
             default:
@@ -362,8 +364,18 @@ compass.Tensor = class {
                         context.index += 4;
                         context.count++;
                         break;
+                    case 'uint32':
+                        results.push(context.data.getUint32(context.index, true));
+                        context.index += 4;
+                        context.count++;
+                        break;
                     case 'int16':
                         results.push(context.data.getInt16(context.index, true));
+                        context.index += 2;
+                        context.count++;
+                        break;
+                    case 'uint16':
+                        results.push(context.data.getUint16(context.index, true));
                         context.index += 2;
                         context.count++;
                         break;
