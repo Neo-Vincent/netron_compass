@@ -17,16 +17,16 @@ compass.ModelFactory = class {
         return compass.Metadata.open(context).then((metadata) => {
             const identifier = context.identifier.toLowerCase();
             const openText = (param, bin) => {
-                const reader = new compass.TextParamReader(metadata, param);
-                return new compass.Model(metadata, reader.net, bin);
+                const reader = new compass.TextParamReader(metadata, param,bin);
+                return new compass.Model(metadata, reader.net);
             };
             let bin = null;
             switch (match) {
                 case 'compass.def': {
-                    if (identifier.endsWith('.def')) {
-                        bin = context.identifier.substring(0, context.identifier.length - 3) + '.bin';
+                    if (identifier.endsWith('.def') || identifier.endsWith('.txt')) {
+                        bin = context.identifier.substring(0, context.identifier.length - 3) + 'cbin';
                     }
-                    return context.request(identifier, null).then((stream) => {
+                    return context.request(bin, null).then((stream) => {
                         const buffer = stream.read();
                         return openText(context.stream.peek(), buffer);
                     }).catch(() => {
@@ -41,9 +41,9 @@ compass.ModelFactory = class {
 
 compass.Model = class {
 
-    constructor(metadata, param, bin) {
+    constructor(metadata, param) {
         this._graphs = [
-            new compass.Graph(metadata, param, bin)
+            new compass.Graph(metadata, param)
         ];
     }
 
@@ -58,11 +58,10 @@ compass.Model = class {
 
 compass.Graph = class {
 
-    constructor(metadata, net, bin) {
+    constructor(metadata, net) {
         this._inputs = [];
         this._outputs = [];
         this._nodes = [];
-        // const blobReader = new ncnn.BlobReader(bin);
         for (const layer of net.layers) {
             if (layer.type == 'Input') {
                 const input = new compass.Parameter(layer.name,
@@ -73,12 +72,10 @@ compass.Graph = class {
             else {
                 const node = new compass.Node(metadata, layer);
                 this._nodes.push(node);
-                for(const t of layer.outputs)
-                {
-                    if(net.output_tensors.includes(t.name))
-                    {
+                for (const t of layer.outputs) {
+                    if (net.output_tensors.includes(t.name)) {
                         const output = new compass.Parameter(t.name,
-                            [t].map((output) =>new compass.Argument(output.name,
+                            [t].map((output) => new compass.Argument(output.name,
                                 new compass.TensorType(output.type, output.shape), null)));
                         this._outputs.push(output);
                     }
@@ -165,6 +162,9 @@ compass.Node = class {
         // initializers = layer.layer.blobs.map((blob) => new compass.Tensor(blob));
 
         this._inputs = layer.inputs.map((t) => new compass.Parameter(t.name, [new compass.Argument(t.name, new compass.TensorType(t.type, t.shape), null)]));
+        this._weights = layer.weights.map((t) => new compass.Parameter(t.name, [new compass.Argument(t.name,
+            new compass.Tensor(new compass.TensorType(t.type, t.shape), t.data, "Weight")
+            , null)]));
         this._outputs = layer.outputs.map((t) => new compass.Parameter(t.name, [new compass.Argument(t.name, new compass.TensorType(t.type, t.shape), null)]));
 
     }
@@ -178,13 +178,16 @@ compass.Node = class {
     }
 
     get inputs() {
-        return this._inputs;
+        return this._inputs.concat(this._weights);
     }
 
     get outputs() {
         return this._outputs;
     }
 
+    get weights() {
+        return this._weights;
+    }
     get attributes() {
         return this._attributes;
     }
@@ -244,48 +247,17 @@ compass.Attribute = class {
     }
 };
 
+
 compass.Tensor = class {
 
-    constructor(blob) {
-        this._blob = blob;
-
-        let shape = [];
-        if (Object.prototype.hasOwnProperty.call(blob, 'num') &&
-            Object.prototype.hasOwnProperty.call(blob, 'channels') &&
-            Object.prototype.hasOwnProperty.call(blob, 'width') &&
-            Object.prototype.hasOwnProperty.call(blob, 'height')) {
-            if (blob.num != 1) {
-                shape.push(blob.num);
-            }
-            if (blob.channels != 1) {
-                shape.push(blob.channels);
-            }
-            if (blob.height != 1) {
-                shape.push(blob.height);
-            }
-            if (blob.width != 1) {
-                shape.push(blob.width);
-            }
-        }
-        else if (Object.prototype.hasOwnProperty.call(blob, 'shape')) {
-            shape = blob.shape.dim.map((dim) => dim.toNumber());
-        }
-
-        let dataType = '?';
-        if (blob.data.length > 0) {
-            dataType = 'float32';
-            this._data = blob.data;
-        }
-        else if (blob.double_data.length > 0) {
-            dataType = 'float64';
-            this._data = blob.double_data;
-        }
-
-        this._type = new compass.TensorType(dataType, new compass.TensorShape(shape));
+    constructor(type, data, kind) {
+        this._type = type;
+        this._data = data;
+        this._kind = kind;
     }
 
     get kind() {
-        return 'Blob';
+        return this._kind;
     }
 
     get type() {
@@ -293,7 +265,7 @@ compass.Tensor = class {
     }
 
     get state() {
-        return this._context().state;
+        return this._context().state || null;
     }
 
     get value() {
@@ -308,15 +280,111 @@ compass.Tensor = class {
     toString() {
         const context = this._context();
         if (context.state) {
-            return '';
+            return this._type.toString();
         }
         context.limit = 10000;
         const value = this._decode(context, 0);
-        return JSON.stringify(value, null, 4);
+        return this._type.toString() + "\n" + JSON.stringify(value, null, 4);
     }
 
-};
+    _context() {
+        const context = {};
+        context.index = 0;
+        context.count = 0;
+        context.state = null;
 
+        if (this._type.dataType == '?') {
+            context.state = 'Tensor has unknown data type.';
+            return context;
+        }
+        if (!this._type.shape || (this._type.shape.dimensions && this._type.shape.dimensions.length == 0)) {
+            context.state = 'Tensor has no dimensions.';
+            return context;
+        }
+
+        if (!this._data) {
+            context.state = 'Tensor data is empty.';
+            return context;
+        }
+
+        switch (this._type.dataType) {
+            case 'int8':
+            case 'uint8':
+            case 'float16':
+            case 'float32':
+            case 'int32':
+            case 'int16':
+                context.data = new DataView(this._data.buffer, this._data.byteOffset, this._data.byteLength);
+                break;
+            default:
+                context.state = 'Tensor data type is not implemented.';
+                break;
+        }
+
+        context.dataType = this._type.dataType;
+        context.shape = this._type.shape.dimensions;
+        return context;
+    }
+
+    _decode(context, dimension) {
+        const shape = context.shape.length == 0 ? [1] : context.shape;
+        const results = [];
+        const size = shape[dimension];
+        if (dimension == shape.length - 1) {
+            for (let i = 0; i < size; i++) {
+                if (context.count > context.limit) {
+                    results.push('...');
+                    return results;
+                }
+                switch (this._type.dataType) {
+                    case 'float32':
+                        results.push(context.data.getFloat32(context.index, true));
+                        context.index += 4;
+                        context.count++;
+                        break;
+                    case 'float16':
+                        results.push(context.data.getFloat16(context.index, true));
+                        context.index += 2;
+                        context.count++;
+                        break;
+                    case 'int8':
+                        results.push(context.data.getInt8(context.index, true));
+                        context.index += 1;
+                        context.count++;
+                        break;
+                    case 'uint8':
+                        results.push(context.data.getUint8(context.index, true));
+                        context.index += 1;
+                        context.count++;
+                        break;
+                    case 'int32':
+                        results.push(context.data.getInt32(context.index, true));
+                        context.index += 4;
+                        context.count++;
+                        break;
+                    case 'int16':
+                        results.push(context.data.getInt16(context.index, true));
+                        context.index += 2;
+                        context.count++;
+                        break;
+                }
+            }
+        }
+        else {
+            for (let j = 0; j < size; j++) {
+                if (context.count > context.limit) {
+                    results.push('...');
+                    return results;
+                }
+                results.push(this._decode(context, dimension + 1));
+            }
+        }
+        if (context.shape.length == 0) {
+            return results[0];
+        }
+        return results;
+    }
+};
 compass.TensorType = class {
 
     constructor(dataType, shape) {
@@ -433,7 +501,7 @@ compass.Metadata = class {
 
 compass.TextParamReader = class {
 
-    constructor(metadata, buffer) {
+    constructor(metadata, buffer, weights) {
         const reader = text.Reader.open(buffer);
         const sections = []
         let lines = {};
@@ -466,13 +534,12 @@ compass.TextParamReader = class {
                 }
             }
         }
-        for(const k of Object.keys(net))
-        {
-            net[k]=this.parse_param(net[k]);
+        for (const k of Object.keys(net)) {
+            net[k] = this.parse_param(net[k]);
         }
         net.layers = [];
         for (const i of sections) {
-            net.layers.push(this.parse_layer(i));
+            net.layers.push(this.parse_layer(i, weights));
         }
         this._net = net;
     }
@@ -564,13 +631,14 @@ compass.TextParamReader = class {
         return ret;
 
     }
-    parse_layer(section) {
+    parse_layer(section, weights) {
         const layer = {};
         layer.type = String(section["layer_type"]);
         layer.name = String(section["layer_name"]);
         layer.id = section["layer_id"];
         layer.outputs = this.parse_tensor(section, "layer_top");
         layer.inputs = this.parse_tensor(section, "layer_bottom");
+        layer.weights = [];
         layer.param = {};
         for (const k of Object.keys(section)) {
             if (!k.startsWith("layer_")) {
@@ -587,11 +655,20 @@ compass.TextParamReader = class {
                 // t.name = k.replace("_shape", "");
                 t.type = layer.param[type];
                 t.shape = new compass.TensorShape(shape);
+                t.offset = layer.param[offset];
+                t.size = layer.param[s];
+                t.name = k.replace("_shape", "")
+                t.scale = 1.;
+                t.zp = 0.;
+                t.data = null;
+                if (weights) {
+                    t.data = weights.subarray(t.offset, t.offset + t.size);
+                }
                 delete layer.param[k];
                 delete layer.param[type];
                 delete layer.param[offset];
                 delete layer.param[s];
-                layer.param[k.replace("_shape", "")] = t;
+                layer.weights.push(t);
             }
             else if (k.endsWith("_value") && Object.keys(layer.param).includes(k.replace("_value", "_type"))) {
                 const t = {};
@@ -621,6 +698,7 @@ compass.TextParamReader = class {
         return this._net;
     }
 };
+
 compass.Error = class extends Error {
 
     constructor(message) {
