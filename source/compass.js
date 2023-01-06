@@ -625,8 +625,8 @@ compass.TextParamReader = class {
         const shapes = this.parse_param(section[prefix + "_shape"]);
         let scales = [];
         let zps = [];
-        if (prefix + "_scales" in section) {
-            scales = this.parse_param(section[prefix + "_scales"]);
+        if (prefix + "_scale" in section) {
+            scales = this.parse_param(section[prefix + "_scale"]);
         }
         if (prefix + "_zp" in section) {
 
