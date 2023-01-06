@@ -161,11 +161,12 @@ compass.Node = class {
         }
         // initializers = layer.layer.blobs.map((blob) => new compass.Tensor(blob));
 
-        this._inputs = layer.inputs.map((t) => new compass.Parameter(t.name, [new compass.Argument(t.name, new compass.TensorType(t.type, t.shape), null)]));
+        this._inputs = layer.inputs.map((t) => new compass.Parameter(t.name,
+            [new compass.Argument(t.name, new compass.TensorType(t.type, t.shape, t.scale, t.zp), null)]));
         this._weights = layer.weights.map((t) => new compass.Parameter(t.name, [new compass.Argument(t.name,
             new compass.Tensor(new compass.TensorType(t.type, t.shape), t.data, "Weight")
             , null)]));
-        this._outputs = layer.outputs.map((t) => new compass.Parameter(t.name, [new compass.Argument(t.name, new compass.TensorType(t.type, t.shape), null)]));
+        this._outputs = layer.outputs.map((t) => new compass.Parameter(t.name, [new compass.Argument(t.name, new compass.TensorType(t.type, t.shape, t.scale, t.zp), null)]));
 
     }
 
@@ -399,9 +400,11 @@ compass.Tensor = class {
 };
 compass.TensorType = class {
 
-    constructor(dataType, shape) {
+    constructor(dataType, shape, scale = null, zp = null) {
         this._dataType = dataType;
         this._shape = shape;
+        this._scale = scale;
+        this._zp = zp;
     }
 
     get dataType() {
@@ -413,7 +416,11 @@ compass.TensorType = class {
     }
 
     toString() {
-        return (this.dataType || '?') + this._shape.toString();
+        var ret = "";
+        if (this._scale != null && (this._scale != 1.0 || this._zp != 0)) {
+            ret = " scale:" + this._scale.toString() + ", zp:" + this._zp.toString();
+        }
+        return (this.dataType || '?') + this._shape.toString() + ret;
     }
 };
 
