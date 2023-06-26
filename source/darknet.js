@@ -1,6 +1,6 @@
 
-var darknet = darknet || {};
-var text = text || require('./text');
+var darknet = {};
+var text = require('./text');
 
 darknet.ModelFactory = class {
 
@@ -15,7 +15,7 @@ darknet.ModelFactory = class {
                 break;
             default:
                 try {
-                    const reader = text.Reader.open(context.stream.peek(), 65536);
+                    const reader = text.Reader.open(context.stream, 65536);
                     for (;;) {
                         const line = reader.read();
                         if (line === undefined) {
@@ -30,8 +30,7 @@ darknet.ModelFactory = class {
                         }
                         return undefined;
                     }
-                }
-                catch (err) {
+                } catch (err) {
                     // continue regardless of error
                 }
                 break;
@@ -39,32 +38,33 @@ darknet.ModelFactory = class {
         return undefined;
     }
 
-    open(context, match) {
-        return darknet.Metadata.open(context).then((metadata) => {
-            const openModel = (metadata, cfg, weights) => {
-                return new darknet.Model(metadata, cfg, darknet.Weights.open(weights));
-            };
-            const identifier = context.identifier;
-            const parts = identifier.split('.');
-            parts.pop();
-            const basename = parts.join('.');
-            switch (match) {
-                case 'darknet.weights':
-                    return context.request(basename + '.cfg', null).then((stream) => {
-                        const buffer = stream.read();
-                        return openModel(metadata, buffer, context.stream);
-                    });
-                case 'darknet.model':
-                    return context.request(basename + '.weights', null).then((stream) => {
-                        return openModel(metadata, context.stream.peek(), stream);
-                    }).catch(() => {
-                        return openModel(metadata, context.stream.peek(), null);
-                    });
-                default: {
-                    throw new darknet.Error("Unknown Darknet format '" + match + "'.");
+    async open(context, match) {
+        const metadata = await context.metadata('darknet-metadata.json');
+        const openModel = (metadata, cfg, weights) => {
+            return new darknet.Model(metadata, cfg, darknet.Weights.open(weights));
+        };
+        const identifier = context.identifier;
+        const parts = identifier.split('.');
+        parts.pop();
+        const basename = parts.join('.');
+        switch (match) {
+            case 'darknet.weights': {
+                const stream = await context.request(basename + '.cfg', null);
+                const buffer = stream.read();
+                return openModel(metadata, buffer, context.stream);
+            }
+            case 'darknet.model': {
+                try {
+                    const stream = await context.request(basename + '.weights', null);
+                    return openModel(metadata, context.stream.peek(), stream);
+                } catch (error) {
+                    return openModel(metadata, context.stream.peek(), null);
                 }
             }
-        });
+            default: {
+                throw new darknet.Error("Unsupported Darknet format '" + match + "'.");
+            }
+        }
     }
 };
 
@@ -166,8 +166,8 @@ darknet.Graph = class {
             const data = weights ? weights.read(4 * shape.reduce((a, b) => a * b, 1)) : null;
             const type = new darknet.TensorType('float32', make_shape(shape, 'load_weights'));
             const initializer = new darknet.Tensor(type, data);
-            const argument = new darknet.Argument('', null, initializer);
-            return new darknet.Parameter(name, visible === false ? false : true, [ argument ]);
+            const value = new darknet.Value('', null, initializer);
+            return new darknet.Argument(name, visible === false ? false : true, [ value ]);
         };
 
         const load_batch_normalize_weights = (layer, prefix, size) => {
@@ -185,8 +185,7 @@ darknet.Graph = class {
             if (batch_normalize) {
                 if (prefix) {
                     load_batch_normalize_weights(layer, prefix, n);
-                }
-                else {
+                } else {
                     const batchnorm_layer = { weights: [] };
                     load_batch_normalize_weights(batchnorm_layer, prefix, n);
                     layer.chain.push({ type: 'batchnorm', layer: batchnorm_layer });
@@ -205,8 +204,7 @@ darknet.Graph = class {
             if (batch_normalize) {
                 if (prefix) {
                     load_batch_normalize_weights(layer, prefix, outputs);
-                }
-                else {
+                } else {
                     const batchnorm_layer = { weights: [] };
                     load_batch_normalize_weights(batchnorm_layer, prefix, outputs);
                     layer.chain.push({ type: 'batchnorm', layer: batchnorm_layer });
@@ -244,8 +242,8 @@ darknet.Graph = class {
             new darknet.TensorType('float32', make_shape([ params.w, params.h, params.c ], 'params-if')) :
             new darknet.TensorType('float32', make_shape([ params.inputs ], 'params-else'));
         const inputName = 'input';
-        params.arguments = [ new darknet.Argument(inputName, inputType, null) ];
-        this._inputs.push(new darknet.Parameter(inputName, true, params.arguments));
+        params.value = [ new darknet.Value(inputName, inputType, null) ];
+        this._inputs.push(new darknet.Argument(inputName, true, params.value));
 
         for (let i = 0; i < sections.length; i++) {
             const section = sections[i];
@@ -253,7 +251,7 @@ darknet.Graph = class {
             section.layer = {
                 inputs: [],
                 weights: [],
-                outputs: [ new darknet.Argument(section.name, null, null) ],
+                outputs: [ new darknet.Value(section.name, null, null) ],
                 chain: []
             };
         }
@@ -263,7 +261,7 @@ darknet.Graph = class {
             const section = sections[i];
             const options = section.options;
             const layer = section.layer;
-            layer.inputs.push(...params.arguments);
+            layer.inputs.push(...params.value);
             switch (section.type) {
                 case 'shortcut': {
                     let remove = true;
@@ -314,6 +312,8 @@ darknet.Graph = class {
                     }
                     break;
                 }
+                default:
+                    break;
             }
             if (infer) {
                 switch (section.type) {
@@ -413,8 +413,7 @@ darknet.Graph = class {
                             layer.out_c = out_channels;
                             layer.out_w = params.w;
                             layer.out_h = params.h;
-                        }
-                        else {
+                        } else {
                             layer.out_w = Math.floor((params.w + padding - size) / stride_x) + 1;
                             layer.out_h = Math.floor((params.h + padding - size) / stride_y) + 1;
                             layer.out_c = params.c;
@@ -427,8 +426,7 @@ darknet.Graph = class {
                             layer.out_w = layer.input_layer.out_w;
                             layer.out_h = layer.input_layer.out_h;
                             layer.out_c = layer.input_layer.out_c;
-                        }
-                        else {
+                        } else {
                             layer.outputs[0].type = new darknet.TensorType('float32', make_shape([ layer.out_w, layer.out_h, layer.out_c ], 'maxpool'));
                         }
                         layer.out = layer.out_w * layer.out_h * layer.out_c;
@@ -455,9 +453,9 @@ darknet.Graph = class {
                         const pad = option_find_int(options, 'pad', 0);
                         const padding = pad ? (size >> 1) : option_find_int(options, 'padding', 0);
                         const batch_normalize = option_find_int(options, 'batch_normalize', 0);
-                        layer.input_layer = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: [] };
+                        layer.input_layer = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: [] };
                         make_convolutional_layer(layer.input_layer, 'input_', params.h, params.w, params.c, hidden_filters, groups, size, stride, stride, padding, batch_normalize);
-                        layer.self_layer = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: [] };
+                        layer.self_layer = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: [] };
                         make_convolutional_layer(layer.self_layer, 'self_', params.h, params.w, hidden_filters, hidden_filters, groups, size, stride, stride, padding, batch_normalize);
                         layer.output_layer = { weights: [], outputs: layer.outputs, chain: [] };
                         make_convolutional_layer(layer.output_layer, 'output_', params.h, params.w, hidden_filters, output_filters, groups, size, stride, stride, padding, batch_normalize);
@@ -475,9 +473,9 @@ darknet.Graph = class {
                         const hidden = option_find_int(options, 'hidden', 1);
                         const batch_normalize = option_find_int(options, 'batch_normalize', 0);
                         const inputs = params.inputs;
-                        layer.input_layer = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: [] };
+                        layer.input_layer = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: [] };
                         make_connected_layer(layer.input_layer, 'input_', inputs, hidden, batch_normalize);
-                        layer.self_layer = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: [] };
+                        layer.self_layer = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: [] };
                         make_connected_layer(layer.self_layer, 'self_', hidden, hidden, batch_normalize);
                         layer.output_layer = { weights: [], outputs: layer.outputs, chain: [] };
                         make_connected_layer(layer.output_layer, 'output_', hidden, outputs, batch_normalize);
@@ -494,17 +492,17 @@ darknet.Graph = class {
                         const inputs = params.inputs;
                         const outputs = option_find_int(options, 'output', 1);
                         const batch_normalize = option_find_int(options, 'batch_normalize', 0);
-                        layer.input_z_layer = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: [] };
+                        layer.input_z_layer = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: [] };
                         make_connected_layer(layer.input_z_layer, 'input_z', inputs, outputs, batch_normalize);
-                        layer.state_z_layer = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: [] };
+                        layer.state_z_layer = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: [] };
                         make_connected_layer(layer.state_z_layer, 'state_z', outputs, outputs, batch_normalize);
-                        layer.input_r_layer = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: [] };
+                        layer.input_r_layer = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: [] };
                         make_connected_layer(layer.input_r_layer, 'input_r', inputs, outputs, batch_normalize);
-                        layer.state_r_layer = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: [] };
+                        layer.state_r_layer = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: [] };
                         make_connected_layer(layer.state_r_layer, 'state_r', outputs, outputs, batch_normalize);
-                        layer.input_h_layer = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: [] };
+                        layer.input_h_layer = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: [] };
                         make_connected_layer(layer.input_h_layer, 'input_h', inputs, outputs, batch_normalize);
-                        layer.state_h_layer = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: [] };
+                        layer.state_h_layer = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: [] };
                         make_connected_layer(layer.state_h_layer, 'state_h', outputs, outputs, batch_normalize);
                         layer.weights = layer.weights.concat(layer.input_z_layer.weights);
                         layer.weights = layer.weights.concat(layer.state_z_layer.weights);
@@ -520,21 +518,21 @@ darknet.Graph = class {
                         const inputs = params.inputs;
                         const outputs = option_find_int(options, 'output', 1);
                         const batch_normalize = option_find_int(options, 'batch_normalize', 0);
-                        layer.uf = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: [] };
+                        layer.uf = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: [] };
                         make_connected_layer(layer.uf, 'uf_', inputs, outputs, batch_normalize);
-                        layer.ui = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: [] };
+                        layer.ui = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: [] };
                         make_connected_layer(layer.ui, 'ui_', inputs, outputs, batch_normalize);
-                        layer.ug = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: [] };
+                        layer.ug = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: [] };
                         make_connected_layer(layer.ug, 'ug_', inputs, outputs, batch_normalize);
-                        layer.uo = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: [] };
+                        layer.uo = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: [] };
                         make_connected_layer(layer.uo, 'uo_', inputs, outputs, batch_normalize);
-                        layer.wf = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: [] };
+                        layer.wf = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: [] };
                         make_connected_layer(layer.wf, 'wf_', outputs, outputs, batch_normalize);
-                        layer.wi = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: [] };
+                        layer.wi = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: [] };
                         make_connected_layer(layer.wi, 'wi_', outputs, outputs, batch_normalize);
-                        layer.wg = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: [] };
+                        layer.wg = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: [] };
                         make_connected_layer(layer.wg, 'wg_', outputs, outputs, batch_normalize);
-                        layer.wo = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: [] };
+                        layer.wo = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: [] };
                         make_connected_layer(layer.wo, 'wo_', outputs, outputs, batch_normalize);
                         layer.weights = layer.weights.concat(layer.uf.weights);
                         layer.weights = layer.weights.concat(layer.ui.weights);
@@ -562,31 +560,30 @@ darknet.Graph = class {
                         const batch_normalize = option_find_int(options, 'batch_normalize', 0);
                         const bottleneck = option_find_int(options, "bottleneck", 0);
                         const peephole = option_find_int(options, "peephole", 0);
-                        layer.uf = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: [] };
+                        layer.uf = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: [] };
                         make_convolutional_layer(layer.uf, 'uf_', params.h, params.w, params.c, output_filters, groups, size, stride, stride, padding, batch_normalize);
-                        layer.ui = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: []  };
+                        layer.ui = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: []  };
                         make_convolutional_layer(layer.ui, 'ui_', params.h, params.w, params.c, output_filters, groups, size, stride, stride, padding, batch_normalize);
-                        layer.ug = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: []  };
+                        layer.ug = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: []  };
                         make_convolutional_layer(layer.ug, 'ug_', params.h, params.w, params.c, output_filters, groups, size, stride, stride, padding, batch_normalize);
-                        layer.uo = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: []  };
+                        layer.uo = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: []  };
                         make_convolutional_layer(layer.uo, 'uo_', params.h, params.w, params.c, output_filters, groups, size, stride, stride, padding, batch_normalize);
                         layer.weights = layer.weights.concat(layer.uf.weights);
                         layer.weights = layer.weights.concat(layer.ui.weights);
                         layer.weights = layer.weights.concat(layer.ug.weights);
                         layer.weights = layer.weights.concat(layer.uo.weights);
                         if (bottleneck) {
-                            layer.wf = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: [] };
+                            layer.wf = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: [] };
                             make_convolutional_layer(layer.wf, 'wf_', params.h, params.w, output_filters * 2, output_filters, groups, size, stride, stride, padding, batch_normalize);
                             layer.weights = layer.weights.concat(layer.wf.weights);
-                        }
-                        else {
-                            layer.wf = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: [] };
+                        } else {
+                            layer.wf = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: [] };
                             make_convolutional_layer(layer.wf, 'wf_', params.h, params.w, output_filters, output_filters, groups, size, stride, stride, padding, batch_normalize);
-                            layer.wi = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: [] };
+                            layer.wi = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: [] };
                             make_convolutional_layer(layer.wi, 'wi_', params.h, params.w, output_filters, output_filters, groups, size, stride, stride, padding, batch_normalize);
-                            layer.wg = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: [] };
+                            layer.wg = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: [] };
                             make_convolutional_layer(layer.wg, 'wg_', params.h, params.w, output_filters, output_filters, groups, size, stride, stride, padding, batch_normalize);
-                            layer.wo = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: [] };
+                            layer.wo = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: [] };
                             make_convolutional_layer(layer.wo, 'wo_', params.h, params.w, output_filters, output_filters, groups, size, stride, stride, padding, batch_normalize);
                             layer.weights = layer.weights.concat(layer.wf.weights);
                             layer.weights = layer.weights.concat(layer.wi.weights);
@@ -594,11 +591,11 @@ darknet.Graph = class {
                             layer.weights = layer.weights.concat(layer.wo.weights);
                         }
                         if (peephole) {
-                            layer.vf = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: [] };
+                            layer.vf = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: [] };
                             make_convolutional_layer(layer.vf, 'vf_', params.h, params.w, output_filters, output_filters, groups, size, stride, stride, padding, batch_normalize);
-                            layer.vi = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: [] };
+                            layer.vi = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: [] };
                             make_convolutional_layer(layer.vi, 'vi_', params.h, params.w, output_filters, output_filters, groups, size, stride, stride, padding, batch_normalize);
-                            layer.vo = { weights: [], outputs: [ new darknet.Argument('', null, null) ], chain: [] };
+                            layer.vo = { weights: [], outputs: [ new darknet.Value('', null, null) ], chain: [] };
                             make_convolutional_layer(layer.vo, 'vo_', params.h, params.w, output_filters, output_filters, groups, size, stride, stride, padding, batch_normalize);
                             layer.weights = layer.weights.concat(layer.vf.weights);
                             layer.weights = layer.weights.concat(layer.vi.weights);
@@ -692,8 +689,7 @@ darknet.Graph = class {
                             layer.out_h = params.h * stride;
                             layer.out_c = Math.floor(params.c / (stride * stride));
                             layer.out = layer.out_h * layer.out_w * layer.out_c;
-                        }
-                        else {
+                        } else {
                             layer.out_w = Math.floor(params.w / stride);
                             layer.out_h = Math.floor(params.h / stride);
                             layer.out_c = params.c * (stride * stride);
@@ -705,8 +701,7 @@ darknet.Graph = class {
                             layer.out_c = 0;
                             layer.out = (params.h * params.w * params.c) + extra;
                             layer.outputs[0].type = new darknet.TensorType('float32', make_shape([ layer.out ], 'reorg'));
-                        }
-                        else {
+                        } else {
                             layer.outputs[0].type = new darknet.TensorType('float32', make_shape([ layer.out_w, layer.out_h, layer.out_c ], 'reorg'));
                         }
                         break;
@@ -735,8 +730,7 @@ darknet.Graph = class {
                             if (infer) {
                                 layer.outputs[0].type = new darknet.TensorType('float32', make_shape([ layer.out_w, layer.out_h, layer.out_c ], 'route'));
                             }
-                        }
-                        else {
+                        } else {
                             infer = false;
                         }
                         if (!infer) {
@@ -793,7 +787,7 @@ darknet.Graph = class {
                 params.inputs = layer.out;
                 params.last = section;
             }
-            params.arguments = layer.outputs;
+            params.value = layer.outputs;
         }
 
         for (let i = 0; i < sections.length; i++) {
@@ -818,12 +812,12 @@ darknet.Graph = class {
     }
 };
 
-darknet.Parameter = class {
+darknet.Argument = class {
 
-    constructor(name, visible, args) {
+    constructor(name, visible, value) {
         this._name = name;
         this._visible = visible;
-        this._arguments = args;
+        this._value = value;
     }
 
     get name() {
@@ -834,16 +828,16 @@ darknet.Parameter = class {
         return this._visible;
     }
 
-    get arguments() {
-        return this._arguments;
+    get value() {
+        return this._value;
     }
 };
 
-darknet.Argument = class {
+darknet.Value = class {
 
     constructor(name, type, initializer) {
         if (typeof name !== 'string') {
-            throw new darknet.Error("Invalid argument identifier '" + JSON.stringify(name) + "'.");
+            throw new darknet.Error("Invalid value identifier '" + JSON.stringify(name) + "'.");
         }
         this._name = name;
         this._type = type;
@@ -886,13 +880,13 @@ darknet.Node = class {
         this._type = metadata.type(type) || { name: type };
         const layer = section.layer;
         if (layer && layer.inputs && layer.inputs.length > 0) {
-            this._inputs.push(new darknet.Parameter(layer.inputs.length <= 1 ? 'input' : 'inputs', true, layer.inputs));
+            this._inputs.push(new darknet.Argument(layer.inputs.length <= 1 ? 'input' : 'inputs', true, layer.inputs));
         }
         if (layer && layer.weights && layer.weights.length > 0) {
             this._inputs = this._inputs.concat(layer.weights);
         }
         if (layer && layer.outputs && layer.outputs.length > 0) {
-            this._outputs.push(new darknet.Parameter(layer.outputs.length <= 1 ? 'output' : 'outputs', true, layer.outputs));
+            this._outputs.push(new darknet.Argument(layer.outputs.length <= 1 ? 'output' : 'outputs', true, layer.outputs));
         }
         if (layer && layer.chain) {
             for (const chain of layer.chain) {
@@ -944,6 +938,10 @@ darknet.Attribute = class {
         if (schema) {
             this._type = schema.type || '';
             switch (this._type) {
+                case '':
+                case 'string': {
+                    break;
+                }
                 case 'int32': {
                     const number = parseInt(this._value, 10);
                     if (Number.isInteger(number)) {
@@ -965,11 +963,13 @@ darknet.Attribute = class {
                     }
                     break;
                 }
+                default: {
+                    throw new darknet.Error("Unsupported attribute type '" + this._type + "'.");
+                }
             }
             if (Object.prototype.hasOwnProperty.call(schema, 'visible') && !schema.visible) {
                 this._visible = false;
-            }
-            else if (Object.prototype.hasOwnProperty.call(schema, 'default')) {
+            } else if (Object.prototype.hasOwnProperty.call(schema, 'default')) {
                 if (this._value == schema.default) {
                     this._visible = false;
                 }
@@ -998,11 +998,11 @@ darknet.Tensor = class {
 
     constructor(type, data) {
         this._type = type;
-        this._data = data;
+        this._values = data;
     }
 
-    get kind() {
-        return 'Tensor';
+    get category() {
+        return 'Weights';
     }
 
     get name() {
@@ -1013,67 +1013,8 @@ darknet.Tensor = class {
         return this._type;
     }
 
-    get state() {
-        return this._context().state;
-    }
-
-    get value() {
-        const context = this._context();
-        if (context.state) {
-            return null;
-        }
-        context.limit = Number.MAX_SAFE_INTEGER;
-        return this._decode(context, 0);
-    }
-
-    toString() {
-        const context = this._context();
-        if (context.state) {
-            return '';
-        }
-        context.limit = 10000;
-        const value = this._decode(context, 0);
-        return JSON.stringify(value, null, 4);
-    }
-
-    _context() {
-        const context = {};
-        if (!this._data) {
-            context.state = 'Tensor data is empty.';
-            return context;
-        }
-        context.state = null;
-        context.position = 0;
-        context.count = 0;
-        context.dataView = new DataView(this._data.buffer, this._data.byteOffset, this._data.byteLength);
-        context.dimensions = this.type.shape.dimensions;
-        return context;
-    }
-
-    _decode(context, dimension) {
-        const results = [];
-        const size = context.dimensions[dimension];
-        if (dimension == context.dimensions.length - 1) {
-            for (let i = 0; i < size; i++) {
-                if (context.count > context.limit) {
-                    results.push('...');
-                    return results;
-                }
-                results.push(context.dataView.getFloat32(context.position, true));
-                context.position += 4;
-                context.count++;
-            }
-        }
-        else {
-            for (let j = 0; j < size; j++) {
-                if (context.count > context.limit) {
-                    results.push('...');
-                    return results;
-                }
-                results.push(this._decode(context, dimension + 1));
-            }
-        }
-        return results;
+    get values() {
+        return this._values;
     }
 };
 
@@ -1151,49 +1092,6 @@ darknet.Weights = class {
         if (this._stream.position != this._stream.length) {
             throw new darknet.Error('Invalid weights size.');
         }
-    }
-};
-
-darknet.Metadata = class {
-
-    static open(context) {
-        if (darknet.Metadata._metadata) {
-            return Promise.resolve(darknet.Metadata._metadata);
-        }
-        return context.request('darknet-metadata.json', 'utf-8', null).then((data) => {
-            darknet.Metadata._metadata = new darknet.Metadata(data);
-            return darknet.Metadata._metadata;
-        }).catch(() => {
-            darknet.Metadata._metadata = new darknet.Metadata(null);
-            return darknet.Metadata._metadata;
-        });
-    }
-
-    constructor(data) {
-        this._map = new Map();
-        this._attributeMap = new Map();
-        if (data) {
-            const metadata = JSON.parse(data);
-            this._map = new Map(metadata.map((item) => [ item.name, item ]));
-        }
-    }
-
-    type(name) {
-        return this._map.get(name) || null;
-    }
-
-    attribute(type, name) {
-        const key = type + ':' + name;
-        if (!this._attributeMap.has(key)) {
-            this._attributeMap.set(key, null);
-            const schema = this.type(type);
-            if (schema && schema.attributes) {
-                for (const attribute of schema.attributes) {
-                    this._attributeMap.set(type + ':' + attribute.name, attribute);
-                }
-            }
-        }
-        return this._attributeMap.get(key);
     }
 };
 

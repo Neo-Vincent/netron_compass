@@ -2,58 +2,52 @@
 // Experimental
 
 var pickle = pickle || {};
-var python = python || require('./python');
-var zip = zip || require('./zip');
 
 pickle.ModelFactory = class {
 
     match(context) {
         const stream = context.stream;
         const signature = [ 0x80, undefined, 0x8a, 0x0a, 0x6c, 0xfc, 0x9c, 0x46, 0xf9, 0x20, 0x6a, 0xa8, 0x50, 0x19 ];
-        if (signature.length <= stream.length && stream.peek(signature.length).every((value, index) => signature[index] === undefined || signature[index] === value)) {
+        if (stream && signature.length <= stream.length && stream.peek(signature.length).every((value, index) => signature[index] === undefined || signature[index] === value)) {
             // Reject PyTorch models with .pkl file extension.
-            return undefined;
+            return null;
         }
         const obj = context.open('pkl');
         if (obj !== undefined) {
-            return 'pickle';
+            const name = obj && obj.__class__ && obj.__class__.__module__ && obj.__class__.__name__ ? obj.__class__.__module__ + '.' + obj.__class__.__name__ : '';
+            if (!name.startsWith('__torch__.')) {
+                return obj;
+            }
         }
-        return undefined;
+        return null;
     }
 
-    open(context) {
-        return new Promise((resolve) => {
-            let format = 'Pickle';
-            const obj = context.open('pkl');
-            if (obj === null || obj === undefined) {
-                context.exception(new pickle.Error("Unknown Pickle null object in '" + context.identifier + "'."));
+    async open(context, match) {
+        let format = 'Pickle';
+        const obj = match;
+        if (obj === null || obj === undefined) {
+            context.exception(new pickle.Error("Unsupported Pickle null object in '" + context.identifier + "'."));
+        } else if (Array.isArray(obj)) {
+            if (obj.length > 0 && obj[0] && obj.every((item) => item && item.__class__ && obj[0].__class__ && item.__class__.__module__ === obj[0].__class__.__module__ && item.__class__.__name__ === obj[0].__class__.__name__)) {
+                const type = obj[0].__class__.__module__ + "." + obj[0].__class__.__name__;
+                context.exception(new pickle.Error("Unsupported Pickle '" + type + "' array object in '" + context.identifier + "'."));
+            } else if (obj.length > 0) {
+                context.exception(new pickle.Error("Unsupported Pickle array object in '" + context.identifier + "'."));
             }
-            else if (Array.isArray(obj)) {
-                if (obj.length > 0 && obj[0] && obj.every((item) => item && item.__class__ && obj[0].__class__ && item.__class__.__module__ === obj[0].__class__.__module__ && item.__class__.__name__ === obj[0].__class__.__name__)) {
-                    const type = obj[0].__class__.__module__ + "." + obj[0].__class__.__name__;
-                    context.exception(new pickle.Error("Unknown Pickle '" + type + "' array object in '" + context.identifier + "'."));
-                }
-                else {
-                    context.exception(new pickle.Error("Unknown Pickle array object in '" + context.identifier + "'."));
-                }
+        } else if (obj && obj.__class__) {
+            const formats = new Map([
+                [ 'cuml.ensemble.randomforestclassifier.RandomForestClassifier', 'cuML' ]
+            ]);
+            const type = obj.__class__.__module__ + "." + obj.__class__.__name__;
+            if (formats.has(type)) {
+                format = formats.get(type);
+            } else {
+                context.exception(new pickle.Error("Unsupported Pickle type '" + type +  "'."));
             }
-            else if (obj && obj.__class__) {
-                const formats = new Map([
-                    [ 'cuml.ensemble.randomforestclassifier.RandomForestClassifier', 'cuML' ]
-                ]);
-                const type = obj.__class__.__module__ + "." + obj.__class__.__name__;
-                if (formats.has(type)) {
-                    format = formats.get(type);
-                }
-                else {
-                    context.exception(new pickle.Error("Unknown Pickle type '" + type +  "' in '" + context.identifier + "'."));
-                }
-            }
-            else {
-                context.exception(new pickle.Error("Unknown Pickle object in '" + context.identifier + "'."));
-            }
-            resolve(new pickle.Model(obj, format));
-        });
+        } else {
+            context.exception(new pickle.Error('Unsupported Pickle object.'));
+        }
+        return new pickle.Model(obj, format);
     }
 };
 
@@ -80,20 +74,17 @@ pickle.Graph = class {
         this._outputs = [];
         this._nodes = [];
 
-        if (Array.isArray(obj) && obj.every((item) => item.__class__)) {
+        if (Array.isArray(obj) && (obj.every((item) => item.__class__) || (obj.every((item) => Array.isArray(item))))) {
             for (const item of obj) {
                 this._nodes.push(new pickle.Node(item));
             }
-        }
-        else if (obj && obj instanceof Map) {
+        } else if (obj && obj instanceof Map && !Array.from(obj.values()).some((value) => typeof value === 'string' || typeof value === 'number')) {
             for (const entry of obj) {
                 this._nodes.push(new pickle.Node(entry[1], entry[0]));
             }
-        }
-        else if (obj && obj.__class__) {
+        } else if (obj && obj.__class__) {
             this._nodes.push(new pickle.Node(obj));
-        }
-        else if (obj && Object(obj) === obj) {
+        } else if (obj && Object(obj) === obj) {
             this._nodes.push(new pickle.Node(obj));
         }
     }
@@ -121,13 +112,14 @@ pickle.Node = class {
         if (Array.isArray(obj)) {
             this._type = { name: 'List' };
             this._attributes.push(new pickle.Attribute('value', obj));
-        }
-        else {
+        } else {
             const type = obj.__class__ ? obj.__class__.__module__ + '.' + obj.__class__.__name__ : 'Object';
             this._type = { name: type };
-            for (const key of Object.keys(obj)) {
-                const value = obj[key];
-                this._attributes.push(new pickle.Attribute(key, value));
+            const entries = obj instanceof Map ? Array.from(obj.entries()) : Object.entries(obj);
+            for (const entry of entries) {
+                const name = entry[0];
+                const value = entry[1];
+                this._attributes.push(new pickle.Attribute(name, value));
             }
         }
     }

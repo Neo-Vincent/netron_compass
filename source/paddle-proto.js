@@ -61,83 +61,157 @@ $root.paddle.framework.proto.AttrType = {
     "LONG": 9,
     "BLOCKS": 10,
     "LONGS": 11,
-    "FLOAT64S": 12
+    "FLOAT64S": 12,
+    "VAR": 13,
+    "VARS": 14,
+    "FLOAT64": 15,
+    "SCALAR": 16,
+    "SCALARS": 17
 };
 
-$root.paddle.framework.proto.ProcessMeshDesc = class ProcessMeshDesc {
+$root.paddle.framework.proto.Complex = class Complex {
 
     constructor() {
-        this.topology = [];
-        this.process_group = [];
     }
 
     static decode(reader, length) {
-        const message = new $root.paddle.framework.proto.ProcessMeshDesc();
+        const message = new $root.paddle.framework.proto.Complex();
         const end = length !== undefined ? reader.position + length : reader.length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
                 case 1:
-                    message.id = reader.int32();
+                    message.r = reader.double();
                     break;
                 case 2:
-                    message.parent_id = reader.int32();
-                    break;
-                case 3:
-                    message.topology = reader.array(message.topology, () => reader.int32(), tag);
-                    break;
-                case 4:
-                    message.process_group = reader.array(message.process_group, () => reader.int32(), tag);
+                    message.i = reader.double();
                     break;
                 default:
                     reader.skipType(tag & 7);
                     break;
             }
         }
-        if (!Object.prototype.hasOwnProperty.call(message, 'id')) {
-            throw new protobuf.Error("Excepted 'id'.");
+        if (!Object.prototype.hasOwnProperty.call(message, 'r')) {
+            throw new protobuf.Error("Excepted 'r'.");
         }
-        if (!Object.prototype.hasOwnProperty.call(message, 'parent_id')) {
-            throw new protobuf.Error("Excepted 'parent_id'.");
+        if (!Object.prototype.hasOwnProperty.call(message, 'i')) {
+            throw new protobuf.Error("Excepted 'i'.");
         }
         return message;
     }
 
     static decodeText(reader) {
-        const message = new $root.paddle.framework.proto.ProcessMeshDesc();
+        const message = new $root.paddle.framework.proto.Complex();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
             switch (tag) {
-                case "id":
-                    message.id = reader.int32();
+                case "r":
+                    message.r = reader.double();
                     break;
-                case "parent_id":
-                    message.parent_id = reader.int32();
-                    break;
-                case "topology":
-                    reader.array(message.topology, () => reader.int32());
-                    break;
-                case "process_group":
-                    reader.array(message.process_group, () => reader.int32());
+                case "i":
+                    message.i = reader.double();
                     break;
                 default:
                     reader.field(tag, message);
                     break;
             }
         }
-        if (!Object.prototype.hasOwnProperty.call(message, "id")) {
-            throw new protobuf.Error("Excepted 'id'.");
+        if (!Object.prototype.hasOwnProperty.call(message, "r")) {
+            throw new protobuf.Error("Excepted 'r'.");
         }
-        if (!Object.prototype.hasOwnProperty.call(message, "parent_id")) {
-            throw new protobuf.Error("Excepted 'parent_id'.");
+        if (!Object.prototype.hasOwnProperty.call(message, "i")) {
+            throw new protobuf.Error("Excepted 'i'.");
         }
         return message;
     }
 };
 
-$root.paddle.framework.proto.ProcessMeshDesc.prototype.id = 0;
-$root.paddle.framework.proto.ProcessMeshDesc.prototype.parent_id = 0;
+$root.paddle.framework.proto.Complex.prototype.r = 0;
+$root.paddle.framework.proto.Complex.prototype.i = 0;
+
+$root.paddle.framework.proto.Scalar = class Scalar {
+
+    constructor() {
+    }
+
+    static decode(reader, length) {
+        const message = new $root.paddle.framework.proto.Scalar();
+        const end = length !== undefined ? reader.position + length : reader.length;
+        while (reader.position < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1:
+                    message.type = reader.int32();
+                    break;
+                case 2:
+                    message.b = reader.bool();
+                    break;
+                case 3:
+                    message.i = reader.int64();
+                    break;
+                case 4:
+                    message.r = reader.double();
+                    break;
+                case 5:
+                    message.c = $root.paddle.framework.proto.Complex.decode(reader, reader.uint32());
+                    break;
+                default:
+                    reader.skipType(tag & 7);
+                    break;
+            }
+        }
+        if (!Object.prototype.hasOwnProperty.call(message, 'type')) {
+            throw new protobuf.Error("Excepted 'type'.");
+        }
+        return message;
+    }
+
+    static decodeText(reader) {
+        const message = new $root.paddle.framework.proto.Scalar();
+        reader.start();
+        while (!reader.end()) {
+            const tag = reader.tag();
+            switch (tag) {
+                case "type":
+                    message.type = reader.enum($root.paddle.framework.proto.Scalar.Type);
+                    break;
+                case "b":
+                    message.b = reader.bool();
+                    break;
+                case "i":
+                    message.i = reader.int64();
+                    break;
+                case "r":
+                    message.r = reader.double();
+                    break;
+                case "c":
+                    message.c = $root.paddle.framework.proto.Complex.decodeText(reader);
+                    break;
+                default:
+                    reader.field(tag, message);
+                    break;
+            }
+        }
+        if (!Object.prototype.hasOwnProperty.call(message, "type")) {
+            throw new protobuf.Error("Excepted 'type'.");
+        }
+        return message;
+    }
+};
+
+$root.paddle.framework.proto.Scalar.prototype.type = 1;
+$root.paddle.framework.proto.Scalar.prototype.b = false;
+$root.paddle.framework.proto.Scalar.prototype.i = protobuf.Int64.create(0);
+$root.paddle.framework.proto.Scalar.prototype.r = 0;
+$root.paddle.framework.proto.Scalar.prototype.c = null;
+
+$root.paddle.framework.proto.Scalar.Type = {
+    "BOOLEAN": 1,
+    "LONG": 2,
+    "FLOAT64": 3,
+    "COMPLEX128": 4
+};
 
 $root.paddle.framework.proto.OpDesc = class OpDesc {
 
@@ -225,6 +299,8 @@ $root.paddle.framework.proto.OpDesc.Attr = class Attr {
         this.blocks_idx = [];
         this.longs = [];
         this.float64s = [];
+        this.vars_name = [];
+        this.scalars = [];
     }
 
     static decode(reader, length) {
@@ -277,6 +353,21 @@ $root.paddle.framework.proto.OpDesc.Attr = class Attr {
                     break;
                 case 16:
                     message.float64s = reader.doubles(message.float64s, tag);
+                    break;
+                case 17:
+                    message.var_name = reader.string();
+                    break;
+                case 18:
+                    message.vars_name.push(reader.string());
+                    break;
+                case 19:
+                    message.float64 = reader.double();
+                    break;
+                case 20:
+                    message.scalar = $root.paddle.framework.proto.Scalar.decode(reader, reader.uint32());
+                    break;
+                case 21:
+                    message.scalars.push($root.paddle.framework.proto.Scalar.decode(reader, reader.uint32()));
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -343,6 +434,21 @@ $root.paddle.framework.proto.OpDesc.Attr = class Attr {
                 case "float64s":
                     reader.array(message.float64s, () => reader.double());
                     break;
+                case "var_name":
+                    message.var_name = reader.string();
+                    break;
+                case "vars_name":
+                    reader.array(message.vars_name, () => reader.string());
+                    break;
+                case "float64":
+                    message.float64 = reader.double();
+                    break;
+                case "scalar":
+                    message.scalar = $root.paddle.framework.proto.Scalar.decodeText(reader);
+                    break;
+                case "scalars":
+                    message.scalars.push($root.paddle.framework.proto.Scalar.decodeText(reader));
+                    break;
                 default:
                     reader.field(tag, message);
                     break;
@@ -366,6 +472,9 @@ $root.paddle.framework.proto.OpDesc.Attr.prototype.s = "";
 $root.paddle.framework.proto.OpDesc.Attr.prototype.b = false;
 $root.paddle.framework.proto.OpDesc.Attr.prototype.block_idx = 0;
 $root.paddle.framework.proto.OpDesc.Attr.prototype.l = protobuf.Int64.create(0);
+$root.paddle.framework.proto.OpDesc.Attr.prototype.var_name = "";
+$root.paddle.framework.proto.OpDesc.Attr.prototype.float64 = 0;
+$root.paddle.framework.proto.OpDesc.Attr.prototype.scalar = null;
 
 $root.paddle.framework.proto.OpDesc.Var = class Var {
 
@@ -629,6 +738,9 @@ $root.paddle.framework.proto.OpProto.Attr = class Attr {
                 case 6:
                     message.quant = reader.bool();
                     break;
+                case 7:
+                    message.support_tensor = reader.bool();
+                    break;
                 default:
                     reader.skipType(tag & 7);
                     break;
@@ -670,6 +782,9 @@ $root.paddle.framework.proto.OpProto.Attr = class Attr {
                 case "quant":
                     message.quant = reader.bool();
                     break;
+                case "support_tensor":
+                    message.support_tensor = reader.bool();
+                    break;
                 default:
                     reader.field(tag, message);
                     break;
@@ -694,6 +809,7 @@ $root.paddle.framework.proto.OpProto.Attr.prototype.comment = "";
 $root.paddle.framework.proto.OpProto.Attr.prototype.generated = false;
 $root.paddle.framework.proto.OpProto.Attr.prototype.extra = false;
 $root.paddle.framework.proto.OpProto.Attr.prototype.quant = false;
+$root.paddle.framework.proto.OpProto.Attr.prototype.support_tensor = false;
 
 $root.paddle.framework.proto.VarType = class VarType {
 
@@ -732,6 +848,12 @@ $root.paddle.framework.proto.VarType = class VarType {
                     break;
                 case 10:
                     message.vocab = $root.paddle.framework.proto.VarType.TensorDesc.decode(reader, reader.uint32());
+                    break;
+                case 11:
+                    message.sparse_coo = $root.paddle.framework.proto.VarType.TensorDesc.decode(reader, reader.uint32());
+                    break;
+                case 12:
+                    message.sparse_csr = $root.paddle.framework.proto.VarType.TensorDesc.decode(reader, reader.uint32());
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -777,6 +899,12 @@ $root.paddle.framework.proto.VarType = class VarType {
                 case "vocab":
                     message.vocab = $root.paddle.framework.proto.VarType.TensorDesc.decodeText(reader);
                     break;
+                case "sparse_coo":
+                    message.sparse_coo = $root.paddle.framework.proto.VarType.TensorDesc.decodeText(reader);
+                    break;
+                case "sparse_csr":
+                    message.sparse_csr = $root.paddle.framework.proto.VarType.TensorDesc.decodeText(reader);
+                    break;
                 default:
                     reader.field(tag, message);
                     break;
@@ -798,6 +926,8 @@ $root.paddle.framework.proto.VarType.prototype.tuple = null;
 $root.paddle.framework.proto.VarType.prototype.string = null;
 $root.paddle.framework.proto.VarType.prototype.strings = null;
 $root.paddle.framework.proto.VarType.prototype.vocab = null;
+$root.paddle.framework.proto.VarType.prototype.sparse_coo = null;
+$root.paddle.framework.proto.VarType.prototype.sparse_csr = null;
 
 $root.paddle.framework.proto.VarType.Type = {
     "BOOL": 0,
@@ -828,7 +958,9 @@ $root.paddle.framework.proto.VarType.Type = {
     "STRINGS": 26,
     "VOCAB": 27,
     "FEED_LIST": 28,
-    "PSTRING": 29
+    "PSTRING": 29,
+    "SPARSE_COO": 30,
+    "SPARSE_CSR": 31
 };
 
 $root.paddle.framework.proto.VarType.TensorDesc = class TensorDesc {

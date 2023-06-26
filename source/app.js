@@ -6,15 +6,22 @@ const os = require('os');
 const path = require('path');
 const process = require('process');
 const url = require('url');
+const base = require('./base');
 
-class Application {
+var app = {};
+
+app.Application = class {
 
     constructor() {
 
-        this._views = new ViewCollection();
-        this._configuration = new ConfigurationService();
-        this._menu = new MenuService();
+        this._views = new app.ViewCollection(this);
+        this._configuration = new app.ConfigurationService();
+        this._menu = new app.MenuService(this._views);
         this._openQueue = [];
+
+        const packageFile = path.join(path.dirname(__dirname), 'package.json');
+        const packageContent = fs.readFileSync(packageFile, 'utf-8');
+        this._package = JSON.parse(packageContent);
 
         electron.app.setAppUserModelId('com.lutzroeder.netron');
         electron.app.allowRendererProcessReuse = true;
@@ -29,31 +36,23 @@ class Application {
             process.chdir(workingDirectory);
             const open = this._parseCommandLine(commandLine);
             process.chdir(currentDirectory);
-            if (!open) {
-                if (this._views.count > 0) {
-                    const view = this._views.item(0);
-                    if (view) {
-                        view.restore();
-                    }
+            if (!open && !this._views.empty) {
+                const view = this._views.first();
+                if (view) {
+                    view.restore();
                 }
             }
         });
-
-        electron.ipcMain.on('open-file-dialog', () => {
-            this._openFileDialog();
-        });
-
         electron.ipcMain.on('get-environment', (event) => {
-            event.returnValue = {
-                version: electron.app.getVersion(),
-                package: electron.app.isPackaged
-            };
+            event.returnValue = this.environment;
         });
         electron.ipcMain.on('get-configuration', (event, obj) => {
             event.returnValue = this._configuration.has(obj.name) ? this._configuration.get(obj.name) : undefined;
         });
         electron.ipcMain.on('set-configuration', (event, obj) => {
             this._configuration.set(obj.name, obj.value);
+            this._configuration.save();
+            event.returnValue = null;
         });
         electron.ipcMain.on('drop-paths', (event, data) => {
             const paths = data.paths.filter((path) => {
@@ -64,6 +63,7 @@ class Application {
                 return false;
             });
             this._dropPaths(event.sender, paths);
+            event.returnValue = null;
         });
         electron.ipcMain.on('show-message-box', (event, options) => {
             const owner = event.sender.getOwnerBrowserWindow();
@@ -72,6 +72,11 @@ class Application {
         electron.ipcMain.on('show-save-dialog', (event, options) => {
             const owner = event.sender.getOwnerBrowserWindow();
             event.returnValue = electron.dialog.showSaveDialogSync(owner, options);
+        });
+        electron.ipcMain.on('execute', (event, data) => {
+            const owner = event.sender.getOwnerBrowserWindow();
+            this.execute(data.name, data.value || null, owner);
+            event.returnValue = null;
         });
 
         electron.app.on('will-finish-launching', () => {
@@ -98,13 +103,27 @@ class Application {
         this._checkForUpdates();
     }
 
+    get environment() {
+        this._environment = this._environment || {
+            packaged: electron.app.isPackaged,
+            name: this._package.productName,
+            version: this._package.version,
+            date: this._package.date,
+            repository: 'https://github.com' + this._package.repository,
+            platform: process.platform,
+            separator: path.sep,
+            titlebar: true // process.platform === 'darwin'
+        };
+        return this._environment;
+    }
+
     _parseCommandLine(argv) {
         let open = false;
         if (argv.length > 1) {
             for (const arg of argv.slice(1)) {
                 if (!arg.startsWith('-') && arg !== path.dirname(__dirname)) {
                     const extension = path.extname(arg).toLowerCase();
-                    if (extension != '' && extension != 'js' && fs.existsSync(arg)) {
+                    if (extension !== '' && extension !== '.js' && fs.existsSync(arg)) {
                         const stat = fs.statSync(arg);
                         if (stat.isFile() || stat.isDirectory()) {
                             this._openPath(arg);
@@ -119,9 +138,6 @@ class Application {
 
     _ready() {
         this._configuration.load();
-        if (!this._configuration.has('userId')) {
-            this._configuration.set('userId', this._uuid());
-        }
         if (this._openQueue) {
             const queue = this._openQueue;
             this._openQueue = null;
@@ -130,54 +146,31 @@ class Application {
                 this._openPath(file);
             }
         }
-        if (this._views.count == 0) {
+        if (this._views.empty) {
             this._views.openView();
         }
-        this._resetMenu();
+        this._updateMenu();
         this._views.on('active-view-changed', () => {
-            this._updateMenu();
+            this._menu.update();
         });
         this._views.on('active-view-updated', () => {
-            this._updateMenu();
+            this._menu.update();
         });
     }
 
-    _uuid() {
-        const buffer = new Uint8Array(16);
-        require("crypto").randomFillSync(buffer);
-        buffer[6] = buffer[6] & 0x0f | 0x40;
-        buffer[8] = buffer[8] & 0x3f | 0x80;
-        const code = Array.from(buffer).map((value) => value < 0x10 ? '0' + value.toString(16) : value.toString(16)).join('');
-        return code.slice(0, 8) + '-' + code.slice(8, 12) + '-' + code.slice(12, 16) + '-' + code.slice(16, 20) + '-' + code.slice(20, 32);
-    }
-
-    _openFileDialog() {
-        const showOpenDialogOptions = {
-            properties: [ 'openFile' ],
-            filters: [
-                { name: 'All Model Files',  extensions: [
-                    'onnx', 'ort', 'pb',
-                    'h5', 'hd5', 'hdf5', 'json', 'keras',
-                    'mlmodel', 'mlpackage',
-                    'caffemodel',
-                    'model', 'dnn', 'cmf', 'mar', 'params',
-                    'pdmodel', 'pdparams', 'nb',
-                    'meta',
-                    'tflite', 'lite', 'tfl',
-                    'armnn', 'mnn', 'nn', 'uff', 'uff.txt', 'rknn', 'xmodel', 'kmodel',
-                    'def','txt',
-                    'ncnn', 'param', 'tnnproto', 'tmfile', 'ms', 'om',
-                    'pt', 'pth', 'ptl', 't7',
-                    'pkl', 'joblib',
-                    'pbtxt', 'prototxt',
-                    'cfg', 'xml',
-                    'zip', 'tar' ] }
-            ]
-        };
-        const selectedFiles = electron.dialog.showOpenDialogSync(showOpenDialogOptions);
-        if (selectedFiles) {
-            for (const file of selectedFiles) {
-                this._openPath(file);
+    _open(path) {
+        let paths = path ? [ path ] : [];
+        if (paths.length === 0) {
+            const extensions = new base.Metadata().extensions;
+            const showOpenDialogOptions = {
+                properties: [ 'openFile' ],
+                filters: [ { name: 'All Model Files', extensions: extensions } ]
+            };
+            paths = electron.dialog.showOpenDialogSync(showOpenDialogOptions);
+        }
+        if (Array.isArray(paths) && paths.length > 0) {
+            for (const path of paths) {
+                this._openPath(path);
             }
         }
     }
@@ -187,43 +180,38 @@ class Application {
             this._openQueue.push(path);
             return;
         }
-        if (path && path.length > 0 && fs.existsSync(path)) {
-            const stat = fs.statSync(path);
-            if (stat.isFile() || stat.isDirectory()) {
-                // find existing view for this file
-                let view = this._views.find(path);
-                // find empty welcome window
-                if (view == null) {
-                    view = this._views.find(null);
+        if (path && path.length > 0) {
+            const exists = fs.existsSync(path);
+            if (exists) {
+                const stat = fs.statSync(path);
+                if (stat.isFile() || stat.isDirectory()) {
+                    const views = Array.from(this._views.views);
+                    // find existing view for this file
+                    let view = views.find(view => view.match(path));
+                    // find empty welcome window
+                    if (view == null) {
+                        view = views.find(view => view.match(null));
+                    }
+                    // create new window
+                    if (view == null) {
+                        view = this._views.openView();
+                    }
+                    view.open(path);
                 }
-                // create new window
-                if (view == null) {
-                    view = this._views.openView();
-                }
-                this._loadPath(path, view);
             }
+            this._updateRecents(exists ? path : undefined);
         }
-    }
-
-    _loadPath(path, view) {
-        const recents = this._configuration.get('recents').filter((recent) => path != recent.path);
-        view.open(path);
-        recents.unshift({ path: path });
-        if (recents.length > 9) {
-            recents.splice(9);
-        }
-        this._configuration.set('recents', recents);
-        this._resetMenu();
     }
 
     _dropPaths(sender, paths) {
-        let view = this._views.from(sender);
+        const window = sender.getOwnerBrowserWindow();
+        let view = this._views.get(window);
         for (const path of paths) {
             if (view) {
-                this._loadPath(path, view);
+                view.open(path);
+                this._updateRecents(path);
                 view = null;
-            }
-            else {
+            } else {
                 this._openPath(path);
             }
         }
@@ -235,7 +223,7 @@ class Application {
             let defaultPath = 'Untitled';
             const file = view.path;
             const lastIndex = file.lastIndexOf('.');
-            if (lastIndex != -1) {
+            if (lastIndex !== -1) {
                 defaultPath = file.substring(0, lastIndex);
             }
             const owner = electron.BrowserWindow.getFocusedWindow();
@@ -255,25 +243,30 @@ class Application {
         }
     }
 
-    service(name) {
-        if (name == 'configuration') {
-            return this._configuration;
+    execute(command, value, window) {
+        switch (command) {
+            case 'open': this._open(value); break;
+            case 'export': this._export(); break;
+            case 'close': window.close(); break;
+            case 'quit': electron.app.quit(); break;
+            case 'reload': this._reload(); break;
+            case 'report-issue': electron.shell.openExternal('https://github.com/' + this._package.repository + '/issues/new'); break;
+            case 'about': this._about(); break;
+            default: {
+                const view = this._views.get(window) || this._views.activeView;
+                if (view) {
+                    view.execute(command, value || {});
+                }
+                this._menu.update();
+            }
         }
-        return undefined;
-    }
-
-    execute(command, data) {
-        const view = this._views.activeView;
-        if (view) {
-            view.execute(command, data || {});
-        }
-        this._updateMenu();
     }
 
     _reload() {
         const view = this._views.activeView;
         if (view && view.path) {
-            this._loadPath(view.path, view);
+            view.open(view.path);
+            this._updateRecents(view.path);
         }
     }
 
@@ -288,406 +281,353 @@ class Application {
         const promise = autoUpdater.checkForUpdates();
         if (promise) {
             promise.catch((error) => {
-                /* eslint-disable */
+                /* eslint-disable no-console */
                 console.log(error.message);
-                /* eslint-enable */
+                /* eslint-enable no-console */
             });
         }
-    }
-
-    get package() {
-        if (!this._package) {
-            const file = path.join(path.dirname(__dirname), 'package.json');
-            const data = fs.readFileSync(file);
-            this._package = JSON.parse(data);
-            this._package.date = new Date(fs.statSync(file).mtime);
-        }
-        return this._package;
     }
 
     _about() {
-        let dialog = null;
-        const options = {
-            show: false,
-            backgroundColor: electron.nativeTheme.shouldUseDarkColors ? '#2d2d2d' : '#e6e6e6',
-            width: 400,
-            height: 250,
-            center: true,
-            minimizable: false,
-            maximizable: false,
-            useContentSize: true,
-            resizable: true,
-            fullscreenable: false,
-            webPreferences: {
-                nodeIntegration: true,
+        let view = this._views.activeView;
+        if (view == null) {
+            view = this._views.openView();
+        }
+        view.execute('about');
+    }
+
+    _updateRecents(path) {
+        let updated = false;
+        let recents = this._configuration.has('recents') ? this._configuration.get('recents') : [];
+        if (path && (recents.length === 0 || recents[0] !== path)) {
+            recents = recents.filter((recent) => path !== recent.path);
+            recents.unshift({ path: path });
+            updated = true;
+        }
+        const value = [];
+        for (const recent of recents) {
+            if (value.length >= 9) {
+                updated = true;
+                break;
             }
-        };
-        if (process.platform === 'darwin') {
-            options.title = '';
-            dialog = Application._aboutDialog;
-        }
-        else {
-            options.title = 'About ' + electron.app.name;
-            options.parent = electron.BrowserWindow.getFocusedWindow();
-            options.modal = true;
-            options.showInTaskbar = false;
-        }
-        if (process.platform === 'win32') {
-            options.type = 'toolbar';
-        }
-        if (!dialog) {
-            dialog = new electron.BrowserWindow(options);
-            if (process.platform === 'darwin') {
-                Application._aboutDialog = dialog;
+            const path = recent.path;
+            if (!fs.existsSync(path)) {
+                updated = true;
+                continue;
             }
-            dialog.removeMenu();
-            dialog.excludedFromShownWindowsMenu = true;
-            dialog.webContents.on('new-window', (event, url) => {
-                if (url.startsWith('http://') || url.startsWith('https://')) {
-                    event.preventDefault();
-                    electron.shell.openExternal(url);
-                }
-            });
-            let content = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf-8');
-            content = content.replace('{version}', this.package.version);
-            content = content.replace('<title>Netron</title>', '');
-            content = content.replace('<body class="welcome spinner">', '<body class="about desktop">');
-            content = content.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
-            content = content.replace(/<link.*>/gi, '');
-            dialog.once('ready-to-show', () => {
-                dialog.resizable = false;
-                dialog.show();
-            });
-            dialog.on('close', function() {
-                electron.globalShortcut.unregister('Escape');
-                Application._aboutDialog = null;
-            });
-            dialog.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(content));
-            electron.globalShortcut.register('Escape', function() {
-                dialog.close();
-            });
+            const stat = fs.statSync(path);
+            if (!stat.isFile() && !stat.isDirectory()) {
+                updated = true;
+                continue;
+            }
+            value.push(recent);
         }
-        else {
-            dialog.show();
+        if (updated) {
+            this._configuration.set('recents', value);
+            this._updateMenu();
         }
     }
 
     _updateMenu() {
-        const window = electron.BrowserWindow.getFocusedWindow();
-        this._menu.update({
-            window: window,
-            webContents: window ? window.webContents : null,
-            view: this._views.activeView
-        }, this._views.views.map((view) => view.window));
-    }
 
-    _resetMenu() {
-        const menuRecentsTemplate = [];
+        let recents = [];
         if (this._configuration.has('recents')) {
-            let recents = this._configuration.get('recents');
-            recents = recents.filter((recent) => {
-                const path = recent.path;
-                if (fs.existsSync(path)) {
-                    const stat = fs.statSync(path);
-                    if (stat.isFile() || stat.isDirectory()) {
-                        return true;
-                    }
-                }
-                return false;
-            });
-            if (recents.length > 9) {
-                recents.splice(9);
+            const value = this._configuration.get('recents');
+            recents = value.map((recent) => app.Application.location(recent.path));
+        }
+
+        if (this.environment.titlebar && recents.length > 0) {
+            for (const view of this._views.views) {
+                view.execute('recents', recents);
             }
-            this._configuration.set('recents', recents);
+        }
+
+        const darwin = process.platform === 'darwin';
+        if (!this.environment.titlebar || darwin) {
+            const menuRecentsTemplate = [];
             for (let i = 0; i < recents.length; i++) {
                 const recent = recents[i];
                 menuRecentsTemplate.push({
                     path: recent.path,
-                    label: Application.minimizePath(recent.path),
-                    accelerator: ((process.platform === 'darwin') ? 'Cmd+' : 'Ctrl+') + (i + 1).toString(),
-                    click: (item) => { this._openPath(item.path); }
+                    label: recent.label,
+                    accelerator: (darwin ? 'Cmd+' : 'Ctrl+') + (i + 1).toString(),
+                    click: (item) => this._openPath(item.path)
                 });
             }
-        }
 
-        const menuTemplate = [];
+            const menuTemplate = [];
 
-        if (process.platform === 'darwin') {
-            menuTemplate.unshift({
-                label: electron.app.name,
+            if (darwin) {
+                menuTemplate.unshift({
+                    label: electron.app.name,
+                    submenu: [
+                        {
+                            label: 'About ' + electron.app.name,
+                            click: () => /* this.execute('about', null) */ this._about()
+                        },
+                        { type: 'separator' },
+                        { role: 'hide' },
+                        { role: 'hideothers' },
+                        { role: 'unhide' },
+                        { type: 'separator' },
+                        { role: 'quit' }
+                    ]
+                });
+            }
+
+            menuTemplate.push({
+                label: '&File',
                 submenu: [
                     {
-                        label: 'About ' + electron.app.name,
-                        click: () => this._about()
+                        label: '&Open...',
+                        accelerator: 'CmdOrCtrl+O',
+                        click: () => this._open(null)
+                    },
+                    {
+                        label: 'Open &Recent',
+                        submenu: menuRecentsTemplate
                     },
                     { type: 'separator' },
-                    { role: 'hide' },
-                    { role: 'hideothers' },
-                    { role: 'unhide' },
+                    {
+                        id: 'file.export',
+                        label: '&Export...',
+                        accelerator: 'CmdOrCtrl+Shift+E',
+                        click: () => this.execute('export', null)
+                    },
+                    { type: 'separator' },
+                    { role: 'close' },
+                ]
+            });
+
+            if (!darwin) {
+                menuTemplate.slice(-1)[0].submenu.push(
                     { type: 'separator' },
                     { role: 'quit' }
-                ]
-            });
-        }
+                );
+            }
 
-        menuTemplate.push({
-            label: '&File',
-            submenu: [
-                {
-                    label: '&Open...',
-                    accelerator: 'CmdOrCtrl+O',
-                    click: () => { this._openFileDialog(); }
-                },
-                {
-                    label: 'Open &Recent',
-                    submenu: menuRecentsTemplate
-                },
-                { type: 'separator' },
-                {
-                    id: 'file.export',
-                    label: '&Export...',
-                    accelerator: 'CmdOrCtrl+Shift+E',
-                    click: () => this._export(),
-                },
-                { type: 'separator' },
-                { role: 'close' },
-            ]
-        });
+            if (darwin) {
+                electron.systemPreferences.setUserDefault('NSDisabledDictationMenuItem', 'boolean', true);
+                electron.systemPreferences.setUserDefault('NSDisabledCharacterPaletteMenuItem', 'boolean', true);
+            }
 
-        if (process.platform !== 'darwin') {
-            menuTemplate.slice(-1)[0].submenu.push(
-                { type: 'separator' },
-                { role: 'quit' }
-            );
-        }
-
-        if (process.platform == 'darwin') {
-            electron.systemPreferences.setUserDefault('NSDisabledDictationMenuItem', 'boolean', true);
-            electron.systemPreferences.setUserDefault('NSDisabledCharacterPaletteMenuItem', 'boolean', true);
-        }
-
-        menuTemplate.push({
-            label: '&Edit',
-            submenu: [
-                {
-                    id: 'edit.cut',
-                    label: 'Cu&t',
-                    accelerator: 'CmdOrCtrl+X',
-                    click: () => this.execute('cut', null),
-                },
-                {
-                    id: 'edit.copy',
-                    label: '&Copy',
-                    accelerator: 'CmdOrCtrl+C',
-                    click: () => this.execute('copy', null),
-                },
-                {
-                    id: 'edit.paste',
-                    label: '&Paste',
-                    accelerator: 'CmdOrCtrl+V',
-                    click: () => this.execute('paste', null),
-                },
-                {
-                    id: 'edit.select-all',
-                    label: 'Select &All',
-                    accelerator: 'CmdOrCtrl+A',
-                    click: () => this.execute('selectall', null),
-                },
-                { type: 'separator' },
-                {
-                    id: 'edit.find',
-                    label: '&Find...',
-                    accelerator: 'CmdOrCtrl+F',
-                    click: () => this.execute('find', null),
-                }
-            ]
-        });
-
-        const viewTemplate = {
-            label: '&View',
-            submenu: [
-                {
-                    id: 'view.toggle-attributes',
-                    accelerator: 'CmdOrCtrl+D',
-                    click: () => this.execute('toggle', 'attributes'),
-                },
-                {
-                    id: 'view.toggle-initializers',
-                    accelerator: 'CmdOrCtrl+I',
-                    click: () => this.execute('toggle', 'initializers'),
-                },
-                {
-                    id: 'view.toggle-names',
-                    accelerator: 'CmdOrCtrl+U',
-                    click: () => this.execute('toggle', 'names'),
-                },
-                {
-                    id: 'view.toggle-direction',
-                    accelerator: 'CmdOrCtrl+K',
-                    click: () => { this.execute('toggle', 'direction'); }
-                },
-                {
-                    id: 'view.toggle-mousewheel',
-                    accelerator: 'CmdOrCtrl+M',
-                    click: () => this.execute('toggle', 'mousewheel'),
-                },
-                { type: 'separator' },
-                {
-                    id: 'view.reload',
-                    label: '&Reload',
-                    accelerator: (process.platform === 'darwin') ? 'Cmd+R' : 'F5',
-                    click: () => this._reload(),
-                },
-                { type: 'separator' },
-                {
-                    id: 'view.reset-zoom',
-                    label: 'Actual &Size',
-                    accelerator: 'Shift+Backspace',
-                    click: () => this.execute('reset-zoom', null),
-                },
-                {
-                    id: 'view.zoom-in',
-                    label: 'Zoom &In',
-                    accelerator: 'Shift+Up',
-                    click: () => this.execute('zoom-in', null),
-                },
-                {
-                    id: 'view.zoom-out',
-                    label: 'Zoom &Out',
-                    accelerator: 'Shift+Down',
-                    click: () => this.execute('zoom-out', null),
-                },
-                { type: 'separator' },
-                {
-                    id: 'view.show-properties',
-                    label: '&Properties...',
-                    accelerator: 'CmdOrCtrl+Enter',
-                    click: () => this.execute('show-properties', null),
-                }
-            ]
-        };
-        if (!electron.app.isPackaged) {
-            viewTemplate.submenu.push({ type: 'separator' });
-            viewTemplate.submenu.push({ role: 'toggledevtools' });
-        }
-        menuTemplate.push(viewTemplate);
-
-        if (process.platform === 'darwin') {
             menuTemplate.push({
-                role: 'window',
+                label: '&Edit',
                 submenu: [
-                    { role: 'minimize' },
-                    { role: 'zoom' },
+                    {
+                        id: 'edit.cut',
+                        label: 'Cu&t',
+                        accelerator: 'CmdOrCtrl+X',
+                        click: () => this.execute('cut', null),
+                    },
+                    {
+                        id: 'edit.copy',
+                        label: '&Copy',
+                        accelerator: 'CmdOrCtrl+C',
+                        click: () => this.execute('copy', null),
+                    },
+                    {
+                        id: 'edit.paste',
+                        label: '&Paste',
+                        accelerator: 'CmdOrCtrl+V',
+                        click: () => this.execute('paste', null),
+                    },
+                    {
+                        id: 'edit.select-all',
+                        label: 'Select &All',
+                        accelerator: 'CmdOrCtrl+A',
+                        click: () => this.execute('selectall', null),
+                    },
                     { type: 'separator' },
-                    { role: 'front'}
+                    {
+                        id: 'edit.find',
+                        label: '&Find...',
+                        accelerator: 'CmdOrCtrl+F',
+                        click: () => this.execute('find', null),
+                    }
                 ]
             });
-        }
 
-        const helpSubmenu = [
-            {
-                label: '&Search Feature Requests',
-                click: () => { electron.shell.openExternal('https://www.github.com/' + this.package.repository + '/issues'); }
-            },
-            {
-                label: 'Report &Issues',
-                click: () => { electron.shell.openExternal('https://www.github.com/' + this.package.repository + '/issues/new'); }
+            const viewTemplate = {
+                label: '&View',
+                submenu: [
+                    {
+                        id: 'view.toggle-attributes',
+                        accelerator: 'CmdOrCtrl+D',
+                        click: () => this.execute('toggle', 'attributes'),
+                    },
+                    {
+                        id: 'view.toggle-weights',
+                        accelerator: 'CmdOrCtrl+I',
+                        click: () => this.execute('toggle', 'weights'),
+                    },
+                    {
+                        id: 'view.toggle-names',
+                        accelerator: 'CmdOrCtrl+U',
+                        click: () => this.execute('toggle', 'names'),
+                    },
+                    {
+                        id: 'view.toggle-direction',
+                        accelerator: 'CmdOrCtrl+K',
+                        click: () => this.execute('toggle', 'direction')
+                    },
+                    {
+                        id: 'view.toggle-mousewheel',
+                        accelerator: 'CmdOrCtrl+M',
+                        click: () => this.execute('toggle', 'mousewheel'),
+                    },
+                    { type: 'separator' },
+                    {
+                        id: 'view.reload',
+                        label: '&Reload',
+                        accelerator: darwin ? 'Cmd+R' : 'F5',
+                        click: () => this._reload(),
+                    },
+                    { type: 'separator' },
+                    {
+                        id: 'view.reset-zoom',
+                        label: 'Actual &Size',
+                        accelerator: 'Shift+Backspace',
+                        click: () => this.execute('reset-zoom', null),
+                    },
+                    {
+                        id: 'view.zoom-in',
+                        label: 'Zoom &In',
+                        accelerator: 'Shift+Up',
+                        click: () => this.execute('zoom-in', null),
+                    },
+                    {
+                        id: 'view.zoom-out',
+                        label: 'Zoom &Out',
+                        accelerator: 'Shift+Down',
+                        click: () => this.execute('zoom-out', null),
+                    },
+                    { type: 'separator' },
+                    {
+                        id: 'view.show-properties',
+                        label: '&Properties...',
+                        accelerator: 'CmdOrCtrl+Enter',
+                        click: () => this.execute('show-properties', null),
+                    }
+                ]
+            };
+            if (!electron.app.isPackaged) {
+                viewTemplate.submenu.push({ type: 'separator' });
+                viewTemplate.submenu.push({ role: 'toggledevtools' });
             }
-        ];
+            menuTemplate.push(viewTemplate);
 
-        if (process.platform != 'darwin') {
-            helpSubmenu.push({ type: 'separator' });
-            helpSubmenu.push({
-                label: 'About ' + electron.app.name,
-                click: () => this._about()
+            if (darwin) {
+                menuTemplate.push({
+                    role: 'window',
+                    submenu: [
+                        { role: 'minimize' },
+                        { role: 'zoom' },
+                        { type: 'separator' },
+                        { role: 'front' }
+                    ]
+                });
+            }
+
+            const helpSubmenu = [
+                {
+                    label: 'Report &Issue',
+                    click: () => this.execute('report-issue', null)
+                }
+            ];
+
+            if (!darwin) {
+                helpSubmenu.push({ type: 'separator' });
+                helpSubmenu.push({
+                    label: '&About ' + electron.app.name,
+                    click: () => this.execute('about', null)
+                });
+            }
+
+            menuTemplate.push({
+                role: 'help',
+                submenu: helpSubmenu
             });
+
+            const commandTable = new Map();
+            commandTable.set('file.export', {
+                enabled: (view) => view && view.path ? true : false
+            });
+            commandTable.set('edit.cut', {
+                enabled: (view) => view && view.path ? true : false
+            });
+            commandTable.set('edit.copy', {
+                enabled: (view) => view && view.path ? true : false
+            });
+            commandTable.set('edit.paste', {
+                enabled: (view) => view && view.path ? true : false
+            });
+            commandTable.set('edit.select-all', {
+                enabled: (view) => view && view.path ? true : false
+            });
+            commandTable.set('edit.find', {
+                enabled: (view) => view && view.path ? true : false
+            });
+            commandTable.set('view.toggle-attributes', {
+                enabled: (view) => view && view.path ? true : false,
+                label: (view) => !view || view.get('attributes') ? 'Hide &Attributes' : 'Show &Attributes'
+            });
+            commandTable.set('view.toggle-weights', {
+                enabled: (view) => view && view.path ? true : false,
+                label: (view) => !view || view.get('weights') ? 'Hide &Weights' : 'Show &Weights'
+            });
+            commandTable.set('view.toggle-names', {
+                enabled: (view) => view && view.path ? true : false,
+                label: (view) => !view || view.get('names') ? 'Hide &Names' : 'Show &Names'
+            });
+            commandTable.set('view.toggle-direction', {
+                enabled: (view) => view && view.path ? true : false,
+                label: (view) => !view || view.get('direction') === 'vertical' ? 'Show &Horizontal' : 'Show &Vertical'
+            });
+            commandTable.set('view.toggle-mousewheel', {
+                enabled: (view) => view && view.path ? true : false,
+                label: (view) => !view || view.get('mousewheel') === 'scroll' ? '&Mouse Wheel: Zoom' : '&Mouse Wheel: Scroll'
+            });
+            commandTable.set('view.reload', {
+                enabled: (view) => view && view.path ? true : false
+            });
+            commandTable.set('view.reset-zoom', {
+                enabled: (view) => view && view.path ? true : false
+            });
+            commandTable.set('view.zoom-in', {
+                enabled: (view) => view && view.path ? true : false
+            });
+            commandTable.set('view.zoom-out', {
+                enabled: (view) => view && view.path ? true : false
+            });
+            commandTable.set('view.show-properties', {
+                enabled: (view) => view && view.path ? true : false
+            });
+
+            this._menu.build(menuTemplate, commandTable);
+            this._menu.update();
         }
-
-        menuTemplate.push({
-            role: 'help',
-            submenu: helpSubmenu
-        });
-
-        const commandTable = new Map();
-        commandTable.set('file.export', {
-            enabled: (context) => { return context.view && context.view.path ? true : false; }
-        });
-        commandTable.set('edit.cut', {
-            enabled: (context) => { return context.view && context.view.path ? true : false; }
-        });
-        commandTable.set('edit.copy', {
-            enabled: (context) => { return context.view && context.view.path ? true : false; }
-        });
-        commandTable.set('edit.paste', {
-            enabled: (context) => { return context.view && context.view.path ? true : false; }
-        });
-        commandTable.set('edit.select-all', {
-            enabled: (context) => { return context.view && context.view.path ? true : false; }
-        });
-        commandTable.set('edit.find', {
-            enabled: (context) => { return context.view && context.view.path ? true : false; }
-        });
-        commandTable.set('view.toggle-attributes', {
-            enabled: (context) => { return context.view && context.view.path ? true : false; },
-            label: (context) => { return !context.view || !context.view.get('attributes') ? 'Hide &Attributes' : 'Show &Attributes'; }
-        });
-        commandTable.set('view.toggle-initializers', {
-            enabled: (context) => { return context.view && context.view.path ? true : false; },
-            label: (context) => { return !context.view || context.view.get('initializers') ? 'Hide &Initializers' : 'Show &Initializers'; }
-        });
-        commandTable.set('view.toggle-names', {
-            enabled: (context) => { return context.view && context.view.path ? true : false; },
-            label: (context) => { return !context.view || context.view.get('names') ? 'Hide &Names' : 'Show &Names'; }
-        });
-        commandTable.set('view.toggle-direction', {
-            enabled: (context) => { return context.view && context.view.path ? true : false; },
-            label: (context) => { return !context.view || context.view.get('direction') === 'vertical' ? 'Show &Horizontal' : 'Show &Vertical'; }
-        });
-        commandTable.set('view.toggle-mousewheel', {
-            enabled: (context) => { return context.view && context.view.path ? true : false; },
-            label: (context) => { return !context.view || context.view.get('mousewheel') === 'scroll' ? '&Mouse Wheel: Zoom' : '&Mouse Wheel: Scroll'; }
-        });
-        commandTable.set('view.reload', {
-            enabled: (context) => { return context.view && context.view.path ? true : false; }
-        });
-        commandTable.set('view.reset-zoom', {
-            enabled: (context) => { return context.view && context.view.path ? true : false; }
-        });
-        commandTable.set('view.zoom-in', {
-            enabled: (context) => { return context.view && context.view.path ? true : false; }
-        });
-        commandTable.set('view.zoom-out', {
-            enabled: (context) => { return context.view && context.view.path ? true : false; }
-        });
-        commandTable.set('view.show-properties', {
-            enabled: (context) => { return context.view && context.view.path ? true : false; }
-        });
-
-        this._menu.build(menuTemplate, commandTable, this._views.views.map((view) => view.window));
-        this._updateMenu();
     }
 
-    static minimizePath(file) {
-        if (process.platform != 'win32') {
+    static location(path) {
+        if (process.platform !== 'win32') {
             const homeDir = os.homedir();
-            if (file.startsWith(homeDir)) {
-                return '~' + file.substring(homeDir.length);
+            if (path.startsWith(homeDir)) {
+                return { path: path, label: '~' + path.substring(homeDir.length) };
             }
         }
-        return file;
+        return { path: path, label: path };
     }
+};
 
-}
-
-class View {
+app.View = class {
 
     constructor(owner) {
         this._owner = owner;
         this._ready = false;
         this._path = null;
         this._properties = new Map();
-        this._location = url.format({ protocol: 'file:', slashes: true, pathname: path.join(__dirname, 'electron.html') });
-
+        this._dispatch = [];
         const size = electron.screen.getPrimaryDisplay().workAreaSize;
         const options = {
             show: false,
@@ -695,7 +635,7 @@ class View {
             backgroundColor: electron.nativeTheme.shouldUseDarkColors ? '#1d1d1d' : '#e6e6e6',
             icon: electron.nativeImage.createFromPath(path.join(__dirname, 'icon.png')),
             minWidth: 600,
-            minHeight: 400,
+            minHeight: 600,
             width: size.width > 1024 ? 1024 : size.width,
             height: size.height > 768 ? 768 : size.height,
             webPreferences: {
@@ -703,9 +643,14 @@ class View {
                 nodeIntegration: true
             }
         };
-        if (this._owner.count > 0 && View._position && View._position.length == 2) {
-            options.x = View._position[0] + 30;
-            options.y = View._position[1] + 30;
+        if (owner.application.environment.titlebar) {
+            options.frame = false;
+            options.thickFrame = true;
+            options.titleBarStyle = 'hiddenInset';
+        }
+        if (!this._owner.empty && app.View._position && app.View._position.length == 2) {
+            options.x = app.View._position[0] + 30;
+            options.y = app.View._position[1] + 30;
             if (options.x + options.width > size.width) {
                 options.x = 0;
             }
@@ -714,39 +659,33 @@ class View {
             }
         }
         this._window = new electron.BrowserWindow(options);
-        View._position = this._window.getPosition();
-        this._updateCallback = (event, data) => {
-            if (event.sender == this._window.webContents) {
-                for (const entry of Object.entries(data)) {
-                    this.update(entry[0], entry[1]);
-                }
-                this._raise('updated');
-            }
-        };
-        electron.ipcMain.on('update', this._updateCallback);
-        this._window.on('closed', () => {
-            electron.ipcMain.removeListener('update', this._updateCallback);
-            this._owner.closeView(this);
-        });
-        this._window.on('focus', () => {
-            this._raise('activated');
-        });
-        this._window.on('blur', () => {
-            this._raise('deactivated');
-        });
+        app.View._position = this._window.getPosition();
+        this._window.on('close', () => this._owner.closeView(this));
+        this._window.on('focus', () => this.emit('activated'));
+        this._window.on('blur', () => this.emit('deactivated'));
+        this._window.on('minimize', () => this.state());
+        this._window.on('restore', () => this.state());
+        this._window.on('maximize', () => this.state());
+        this._window.on('unmaximize', () => this.state());
+        this._window.on('enter-full-screen', () => this.state('enter-full-screen'));
+        this._window.on('leave-full-screen', () => this.state('leave-full-screen'));
         this._window.webContents.on('did-finish-load', () => {
             this._didFinishLoad = true;
         });
-        this._window.webContents.on('new-window', (event, url) => {
+        this._window.webContents.setWindowOpenHandler((detail) => {
+            const url = detail.url;
             if (url.startsWith('http://') || url.startsWith('https://')) {
-                event.preventDefault();
                 electron.shell.openExternal(url);
             }
+            return { action: 'deny' };
         });
         this._window.once('ready-to-show', () => {
             this._window.show();
         });
-        this._window.loadURL(this._location);
+        if (owner.application.environment.titlebar && process.platform !== 'darwin') {
+            this._window.removeMenu();
+        }
+        this._loadURL();
     }
 
     get window() {
@@ -759,15 +698,26 @@ class View {
 
     open(path) {
         this._openPath = path;
+        const location = app.Application.location(path);
         if (this._didFinishLoad) {
-            this._window.webContents.send('open', { path: path });
-        }
-        else {
+            this._window.webContents.send('open', location);
+        } else {
             this._window.webContents.on('did-finish-load', () => {
-                this._window.webContents.send('open', { path: path });
+                this._window.webContents.send('open', location);
             });
-            this._window.loadURL(this._location);
+            this._loadURL();
         }
+    }
+
+    _loadURL() {
+        const pathname = path.join(__dirname, 'index.html');
+        let content = fs.readFileSync(pathname, 'utf-8');
+        content = content.replace(/<\s*script[^>]*>[\s\S]*?(<\s*\/script[^>]*>|$)/ig, '');
+        const data = 'data:text/html;charset=utf-8,' + encodeURIComponent(content);
+        const options = {
+            baseURLForDataURL: url.pathToFileURL(pathname).toString()
+        };
+        this._window.loadURL(data, options);
     }
 
     restore() {
@@ -781,34 +731,57 @@ class View {
 
     match(path) {
         if (this._openPath) {
-            if (path === null) {
-                return false;
-            }
-            if (path === this._openPath) {
-                return true;
-            }
+            return this._openPath === path;
         }
-        return this._path == path;
+        return this._path === path;
     }
 
     execute(command, data) {
-        if (this._window && this._window.webContents) {
-            this._window.webContents.send(command, data);
+        if (this._dispatch) {
+            this._dispatch.push({ command: command, data: data });
+        } else if (this._window && this._window.webContents) {
+            const window = this._window;
+            const contents = window.webContents;
+            switch (command) {
+                case 'toggle-developer-tools':
+                    if (contents.isDevToolsOpened()) {
+                        contents.closeDevTools();
+                    } else {
+                        contents.openDevTools();
+                    }
+                    break;
+                case 'fullscreen':
+                    window.setFullScreen(!window.isFullScreen());
+                    break;
+                default:
+                    contents.send(command, data);
+                    break;
+            }
         }
     }
 
-    update(name, value) {
-        if (name === 'path') {
-            if (value) {
-                this._path = value;
-                const title = Application.minimizePath(this._path);
-                this._window.setTitle(process.platform !== 'darwin' ? title + ' - ' + electron.app.name : title);
-                this._window.focus();
+    update(data) {
+        for (const entry of Object.entries(data)) {
+            const name = entry[0];
+            const value = entry[1];
+            switch (name) {
+                case 'path': {
+                    if (value) {
+                        this._path = value;
+                        const location = app.Application.location(this._path);
+                        const title = process.platform !== 'darwin' ? location.label + ' - ' + electron.app.name : location.label;
+                        this._window.setTitle(title);
+                        this._window.focus();
+                    }
+                    delete this._openPath;
+                    break;
+                }
+                default: {
+                    this._properties.set(name, value);
+                }
             }
-            this._openPath = null;
-            return;
         }
-        this._properties.set(name, value);
+        this.emit('updated');
     }
 
     get(name) {
@@ -821,66 +794,113 @@ class View {
         this._events[event].push(callback);
     }
 
-    _raise(event, data) {
+    emit(event, data) {
         if (this._events && this._events[event]) {
             for (const callback of this._events[event]) {
                 callback(this, data);
             }
         }
     }
-}
 
-class ViewCollection {
+    state(event) {
+        this.execute('window-state', {
+            minimized: this._window.isMinimized(),
+            maximized: this._window.isMaximized(),
+            fullscreen: event === 'enter-full-screen' ? true : event === 'leave-full-screen' ? false : this._window.isFullScreen()
+        });
+        if (this._dispatch) {
+            const dispatch = this._dispatch;
+            delete this._dispatch;
+            for (const obj of dispatch) {
+                this.execute(obj.command, obj.data);
+            }
+        }
+    }
+};
 
-    constructor() {
-        this._views = [];
+app.ViewCollection = class {
+
+    constructor(application) {
+        this._application = application;
+        this._views = new Map();
+        electron.ipcMain.on('window-close', (event) => {
+            const window = event.sender.getOwnerBrowserWindow();
+            window.close();
+            event.returnValue = null;
+        });
+        electron.ipcMain.on('window-toggle', (event) => {
+            const window = event.sender.getOwnerBrowserWindow();
+            if (window.isFullScreen()) {
+                window.setFullScreen(false);
+            } else if (window.isMaximized()) {
+                window.unmaximize();
+            } else {
+                window.maximize();
+            }
+            event.returnValue = null;
+        });
+        electron.ipcMain.on('window-minimize', (event) => {
+            const window = event.sender.getOwnerBrowserWindow();
+            window.minimize();
+            event.returnValue = null;
+        });
+        electron.ipcMain.on('window-update', (event, data) => {
+            const window = event.sender.getOwnerBrowserWindow();
+            if (this._views.has(window)) {
+                this._views.get(window).update(data);
+            }
+            event.returnValue = null;
+        });
+        electron.ipcMain.on('update-window-state', (event) => {
+            const window = event.sender.getOwnerBrowserWindow();
+            if (this._views.has(window)) {
+                this._views.get(window).state();
+            }
+            event.returnValue = null;
+        });
+    }
+
+    get application() {
+        return this._application;
     }
 
     get views() {
-        return this._views;
+        return this._views.values();
     }
 
-    get count() {
-        return this._views.length;
+    get empty() {
+        return this._views.size === 0;
     }
 
-    item(index) {
-        return this._views[index];
+    get(window) {
+        return this._views.get(window);
     }
 
     openView() {
-        const view = new View(this);
-        view.on('activated', (sender) => {
-            this._activeView = sender;
-            this._raise('active-view-changed', { activeView: this._activeView });
+        const view = new app.View(this);
+        view.on('activated', (view) => {
+            this._activeView = view;
+            this.emit('active-view-changed', { activeView: this._activeView });
         });
         view.on('updated', () => {
-            this._raise('active-view-updated', { activeView: this._activeView });
+            this.emit('active-view-updated', { activeView: this._activeView });
         });
         view.on('deactivated', () => {
             this._activeView = null;
-            this._raise('active-view-changed', { activeView: this._activeView });
+            this.emit('active-view-changed', { activeView: this._activeView });
         });
-        this._views.push(view);
+        this._views.set(view.window, view);
         this._updateActiveView();
         return view;
     }
 
     closeView(view) {
-        for (let i = this._views.length - 1; i >= 0; i--) {
-            if (this._views[i] == view) {
-                this._views.splice(i, 1);
-            }
-        }
+        this._views.delete(view.window);
         this._updateActiveView();
     }
 
-    find(path) {
-        return this._views.find(view => view.match(path));
-    }
-
-    from(contents) {
-        return this._views.find(view => view && view.window && view.window.webContents && view.window.webContents == contents);
+    first() {
+        return this.empty ? null : this._views.values().next().value;
     }
 
     get activeView() {
@@ -893,7 +913,7 @@ class ViewCollection {
         this._events[event].push(callback);
     }
 
-    _raise(event, data) {
+    emit(event, data) {
         if (this._events && this._events[event]) {
             for (const callback of this._events[event]) {
                 callback(this, data);
@@ -903,45 +923,41 @@ class ViewCollection {
 
     _updateActiveView() {
         const window = electron.BrowserWindow.getFocusedWindow();
-        const view = this._views.find(view => view.window == window) || null;
-        if (view != this._activeView) {
+        const view = window && this._views.has(window) ? this._views.get(window) : null;
+        if (view !== this._activeView) {
             this._activeView = view;
-            this._raise('active-view-changed', { activeView: this._activeView });
+            this.emit('active-view-changed', { activeView: this._activeView });
         }
     }
-}
+};
 
-class ConfigurationService {
+app.ConfigurationService = class {
+
+    constructor() {
+        const dir = electron.app.getPath('userData');
+        if (dir && dir.length > 0) {
+            this._file = path.join(dir, 'configuration.json');
+        }
+    }
 
     load() {
         this._data = { 'recents': [] };
-        const dir = electron.app.getPath('userData');
-        if (dir && dir.length > 0) {
-            const file = path.join(dir, 'configuration.json');
-            if (fs.existsSync(file)) {
-                const data = fs.readFileSync(file);
-                if (data) {
-                    try {
-                        this._data = JSON.parse(data);
-                    }
-                    catch (error) {
-                        // continue regardless of error
-                    }
+        if (this._file && fs.existsSync(this._file)) {
+            const data = fs.readFileSync(this._file, 'utf-8');
+            if (data) {
+                try {
+                    this._data = JSON.parse(data);
+                } catch (error) {
+                    // continue regardless of error
                 }
             }
         }
     }
 
     save() {
-        if (this._data) {
+        if (this._data && this._file) {
             const data = JSON.stringify(this._data, null, 2);
-            if (data) {
-                const dir = electron.app.getPath('userData');
-                if (dir && dir.length > 0) {
-                    const file = path.join(dir, 'configuration.json');
-                    fs.writeFileSync(file, data);
-                }
-            }
+            fs.writeFileSync(this._file, data);
         }
     }
 
@@ -956,12 +972,15 @@ class ConfigurationService {
     get(name) {
         return this._data[name];
     }
+};
 
-}
+app.MenuService = class {
 
-class MenuService {
+    constructor(views) {
+        this._views = views;
+    }
 
-    build(menuTemplate, commandTable, windows) {
+    build(menuTemplate, commandTable) {
         this._menuTemplate = menuTemplate;
         this._commandTable = commandTable;
         this._itemTable = new Map();
@@ -975,42 +994,45 @@ class MenuService {
                 }
             }
         }
-        this._rebuild(windows);
+        this._rebuild();
     }
 
-    update(context, windows) {
+    update() {
         if (!this._menu && !this._commandTable) {
             return;
         }
-        if (this._updateLabel(context)) {
-            this._rebuild(windows);
+        const view = this._views.activeView;
+        if (this._updateLabel(view)) {
+            this._rebuild();
         }
-        this._updateEnabled(context);
+        this._updateEnabled(view);
     }
 
-    _rebuild(windows) {
-        this._menu = electron.Menu.buildFromTemplate(this._menuTemplate);
+    _rebuild() {
         if (process.platform === 'darwin') {
+            this._menu = electron.Menu.buildFromTemplate(this._menuTemplate);
             electron.Menu.setApplicationMenu(this._menu);
-        }
-        else {
-            for (const window of windows) {
-                window.setMenu(this._menu);
+        } else if (!this._views.application.environment.titlebar) {
+            this._menu = electron.Menu.buildFromTemplate(this._menuTemplate);
+            for (const view of this._views.views) {
+                view.window.setMenu(this._menu);
             }
         }
     }
 
-    _updateLabel(context) {
+    _updateLabel(view) {
         let rebuild = false;
         for (const entry of this._commandTable.entries()) {
-            const menuItem = this._menu.getMenuItemById(entry[0]);
-            const command = entry[1];
-            if (command && command.label) {
-                const label = command.label(context);
-                if (label != menuItem.label) {
-                    if (this._itemTable.has(entry[0])) {
-                        this._itemTable.get(entry[0]).label = label;
-                        rebuild = true;
+            if (this._menu) {
+                const menuItem = this._menu.getMenuItemById(entry[0]);
+                const command = entry[1];
+                if (command && command.label) {
+                    const label = command.label(view);
+                    if (label !== menuItem.label) {
+                        if (this._itemTable.has(entry[0])) {
+                            this._itemTable.get(entry[0]).label = label;
+                            rebuild = true;
+                        }
                     }
                 }
             }
@@ -1018,17 +1040,17 @@ class MenuService {
         return rebuild;
     }
 
-    _updateEnabled(context) {
+    _updateEnabled(view) {
         for (const entry of this._commandTable.entries()) {
-            const menuItem = this._menu.getMenuItemById(entry[0]);
-            if (menuItem) {
+            if (this._menu) {
+                const menuItem = this._menu.getMenuItemById(entry[0]);
                 const command = entry[1];
-                if (command.enabled) {
-                    menuItem.enabled = command.enabled(context);
+                if (menuItem && command.enabled) {
+                    menuItem.enabled = command.enabled(view);
                 }
             }
         }
     }
-}
+};
 
-global.application = new Application();
+global.application = new app.Application();

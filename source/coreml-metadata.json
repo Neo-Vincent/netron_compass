@@ -82,7 +82,7 @@
     "category": "Tensor",
     "description": "A layer that concatenates along the channel axis (default) or sequence axis.",
     "inputs": [
-      { "name": "inputs", "option": "variadic" }
+      { "name": "inputs", "type": "Tensor[]" }
     ]
   },
   {
@@ -127,7 +127,7 @@
   {
     "name": "featureVectorizer",
     "inputs": [
-      { "name": "inputs", "option": "variadic" }
+      { "name": "inputs", "type": "Tensor[]" }
     ]
   },
   {
@@ -405,6 +405,10 @@
     "description": "A layer that scales up spatial dimensions. It supports two modes: nearest neighbour (default) and bilinear."
   },
   {
+    "name": "transpose",
+    "category": "Transform"
+  },
+  {
     "name": "wordTagger",
     "attributes": [
       { "name": "revision", "visible": false }
@@ -423,6 +427,17 @@
       { "name": "x" },
       { "name": "weight" },
       { "name": "bias" }
+    ]
+  },
+  {
+    "name": "program:batch_norm",
+    "category": "Normalization",
+    "inputs": [
+      { "name": "x" },
+      { "name": "mean" },
+      { "name": "variance" },
+      { "name": "gamma" },
+      { "name": "beta" }
     ]
   },
   {
@@ -461,5 +476,13 @@
   {
     "name": "program:reshape",
     "category": "Shape"
+  },
+  {
+    "name": "program:concat",
+    "category": "Tensor"
+  },
+  {
+    "name": "program:layer_norm",
+    "category": "Normalization"
   }
 ]

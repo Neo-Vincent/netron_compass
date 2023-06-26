@@ -1,52 +1,51 @@
 
 // Experimental
 
-var dl4j = dl4j || {};
-var json = json || require('./json');
+var dl4j = {};
+var json = require('./json');
 
 dl4j.ModelFactory = class {
 
     match(context) {
-        switch (context.identifier) {
-            case 'configuration.json': {
-                const obj = context.open('json');
-                if (obj && (obj.confs || obj.vertices)) {
-                    return 'dl4j.configuration';
-                }
-                break;
+        const identifier = context.identifier;
+        if (identifier === 'configuration.json') {
+            const obj = context.open('json');
+            if (obj && (obj.confs || obj.vertices)) {
+                return 'dl4j.configuration';
             }
-            case 'coefficients.bin': {
-                const signature = [ 0x00, 0x07, 0x4A, 0x41, 0x56, 0x41, 0x43, 0x50, 0x50 ];
-                const stream = context.stream;
-                if (signature.length <= stream.length && stream.peek(signature.length).every((value, index) => value === signature[index])) {
-                    return 'dl4j.coefficients';
-                }
-                break;
+        }
+        if (identifier === 'coefficients.bin') {
+            const signature = [ 0x00, 0x07, 0x4A, 0x41, 0x56, 0x41, 0x43, 0x50, 0x50 ];
+            const stream = context.stream;
+            if (signature.length <= stream.length && stream.peek(signature.length).every((value, index) => value === signature[index])) {
+                return 'dl4j.coefficients';
             }
         }
         return undefined;
     }
 
-    open(context, match) {
-        return dl4j.Metadata.open(context).then((metadata) => {
-            switch (match) {
-                case 'dl4j.configuration': {
-                    const obj = context.open('json');
-                    return context.request('coefficients.bin', null).then((stream) => {
-                        return new dl4j.Model(metadata, obj, stream.peek());
-                    }).catch(() => {
-                        return new dl4j.Model(metadata, obj, null);
-                    });
-                }
-                case 'dl4j.coefficients': {
-                    return context.request('configuration.json', null).then((stream) => {
-                        const reader = json.TextReader.open(stream);
-                        const obj = reader.read();
-                        return new dl4j.Model(metadata, obj, context.stream.peek());
-                    });
+    async open(context, match) {
+        const metadata = await context.metadata('dl4j-metadata.json');
+        switch (match) {
+            case 'dl4j.configuration': {
+                const obj = context.open('json');
+                try {
+                    const stream = await context.request('coefficients.bin', null);
+                    return new dl4j.Model(metadata, obj, stream.peek());
+                } catch (error) {
+                    return new dl4j.Model(metadata, obj, null);
                 }
             }
-        });
+            case 'dl4j.coefficients': {
+                const stream = await context.request('configuration.json', null);
+                const reader = json.TextReader.open(stream);
+                const obj = reader.read();
+                return new dl4j.Model(metadata, obj, context.stream.peek());
+            }
+            default: {
+                throw new dl4j.Error("Unsupported Deeplearning4j format '" + match + "'.");
+            }
+        }
     }
 };
 
@@ -69,31 +68,33 @@ dl4j.Model = class {
 dl4j.Graph = class {
 
     constructor(metadata, configuration, coefficients) {
-
         this._inputs = [];
         this._outputs =[];
         this._nodes = [];
-
         const dataType = coefficients ? new dl4j.NDArrayReader(coefficients).dataType : '?';
-
+        const values = new Map();
+        const value = (name, type, tensor) => {
+            if (name.length === 0 && tensor) {
+                return new dl4j.Value(name, type || null, tensor);
+            }
+            if (!values.has(name)) {
+                values.set(name, new dl4j.Value(name, type || null, tensor || null));
+            } else if (type || tensor) {
+                throw new dl4j.Error("Duplicate value '" + name + "'.");
+            }
+            return values.get(name);
+        };
         if (configuration.networkInputs) {
             for (const input of configuration.networkInputs) {
-                this._inputs.push(new dl4j.Parameter(input, true, [
-                    new dl4j.Argument(input, null, null)
-                ]));
+                this._inputs.push(new dl4j.Argument(input, [ value(input) ]));
             }
         }
-
         if (configuration.networkOutputs) {
             for (const output of configuration.networkOutputs) {
-                this._outputs.push(new dl4j.Parameter(output, true, [
-                    new dl4j.Argument(output, null, null)
-                ]));
+                this._outputs.push(new dl4j.Argument(output, [ value(output) ]));
             }
         }
-
         let inputs = null;
-
         // Computation Graph
         if (configuration.vertices) {
             for (const name in configuration.vertices) {
@@ -101,7 +102,6 @@ dl4j.Graph = class {
                 inputs = configuration.vertexInputs[name];
                 let variables = [];
                 let layer = null;
-
                 switch (vertex.__type__) {
                     case 'LayerVertex':
                         layer = dl4j.Node._object(vertex.layerConf.layer);
@@ -119,25 +119,19 @@ dl4j.Graph = class {
                     default:
                         throw new dl4j.Error("Unsupported vertex class '" + vertex['@class'] + "'.");
                 }
-
-                this._nodes.push(new dl4j.Node(metadata, layer, inputs, dataType, variables));
+                this._nodes.push(new dl4j.Node(metadata, layer, inputs, dataType, variables, value));
             }
         }
-
         // Multi Layer Network
         if (configuration.confs) {
             inputs = [ 'input' ];
-            this._inputs.push(new dl4j.Parameter('input', true, [
-                new dl4j.Argument('input', null, null)
-            ]));
+            this._inputs.push(new dl4j.Argument('input', [ value('input') ]));
             for (const conf of configuration.confs) {
                 const layer = dl4j.Node._object(conf.layer);
-                this._nodes.push(new dl4j.Node(metadata, layer, inputs, dataType, conf.variables));
+                this._nodes.push(new dl4j.Node(metadata, layer, inputs, dataType, conf.variables, value));
                 inputs = [ layer.layerName ];
             }
-            this._outputs.push(new dl4j.Parameter('output', true, [
-                new dl4j.Argument(inputs[0], null, null)
-            ]));
+            this._outputs.push(new dl4j.Argument('output', [ value(inputs[0]) ]));
         }
     }
 
@@ -154,32 +148,27 @@ dl4j.Graph = class {
     }
 };
 
-dl4j.Parameter = class {
+dl4j.Argument = class {
 
-    constructor(name, visible, args) {
+    constructor(name, value) {
         this._name = name;
-        this._visible = visible;
-        this._arguments = args;
+        this._value = value;
     }
 
     get name() {
         return this._name;
     }
 
-    get visible() {
-        return this._visible;
-    }
-
-    get arguments() {
-        return this._arguments;
+    get value() {
+        return this._value;
     }
 };
 
-dl4j.Argument = class {
+dl4j.Value = class {
 
     constructor(name, type, initializer) {
         if (typeof name !== 'string') {
-            throw new dl4j.Error("Invalid argument identifier '" + JSON.stringify(name) + "'.");
+            throw new dl4j.Error("Invalid value identifier '" + JSON.stringify(name) + "'.");
         }
         this._name = name;
         this._type = type;
@@ -204,19 +193,18 @@ dl4j.Argument = class {
 
 dl4j.Node = class {
 
-    constructor(metadata, layer, inputs, dataType, variables) {
+    constructor(metadata, layer, inputs, dataType, variables, value) {
         this._name = layer.layerName || '';
         this._inputs = [];
         this._outputs = [];
         this._attributes = [];
         const type = layer.__type__;
         this._type = metadata.type(type) || { name: type };
-
         if (inputs && inputs.length > 0) {
-            const args = inputs.map((input) => new dl4j.Argument(input, null, null));
-            this._inputs.push(new dl4j.Parameter(args.length < 2 ? 'input' : 'inputs', true, args));
+            const values = inputs.map((input) => value(input));
+            const argument = new dl4j.Argument(values.length < 2 ? 'input' : 'inputs', values);
+            this._inputs.push(argument);
         }
-
         if (variables) {
             for (const variable of variables) {
                 let tensor = null;
@@ -230,7 +218,7 @@ dl4j.Node = class {
                                 tensor = new dl4j.Tensor(dataType, [ layer.nout ]);
                                 break;
                             default:
-                                throw new dl4j.Error("Unknown '" + this._type + "' variable '" + variable + "'.");
+                                throw new dl4j.Error("Unsupported '" + this._type + "' variable '" + variable + "'.");
                         }
                         break;
                     case 'SeparableConvolution2D':
@@ -242,7 +230,7 @@ dl4j.Node = class {
                                 tensor = new dl4j.Tensor(dataType, [ layer.nout ]);
                                 break;
                             default:
-                                throw new dl4j.Error("Unknown '" + this._type + "' variable '" + variable + "'.");
+                                throw new dl4j.Error("Unsupported '" + this._type + "' variable '" + variable + "'.");
                         }
                         break;
                     case 'Output':
@@ -255,29 +243,23 @@ dl4j.Node = class {
                                 tensor = new dl4j.Tensor(dataType, [ layer.nout ]);
                                 break;
                             default:
-                                throw new dl4j.Error("Unknown '" + this._type + "' variable '" + variable + "'.");
+                                throw new dl4j.Error("Unsupported '" + this._type + "' variable '" + variable + "'.");
                         }
                         break;
                     case 'BatchNormalization':
                         tensor = new dl4j.Tensor(dataType, [ layer.nin ]);
                         break;
                     default:
-                        throw new dl4j.Error("Unknown '" + this._type + "' variable '" + variable + "'.");
+                        throw new dl4j.Error("Unsupported '" + this._type + "' variable '" + variable + "'.");
                 }
-                this._inputs.push(new dl4j.Parameter(variable, true, [
-                    new dl4j.Argument(variable, null, tensor)
-                ]));
+                const argument = new dl4j.Argument(variable, [ value('', null, tensor) ]);
+                this._inputs.push(argument);
             }
         }
-
         if (this._name) {
-            this._outputs.push(new dl4j.Parameter('output', true, [
-                new dl4j.Argument(this._name, null, null)
-            ]));
+            this._outputs.push(new dl4j.Argument('output', [ value(this._name) ]));
         }
-
         let attributes = layer;
-
         if (layer.activationFn) {
             const activation = dl4j.Node._object(layer.activationFn);
             if (activation.__type__ !== 'ActivationIdentity' && activation.__type__ !== 'Identity') {
@@ -287,14 +269,12 @@ dl4j.Node = class {
                 if (this._type == 'Activation') {
                     this._type = activation.__type__;
                     attributes = activation;
-                }
-                else {
+                } else {
                     this._chain = this._chain || [];
-                    this._chain.push(new dl4j.Node(metadata, activation, [], null, null));
+                    this._chain.push(new dl4j.Node(metadata, activation, [], null, null, value));
                 }
             }
         }
-
         for (const key in attributes) {
             switch (key) {
                 case '__type__':
@@ -304,10 +284,11 @@ dl4j.Node = class {
                 case 'idropout':
                 case 'hasBias':
                     continue;
+                default:
+                    break;
             }
             this._attributes.push(new dl4j.Attribute(metadata.attribute(type, key), key, attributes[key]));
         }
-
         if (layer.idropout) {
             const dropout = dl4j.Node._object(layer.idropout);
             if (dropout.p !== 1.0) {
@@ -350,8 +331,7 @@ dl4j.Node = class {
             }
             delete value['@class'];
             result.__type__ = type;
-        }
-        else {
+        } else {
             let key = Object.keys(value)[0];
             result = value[key];
             if (key.length > 0) {
@@ -402,10 +382,6 @@ dl4j.Tensor = class {
     get type() {
         return this._type;
     }
-
-    get state() {
-        return 'Tensor data not implemented.';
-    }
 };
 
 dl4j.TensorType = class {
@@ -449,92 +425,49 @@ dl4j.TensorShape = class {
     }
 };
 
-dl4j.Metadata = class {
-
-    static open(context) {
-        if (dl4j.Metadata._metadata) {
-            return Promise.resolve(dl4j.Metadata._metadata);
-        }
-        return context.request('dl4j-metadata.json', 'utf-8', null).then((data) => {
-            dl4j.Metadata._metadata = new dl4j.Metadata(data);
-            return dl4j.Metadata._metadata;
-        }).catch(() => {
-            dl4j.Metadata._metadata = new dl4j.Metadata(null);
-            return dl4j.Metadata._metadata;
-        });
-    }
-
-    constructor(data) {
-        this._map = new Map();
-        this._attributes = new Map();
-        if (data) {
-            const metadata = JSON.parse(data);
-            this._map = new Map(metadata.map((item) => [ item.name, item ]));
-        }
-    }
-
-    type(name) {
-        return this._map.get(name);
-    }
-
-    attribute(type, name) {
-        const key = type + ':' + name;
-        if (!this._attributes.has(key)) {
-            const metadata = this.type(type);
-            if (metadata && metadata.attributes && metadata.attributes.length > 0) {
-                for (const attribute of metadata.attributes) {
-                    this._attributes.set(type + ':' + attribute.name, attribute);
-                }
-            }
-            if (!this._attributes.has(key)) {
-                this._attributes.set(key, null);
-            }
-        }
-        return this._attributes.get(key);
-    }
-};
-
 dl4j.NDArrayReader = class {
 
     constructor(buffer) {
         const reader = new dl4j.BinaryReader(buffer);
-        /* let shape = */ dl4j.NDArrayReader._header(reader);
-        const data = dl4j.NDArrayReader._header(reader);
+        const dataTypes = new Map([
+            [ 'INT', [ 'int32', 4 ] ],
+            [ 'FLOAT', [ 'float32', 4 ] ],
+            [ 'DOUBLE', [ 'float64', 8 ] ]
+        ]);
+        const read = (reader) => {
+            const header = {};
+            header.alloc = reader.string();
+            header.length = 0;
+            switch (header.alloc) {
+                case 'DIRECT':
+                case 'HEAP':
+                case 'JAVACPP':
+                    header.length = reader.int32();
+                    break;
+                case 'LONG_SHAPE':
+                case 'MIXED_DATA_TYPES':
+                    header.length = reader.int64();
+                    break;
+                default:
+                    throw new dl4j.Error("Unsupported header alloc '" + header.alloc + "'.");
+            }
+            const type = reader.string();
+            if (!dataTypes.has(type)) {
+                throw new dl4j.Error("Unsupported header type '" + type + "'.");
+            }
+            const entry = dataTypes.get(type);
+            header.type = entry[0];
+            header.itemsize = entry[1];
+            header.data = reader.read(header.itemsize * header.length);
+            return header;
+        };
+        /* let shape = */ read(reader);
+        const data = read(reader);
         this._dataType = data.type;
     }
 
     get dataType() {
         return this._dataType;
-    }
-
-    static _header(reader) {
-        const header = {};
-        header.alloc = reader.string();
-        header.length = 0;
-        switch (header.alloc) {
-            case 'DIRECT':
-            case 'HEAP':
-            case 'JAVACPP':
-                header.length = reader.int32();
-                break;
-            case 'LONG_SHAPE':
-            case 'MIXED_DATA_TYPES':
-                header.length = reader.int64();
-                break;
-        }
-        header.type = reader.string();
-        switch (header.type) {
-            case 'INT':
-                header.type = 'int32';
-                header.itemsize = 4;
-                break;
-            case 'FLOAT':
-                header.type = 'float32';
-                header.itemsize = 4;
-                break;
-        }
-        header.data = reader.bytes(header.itemsize * header.length);
-        return header;
     }
 };
 
@@ -544,10 +477,9 @@ dl4j.BinaryReader = class {
         this._buffer = buffer;
         this._position = 0;
         this._view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-        this._decoder = new TextDecoder('ascii');
     }
 
-    bytes(size) {
+    read(size) {
         const data = this._buffer.subarray(this._position, this._position + size);
         this._position += size;
         return data;
@@ -555,7 +487,8 @@ dl4j.BinaryReader = class {
 
     string() {
         const size = this._buffer[this._position++] << 8 | this._buffer[this._position++];
-        const buffer = this.bytes(size);
+        const buffer = this.read(size);
+        this._decoder = this._decoder || new TextDecoder('ascii');
         return this._decoder.decode(buffer);
     }
 

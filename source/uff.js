@@ -1,8 +1,6 @@
 
-// Experimental
-
-var uff = uff || {};
-var protobuf = protobuf || require('./protobuf');
+var uff = {};
+var protobuf = require('./protobuf');
 
 uff.ModelFactory = class {
 
@@ -29,39 +27,38 @@ uff.ModelFactory = class {
         return undefined;
     }
 
-    open(context, match) {
-        return context.require('./uff-proto').then(() => {
-            uff.proto = protobuf.get('uff').uff;
-            let meta_graph = null;
-            switch (match) {
-                case 'uff.pb': {
-                    try {
-                        const stream = context.stream;
-                        const reader = protobuf.BinaryReader.open(stream);
-                        meta_graph = uff.proto.MetaGraph.decode(reader);
-                    }
-                    catch (error) {
-                        const message = error && error.message ? error.message : error.toString();
-                        throw  new uff.Error('File format is not uff.MetaGraph (' + message.replace(/\.$/, '') + ').');
-                    }
-                    break;
+    async open(context, match) {
+        await context.require('./uff-proto');
+        uff.proto = protobuf.get('uff').uff;
+        let meta_graph = null;
+        switch (match) {
+            case 'uff.pb': {
+                try {
+                    const stream = context.stream;
+                    const reader = protobuf.BinaryReader.open(stream);
+                    meta_graph = uff.proto.MetaGraph.decode(reader);
+                } catch (error) {
+                    const message = error && error.message ? error.message : error.toString();
+                    throw  new uff.Error('File format is not uff.MetaGraph (' + message.replace(/\.$/, '') + ').');
                 }
-                case 'uff.pbtxt': {
-                    try {
-                        const stream = context.stream;
-                        const reader = protobuf.TextReader.open(stream);
-                        meta_graph = uff.proto.MetaGraph.decodeText(reader);
-                    }
-                    catch (error) {
-                        throw new uff.Error('File text format is not uff.MetaGraph (' + error.message + ').');
-                    }
-                    break;
-                }
+                break;
             }
-            return uff.Metadata.open(context).then((metadata) => {
-                return new uff.Model(metadata, meta_graph);
-            });
-        });
+            case 'uff.pbtxt': {
+                try {
+                    const stream = context.stream;
+                    const reader = protobuf.TextReader.open(stream);
+                    meta_graph = uff.proto.MetaGraph.decodeText(reader);
+                } catch (error) {
+                    throw new uff.Error('File text format is not uff.MetaGraph (' + error.message + ').');
+                }
+                break;
+            }
+            default: {
+                throw new uff.Error("Unsupported UFF format '" + match + "'.");
+            }
+        }
+        const metadata = await context.metadata('uff-metadata.json');
+        return new uff.Model(metadata, meta_graph);
     }
 };
 
@@ -109,10 +106,10 @@ uff.Graph = class {
         for (const node of graph.nodes) {
             for (const input of node.inputs) {
                 counts.set(input, counts.has(input) ? counts.get(input) + 1 : 1);
-                args.set(input, new uff.Argument(input));
+                args.set(input, new uff.Value(input));
             }
             if (!args.has(node.id)) {
-                args.set(node.id, new uff.Argument(node.id));
+                args.set(node.id, new uff.Value(node.id));
             }
         }
         for (let i = graph.nodes.length - 1; i >= 0; i--) {
@@ -124,7 +121,7 @@ uff.Graph = class {
                 }
                 if (fields.dtype && fields.shape && fields.values) {
                     const tensor = new uff.Tensor(fields.dtype.dtype, fields.shape, fields.values);
-                    args.set(node.id, new uff.Argument(node.id, tensor.type, tensor));
+                    args.set(node.id, new uff.Value(node.id, tensor.type, tensor));
                     graph.nodes.splice(i, 1);
                 }
             }
@@ -134,17 +131,17 @@ uff.Graph = class {
                     fields[field.key] = field.value;
                 }
                 const type = fields.dtype && fields.shape ? new uff.TensorType(fields.dtype.dtype, fields.shape) : null;
-                args.set(node.id, new uff.Argument(node.id, type, null));
+                args.set(node.id, new uff.Value(node.id, type, null));
             }
         }
 
         for (const node of graph.nodes) {
             if (node.operation === 'Input') {
-                this._inputs.push(new uff.Parameter(node.id, [ args.get(node.id) ]));
+                this._inputs.push(new uff.Argument(node.id, [ args.get(node.id) ]));
                 continue;
             }
             if (node.operation === 'MarkOutput' && node.inputs.length === 1) {
-                this._outputs.push(new uff.Parameter(node.id, [ args.get(node.inputs[0]) ]));
+                this._outputs.push(new uff.Argument(node.id, [ args.get(node.inputs[0]) ]));
                 continue;
             }
             this._nodes.push(new uff.Node(metadata, node, args));
@@ -168,31 +165,27 @@ uff.Graph = class {
     }
 };
 
-uff.Parameter = class {
+uff.Argument = class {
 
-    constructor(name, args) {
+    constructor(name, value) {
         this._name = name;
-        this._arguments = args;
+        this._value = value;
     }
 
     get name() {
         return this._name;
     }
 
-    get visible() {
-        return true;
-    }
-
-    get arguments() {
-        return this._arguments;
+    get value() {
+        return this._value;
     }
 };
 
-uff.Argument = class {
+uff.Value = class {
 
     constructor(name, type, initializer) {
         if (typeof name !== 'string') {
-            throw new uff.Error("Invalid argument identifier '" + JSON.stringify(name) + "'.");
+            throw new uff.Error("Invalid value identifier '" + JSON.stringify(name) + "'.");
         }
         this._name = name;
         this._type = type || null;
@@ -231,17 +224,17 @@ uff.Node = class {
                             return args.get(id);
                         });
                         inputIndex += inputCount;
-                        this._inputs.push(new uff.Parameter(inputSchema.name, inputArguments));
+                        this._inputs.push(new uff.Argument(inputSchema.name, inputArguments));
                     }
                 }
             }
             this._inputs.push(...node.inputs.slice(inputIndex).map((id, index) => {
                 const inputName = ((inputIndex + index) == 0) ? 'input' : (inputIndex + index).toString();
-                return new uff.Parameter(inputName, [ args.get(id) ]);
+                return new uff.Argument(inputName, [ args.get(id) ]);
             }));
         }
 
-        this._outputs.push(new uff.Parameter('output', [
+        this._outputs.push(new uff.Argument('output', [
             args.get(node.id)
         ]));
 
@@ -275,7 +268,7 @@ uff.Attribute = class {
 
     constructor(metadata, name, value) {
         this._name = name;
-        switch(value.type) {
+        switch (value.type) {
             case 's': this._value = value.s; this._type = 'string'; break;
             case 's_list': this._value = value.s_list; this._type = 'string[]'; break;
             case 'd': this._value = value.d; this._type = 'float64'; break;
@@ -290,7 +283,7 @@ uff.Attribute = class {
             case 'dtype_list': this._value = value.dtype_list.map((type) => new uff.TensorType(type, null).dataType); this._type = 'uff.DataType[]'; break;
             case 'dim_orders': this._value = value.dim_orders; break;
             case 'dim_orders_list': this._value = value.dim_orders_list.val; break;
-            default: throw new uff.Error("Unknown attribute '" + name + "' value '" + JSON.stringify(value) + "'.");
+            default: throw new uff.Error("Unsupported attribute '" + name + "' value '" + JSON.stringify(value) + "'.");
         }
     }
 
@@ -317,127 +310,21 @@ uff.Tensor = class {
         this._type = new uff.TensorType(dataType, shape);
         switch (values.type) {
             case 'blob': this._data = values.blob; break;
-            default: throw new uff.Error("Unknown values format '" + JSON.stringify(values.type) + "'.");
+            default: throw new uff.Error("Unsupported values format '" + JSON.stringify(values.type) + "'.");
         }
-    }
-
-    get kind() {
-        return 'Const';
+        if (this._data.length > 8 &&
+            this._data[0] === 0x28 && this._data[1] === 0x2e && this._data[2] === 0x2e && this._data[3] === 0x2e &&
+            this._data[this._data.length - 1] === 0x29 && this._data[this._data.length - 2] === 0x2e && this._data[this._data.length - 3] === 0x2e && this._data[this._data.length - 4] === 0x2e) {
+            this._data = null;
+        }
     }
 
     get type() {
         return this._type;
     }
 
-    get state() {
-        return this._context().state;
-    }
-
-    get value() {
-        const context = this._context();
-        if (context.state) {
-            return null;
-        }
-        context.limit = Number.MAX_SAFE_INTEGER;
-        return this._decode(context, 0);
-    }
-
-    toString() {
-        const context = this._context();
-        if (context.state) {
-            return '';
-        }
-        context.limit = 10000;
-        const value = this._decode(context, 0);
-        return JSON.stringify(value, null, 4);
-    }
-
-    _context() {
-        const context = {};
-        context.state = null;
-        context.index = 0;
-        context.count = 0;
-
-        if (this._data == null) {
-            context.state = 'Tensor data is empty.';
-            return context;
-        }
-        if (this._data.length > 8 &&
-            this._data[0] === 0x28 && this._data[1] === 0x2e && this._data[2] === 0x2e && this._data[3] === 0x2e &&
-            this._data[this._data.length - 1] === 0x29 && this._data[this._data.length - 2] === 0x2e && this._data[this._data.length - 3] === 0x2e && this._data[this._data.length - 4] === 0x2e) {
-            context.state = 'Tensor data is empty.';
-            return context;
-        }
-        if (this._type.dataType === '?') {
-            context.state = 'Tensor data type is unknown.';
-            return context;
-        }
-
-        context.dataType = this._type.dataType;
-        context.shape = this._type.shape.dimensions;
-        context.data = new DataView(this._data.buffer, this._data.byteOffset, this._data.byteLength);
-        return context;
-    }
-
-    _decode(context, dimension) {
-        const shape = (context.shape.length == 0) ? [ 1 ] : context.shape;
-        const size = shape[dimension];
-        const results = [];
-        if (dimension == shape.length - 1) {
-            for (let i = 0; i < size; i++) {
-                if (context.count > context.limit) {
-                    results.push('...');
-                    return results;
-                }
-                switch (context.dataType) {
-                    case 'int8':
-                        results.push(context.data.getInt8(context.index));
-                        context.index += 1;
-                        context.count++;
-                        break;
-                    case 'int16':
-                        results.push(context.data.getInt16(context.index));
-                        context.index += 2;
-                        context.count++;
-                        break;
-                    case 'int32':
-                        results.push(context.data.getInt32(context.index, true));
-                        context.index += 4;
-                        context.count++;
-                        break;
-                    case 'int64':
-                        results.push(context.data.getInt64(context.index, true));
-                        context.index += 8;
-                        context.count++;
-                        break;
-                    case 'float16':
-                        results.push(context.data.getFloat16(context.index, true));
-                        context.index += 2;
-                        context.count++;
-                        break;
-                    case 'float32':
-                        results.push(context.data.getFloat32(context.index, true));
-                        context.index += 4;
-                        context.count++;
-                        break;
-                    default:
-                        break;
-                }
-            }
-        }
-        else {
-            for (let j = 0; j < size; j++) {
-                if (context.count > context.limit) {
-                    results.push('...');
-                    return results;
-                }
-                results.push(this._decode(context, dimension + 1));
-            }
-        }
-        if (context.shape.length == 0) {
-            return results[0];
-        }
-        return results;
+    get values() {
+        return this._data;
     }
 };
 
@@ -452,8 +339,7 @@ uff.TensorType = class {
             case uff.proto.DataType.DT_FLOAT16: this._dataType = 'float16'; break;
             case uff.proto.DataType.DT_FLOAT32: this._dataType = 'float32'; break;
             case 7: this._dataType = '?'; break;
-            default:
-                throw new uff.Error("Unknown data type '" + JSON.stringify(dataType) + "'.");
+            default: throw new uff.Error("Unsupported data type '" + JSON.stringify(dataType) + "'.");
         }
         this._shape = shape ? new uff.TensorShape(shape) : null;
     }
@@ -475,7 +361,7 @@ uff.TensorShape = class {
 
     constructor(shape) {
         if (shape.type !== 'i_list') {
-            throw new uff.Error("Unknown shape format '" + JSON.stringify(shape.type) + "'.");
+            throw new uff.Error("Unsupported shape format '" + JSON.stringify(shape.type) + "'.");
         }
         this._dimensions = shape.i_list.val;
     }
@@ -489,49 +375,6 @@ uff.TensorShape = class {
             return '';
         }
         return '[' + this._dimensions.join(',') + ']';
-    }
-};
-
-uff.Metadata = class {
-
-    static open(context) {
-        if (uff.Metadata._metadata) {
-            return Promise.resolve(uff.Metadata._metadata);
-        }
-        return context.request('uff-metadata.json', 'utf-8', null).then((data) => {
-            uff.Metadata._metadata = new uff.Metadata(data);
-            return uff.Metadata._metadata;
-        }).catch(() => {
-            uff.Metadata._metadata = new uff.Metadata(null);
-            return uff.Metadata._metadata;
-        });
-    }
-
-    constructor(data) {
-        this._types = new Map();
-        this._attributes = new Map();
-        if (data) {
-            const metadata = JSON.parse(data);
-            this._types = new Map(metadata.map((item) => [ item.name, item ]));
-        }
-    }
-
-    type(name) {
-        return this._types.get(name);
-    }
-
-    attribute(type, name) {
-        const key = type + ':' + name;
-        if (!this._attributes.has(key)) {
-            this._attributes.set(key, null);
-            const metadata = this.type(type);
-            if (metadata && Array.isArray(metadata.attributes)) {
-                for (const attribute of metadata.attributes) {
-                    this._attributes.set(type + ':' + attribute.name, attribute);
-                }
-            }
-        }
-        return this._attributes.get(key);
     }
 };
 

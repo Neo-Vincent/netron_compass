@@ -2,7 +2,22 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Launch Program",
+            "name": "Electron View",
+            "type": "chrome",
+            "request": "launch",
+            "runtimeExecutable": "${workspaceRoot}/node_modules/.bin/electron",
+            "windows": {
+                "runtimeExecutable": "${workspaceRoot}/node_modules/.bin/electron.cmd"
+            },
+            "runtimeArgs": [
+                "${workspaceRoot}",
+                "--enable-logging",
+                "--remote-debugging-port=9222"
+            ],
+            "webRoot": "${workspaceRoot}"
+        },
+        {
+            "name": "Electron App",
             "type": "node",
             "request": "launch",
             "program": "${workspaceFolder}/source/app.js",
@@ -12,19 +27,64 @@
             }
         },
         {
-            "name": "Debug Renderer Process",
-            "type": "pwa-chrome",
+            "name": "Python Server",
+            "type": "python",
             "request": "launch",
-            "runtimeExecutable": "${workspaceRoot}/node_modules/.bin/electron",
-            "windows": {
-              "runtimeExecutable": "${workspaceRoot}/node_modules/.bin/electron.cmd"
-            },
-            "runtimeArgs": [
-              "${workspaceRoot}",
-              "--enable-logging",
-              "--remote-debugging-port=9222"
+            "program": "${workspaceFolder}/package.py",
+            "args": [ "build", "start" ],
+            "justMyCode": true,
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}/source",
+                    "remoteRoot": "${workspaceFolder}/dist/pypi/netron",
+                }
             ],
-            "webRoot": "${workspaceRoot}"
-        }
+            "serverReadyAction": {
+                "action": "debugWithChrome",
+                "pattern": "Serving .*at http://localhost:([0-9]+)",
+                "uriFormat": "http://localhost:%s",
+                "webRoot": "${workspaceFolder}/source",
+            },
+        },
+        {
+            "name": "Test Models",
+            "type": "node",
+            "request": "launch",
+            "program": "${workspaceFolder}/test/models.js",
+            "args": [],
+            "console": "integratedTerminal",
+        },
+        {
+            "name": "Test Backend",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/test/backend.py",
+            "args": [],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "serverReadyAction": {
+                "action": "debugWithChrome",
+                "pattern": "Serving .*at http://localhost:([0-9]+)",
+                "uriFormat": "http://localhost:%s",
+                "webRoot": "${workspaceFolder}/source",
+            },
+        },
+        {
+            "name": "Tools Python",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "args": [],
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "Package.js",
+            "type": "node",
+            "request": "launch",
+            "program": "${workspaceFolder}/package.js",
+            "args": [],
+            "console": "integratedTerminal",
+        },
     ]
 }

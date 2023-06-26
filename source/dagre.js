@@ -137,8 +137,7 @@ dagre.layout = (graph, options) => {
                 if (edge.labelpos.toLowerCase() !== 'c') {
                     if (graph.rankdir === 'TB' || graph.rankdir === 'BT') {
                         edge.width += edge.labeloffset;
-                    }
-                    else {
+                    } else {
                         edge.height += edge.labeloffset;
                     }
                 }
@@ -159,28 +158,31 @@ dagre.layout = (graph, options) => {
         };
 
         const acyclic_run = (g) => {
-            const fas = [];
-            const stack = new Set();
+            const edges = [];
             const visited = new Set();
-            const dfs = (v) => {
-                if (!visited.has(v)) {
-                    visited.add(v);
-                    stack.add(v);
-                    for (const e of g.node(v).out) {
-                        if (stack.has(e.w)) {
-                            fas.push(e);
-                        }
-                        else {
-                            dfs(e.w);
+            const path = new Set();
+            const stack = Array.from(g.nodes.keys()).reverse();
+            while (stack.length > 0) {
+                const v = stack.pop();
+                if (!Array.isArray(v)) {
+                    if (!visited.has(v)) {
+                        visited.add(v);
+                        path.add(v);
+                        stack.push([ v ]);
+                        const out = g.node(v).out;
+                        for (let i = out.length - 1; i >= 0; i--) {
+                            const e = out[i];
+                            if (path.has(e.w)) {
+                                edges.push(e);
+                            }
+                            stack.push(e.w);
                         }
                     }
-                    stack.delete(v);
+                } else {
+                    path.delete(v[0]);
                 }
-            };
-            for (const v of g.nodes.keys()) {
-                dfs(v);
             }
-            for (const e of fas) {
+            for (const e of edges) {
                 const label = e.label;
                 g.removeEdge(e);
                 label.forwardName = e.name;
@@ -280,16 +282,13 @@ dagre.layout = (graph, options) => {
                 }
                 return t;
             };
-            // Initializes ranks for the input graph using the longest path algorithm. This
-            // algorithm scales well and is fast in practice, it yields rather poor
-            // solutions. Nodes are pushed to the lowest layer possible, leaving the bottom
-            // ranks wide and leaving edges longer than necessary. However, due to its
-            // speed, this algorithm is good for getting an initial ranking that can be fed
-            // into other algorithms.
+            // Initializes ranks for the input graph using the longest path algorithm.
+            // This algorithm scales well and is fast in practice, it yields rather poor solutions.
+            // Nodes are pushed to the lowest layer possible, leaving the bottom ranks wide and leaving edges longer than necessary.
+            // However, due to its speed, this algorithm is good for getting an initial ranking that can be fed into other algorithms.
             //
-            // This algorithm does not normalize layers because it will be used by other
-            // algorithms in most cases. If using this algorithm directly, be sure to
-            // run normalize at the end.
+            // This algorithm does not normalize layers because it will be used by other algorithms in most cases.
+            // If using this algorithm directly, be sure to run normalize at the end.
             //
             // Pre-conditions:
             //    1. Input graph is a DAG.
@@ -299,25 +298,31 @@ dagre.layout = (graph, options) => {
             //    1. Each node will be assign an (unnormalized) 'rank' property.
             const longestPath = (g) => {
                 const visited = new Set();
-                const dfs = (v) => {
-                    const node = g.node(v);
-                    if (visited.has(v)) {
-                        return node.label.rank;
-                    }
-                    visited.add(v);
-                    let rank = Number.MAX_SAFE_INTEGER;
-                    for (const e of node.out) {
-                        rank = Math.min(rank, dfs(e.w) - e.label.minlen);
-                    }
-                    if (rank === Number.MAX_SAFE_INTEGER) {
-                        rank = 0;
-                    }
-                    node.label.rank = rank;
-                    return rank;
-                };
-                for (const node of g.nodes.values()) {
-                    if (node.in.length === 0) {
-                        dfs(node.v);
+                const stack = [ Array.from(g.nodes.values()).filter((node) => node.in.length === 0).reverse() ];
+                while (stack.length > 0) {
+                    const current = stack[stack.length - 1];
+                    if (Array.isArray(current)) {
+                        const node = current.pop();
+                        if (current.length === 0) {
+                            stack.pop();
+                        }
+                        if (!visited.has(node)) {
+                            visited.add(node);
+                            const children = node.out.map((e) => e.wNode);
+                            if (children.length > 0) {
+                                stack.push(node);
+                                stack.push(children.reverse());
+                            } else {
+                                node.label.rank = 0;
+                            }
+                        }
+                    } else {
+                        stack.pop();
+                        let rank = Number.MAX_SAFE_INTEGER;
+                        for (const e of current.out) {
+                            rank = Math.min(rank, e.wNode.label.rank - e.label.minlen);
+                        }
+                        current.label.rank = rank;
                     }
                 }
             };
@@ -381,8 +386,7 @@ dagre.layout = (graph, options) => {
                         label.lim = nextLim++;
                         if (parent) {
                             label.parent = parent;
-                        }
-                        else {
+                        } else {
                             // TODO should be able to remove this when we incrementally update low lim
                             delete label.parent;
                         }
@@ -410,13 +414,11 @@ dagre.layout = (graph, options) => {
                                 if (children.length > 0) {
                                     stack.push(v);
                                     stack.push(children.reverse());
-                                }
-                                else {
+                                } else {
                                     vs.push(v);
                                 }
                             }
-                        }
-                        else {
+                        } else {
                             vs.push(stack.pop());
                         }
                     }
@@ -503,8 +505,9 @@ dagre.layout = (graph, options) => {
                         const v = stack.pop();
                         if (!visited.has(v)) {
                             visited.add(v);
-                            for (const w of t.neighbors(v).reverse()) {
-                                stack.push(w);
+                            const neighbors = t.neighbors(v);
+                            for (let i = neighbors.length - 1; i >= 0; i--) {
+                                stack.push(neighbors[i]);
                             }
                         }
                     }
@@ -532,7 +535,7 @@ dagre.layout = (graph, options) => {
                     exchangeEdges(t, g, e, f);
                 }
             };
-            switch(g.options.ranker) {
+            switch (g.options.ranker) {
                 case 'tight-tree':
                     longestPath(g);
                     feasibleTree(g);
@@ -591,8 +594,7 @@ dagre.layout = (graph, options) => {
                         const vs = layers[i];
                         if (vs === undefined && i % nodeRankFactor !== 0) {
                             delta--;
-                        }
-                        else if (delta && vs) {
+                        } else if (delta && vs) {
                             for (const v of vs) {
                                 g.node(v).label.rank += delta;
                             }
@@ -811,12 +813,11 @@ dagre.layout = (graph, options) => {
         const parentDummyChains = (g) => {
             // Find a path from v to w through the lowest common ancestor (LCA). Return the full path and the LCA.
             const findPath = (g, postorderNums, v, w) => {
-                const vPath = [];
-                const wPath = [];
                 const low = Math.min(postorderNums[v].low, postorderNums[w].low);
                 const lim = Math.max(postorderNums[v].lim, postorderNums[w].lim);
                 // Traverse up from v to find the LCA
                 let parent = v;
+                const vPath = [];
                 do {
                     parent = g.parent(parent);
                     vPath.push(parent);
@@ -825,6 +826,7 @@ dagre.layout = (graph, options) => {
                 const lca = parent;
                 // Traverse from w to LCA
                 parent = w;
+                const wPath = [];
                 while ((parent = g.parent(parent)) !== lca) {
                     wPath.push(parent);
                 }
@@ -866,7 +868,7 @@ dagre.layout = (graph, options) => {
                         }
                     }
                     if (!ascending) {
-                        while (pathIdx < path.length - 1 && g.node(pathV = path[pathIdx + 1]).label.minRank <= node.rank) {
+                        while (pathIdx < path.length - 1 && g.node(path[pathIdx + 1]).label.minRank <= node.rank) {
                             pathIdx++;
                         }
                         pathV = path[pathIdx];
@@ -1011,21 +1013,19 @@ dagre.layout = (graph, options) => {
                         if (!inV.length) {
                             return { v: v };
                         }
-                        else {
-                            const result = inV.reduce((acc, e) => {
-                                const edge = e.label;
-                                const nodeU = e.vNode.label;
-                                return {
-                                    sum: acc.sum + (edge.weight * nodeU.order),
-                                    weight: acc.weight + edge.weight
-                                };
-                            }, { sum: 0, weight: 0 });
+                        const result = inV.reduce((acc, e) => {
+                            const edge = e.label;
+                            const nodeU = e.vNode.label;
                             return {
-                                v: v,
-                                barycenter: result.sum / result.weight,
-                                weight: result.weight
+                                sum: acc.sum + (edge.weight * nodeU.order),
+                                weight: acc.weight + edge.weight
                             };
-                        }
+                        }, { sum: 0, weight: 0 });
+                        return {
+                            v: v,
+                            barycenter: result.sum / result.weight,
+                            weight: result.weight
+                        };
                     });
                 };
                 const sort = (entries, biasRight) => {
@@ -1042,8 +1042,7 @@ dagre.layout = (graph, options) => {
                         return function(entryV, entryW) {
                             if (entryV.barycenter < entryW.barycenter) {
                                 return -1;
-                            }
-                            else if (entryV.barycenter > entryW.barycenter) {
+                            } else if (entryV.barycenter > entryW.barycenter) {
                                 return 1;
                             }
                             return !bias ? entryV.i - entryW.i : entryW.i - entryV.i;
@@ -1054,8 +1053,7 @@ dagre.layout = (graph, options) => {
                     for (const value of entries) {
                         if ('barycenter' in value) {
                             parts.lhs.push(value);
-                        }
-                        else {
+                        } else {
                             parts.rhs.push(value);
                         }
                     }
@@ -1095,8 +1093,7 @@ dagre.layout = (graph, options) => {
                             if (entry.barycenter !== undefined) {
                                 entry.barycenter = (entry.barycenter * entry.weight + result.barycenter * result.weight) / (entry.weight + result.weight);
                                 entry.weight += result.weight;
-                            }
-                            else {
+                            } else {
                                 entry.barycenter = result.barycenter;
                                 entry.weight = result.weight;
                             }
@@ -1146,8 +1143,7 @@ dagre.layout = (graph, options) => {
                             if (parent) {
                                 prevChild = prev[parent];
                                 prev[parent] = child;
-                            }
-                            else {
+                            } else {
                                 prevChild = rootPrev;
                                 rootPrev = child;
                             }
@@ -1237,27 +1233,25 @@ dagre.layout = (graph, options) => {
             // the order of its nodes.
             const initOrder = (g) => {
                 const visited = new Set();
-                const nodes = Array.from(g.nodes.keys()).filter((v) => !g.children(v).length);
+                const nodes = Array.from(g.nodes.values()).filter((node) => g.children(node.v).length === 0);
                 let maxRank = undefined;
-                for (const v of nodes) {
-                    if (!g.children(v).length > 0) {
-                        const rank = g.node(v).label.rank;
-                        if (maxRank === undefined || (rank !== undefined && rank > maxRank)) {
-                            maxRank = rank;
-                        }
+                for (const node of nodes) {
+                    const rank = node.label.rank;
+                    if (maxRank === undefined || (rank !== undefined && rank > maxRank)) {
+                        maxRank = rank;
                     }
                 }
                 if (maxRank !== undefined) {
                     const layers = Array.from(new Array(maxRank + 1), () => []);
-                    for (const v of nodes.map((v) => [ g.node(v).label.rank, v ]).sort((a, b) => a[0] - b[0]).map((item) => item[1])) {
-                        const queue = [ v ];
-                        while (queue.length > 0) {
-                            const v = queue.shift();
-                            if (!visited.has(v)) {
-                                visited.add(v);
-                                const rank = g.node(v).label.rank;
-                                layers[rank].push(v);
-                                queue.push(...g.successors(v));
+                    const queue = nodes.sort((a, b) => a.label.rank - b.label.rank).map((node) => node.v).reverse();
+                    while (queue.length > 0) {
+                        const v = queue.shift();
+                        if (!visited.has(v)) {
+                            visited.add(v);
+                            const rank = g.node(v).label.rank;
+                            layers[rank].push(v);
+                            for (const w of g.successors(v)) {
+                                queue.push(w);
                             }
                         }
                     }
@@ -1294,7 +1288,10 @@ dagre.layout = (graph, options) => {
                 }
                 const graph = new dagre.Graph({ compound: true });
                 graph.options = { root: root };
-                graph.setDefaultNodeLabel((v) => { const node = g.node(v); return node ? node.label : undefined; });
+                graph.setDefaultNodeLabel((v) => {
+                    const node = g.node(v);
+                    return node ? node.label : undefined;
+                });
                 const length = nodes.length;
                 let i = 0;
                 while (i < length) {
@@ -1310,8 +1307,7 @@ dagre.layout = (graph, options) => {
                             for (const e of node.in) {
                                 graph.setEdge(e.v, v, { weight: e.label.weight });
                             }
-                        }
-                        else {
+                        } else {
                             for (const e of node.out) {
                                 graph.setEdge(e.w, v, { weight: e.label.weight });
                             }
@@ -1485,6 +1481,7 @@ dagre.layout = (graph, options) => {
                                 switch (vLabel.labelpos) {
                                     case 'l': delta = -vLabel.width / 2; break;
                                     case 'r': delta = vLabel.width / 2; break;
+                                    default: throw new dagre.Error("Unsupported label position '" + vLabel.labelpos + "'.");
                                 }
                             }
                             if (delta) {
@@ -1498,6 +1495,7 @@ dagre.layout = (graph, options) => {
                                 switch (wLabel.labelpos) {
                                     case 'l': delta = wLabel.width / 2; break;
                                     case 'r': delta = -wLabel.width / 2; break;
+                                    default: throw new dagre.Error("Unsupported label position '" + wLabel.labelpos + "'.");
                                 }
                             }
                             if (delta) {
@@ -1507,8 +1505,7 @@ dagre.layout = (graph, options) => {
                             const max = Math.max(sum, edge ? edge.label : 0);
                             if (edge) {
                                 edge.label = max;
-                            }
-                            else {
+                            } else {
                                 blockGraph.setEdge(uRoot, vRoot, max);
                             }
                         }
@@ -1561,45 +1558,54 @@ dagre.layout = (graph, options) => {
             const horizontalCompaction = (g, layering, root, align, reverseSep) => {
                 // This portion of the algorithm differs from BK due to a number of problems.
                 // Instead of their algorithm we construct a new block graph and do two sweeps.
-                const xs = {};
                 const blockG = buildBlockGraph(g, layering, root, reverseSep);
                 const borderType = reverseSep ? 'borderLeft' : 'borderRight';
-                const iterate = (setXsFunc, nextNodesFunc) => {
-                    let stack = Array.from(blockG.nodes.keys());
+                const xs = {};
+                // First pass, places blocks with the smallest possible coordinates.
+                if (blockG.nodes.size > 0) {
+                    const stack = Array.from(blockG.nodes.keys());
                     const visited = new Set();
                     while (stack.length > 0) {
                         const v = stack.pop();
                         if (visited.has(v)) {
-                            setXsFunc(v);
-                        }
-                        else {
+                            let max = 0;
+                            for (const e of blockG.node(v).in) {
+                                max = Math.max(max, xs[e.v] + e.label);
+                            }
+                            xs[v] = max;
+                        } else {
                             visited.add(v);
                             stack.push(v);
-                            stack = stack.concat(nextNodesFunc(v));
+                            for (const w of blockG.predecessors(v)) {
+                                stack.push(w);
+                            }
                         }
                     }
-                };
-                // First pass, places blocks with the smallest possible coordinates.
-                const pass1 = (v) => {
-                    let max = 0;
-                    for (const e of blockG.node(v).in) {
-                        max = Math.max(max, xs[e.v] + e.label);
-                    }
-                    xs[v] = max;
-                };
+                }
                 // Second pass, removes unused space by moving blocks to the greatest coordinates without violating separation.
-                const pass2 = (v) => {
-                    let min = Number.POSITIVE_INFINITY;
-                    for (const e of blockG.node(v).out) {
-                        min = Math.min(min, xs[e.w] - e.label);
+                if (blockG.nodes.size > 0) {
+                    const stack = Array.from(blockG.nodes.keys());
+                    const visited = new Set();
+                    while (stack.length > 0) {
+                        const v = stack.pop();
+                        if (visited.has(v)) {
+                            let min = Number.POSITIVE_INFINITY;
+                            for (const e of blockG.node(v).out) {
+                                min = Math.min(min, xs[e.w] - e.label);
+                            }
+                            const label = g.node(v).label;
+                            if (min !== Number.POSITIVE_INFINITY && label.borderType !== borderType) {
+                                xs[v] = Math.max(xs[v], min);
+                            }
+                        } else {
+                            visited.add(v);
+                            stack.push(v);
+                            for (const w of blockG.successors(v)) {
+                                stack.push(w);
+                            }
+                        }
                     }
-                    const label = g.node(v).label;
-                    if (min !== Number.POSITIVE_INFINITY && label.borderType !== borderType) {
-                        xs[v] = Math.max(xs[v], min);
-                    }
-                };
-                iterate(pass1, blockG.predecessors.bind(blockG));
-                iterate(pass2, blockG.successors.bind(blockG));
+                }
                 // Assign x coordinates to all nodes
                 for (const v of Object.values(align)) {
                     xs[v] = xs[root[v]];
@@ -1793,8 +1799,7 @@ dagre.layout = (graph, options) => {
                 for (const v of Object.keys(xss.ul)) {
                     g.node(v).label.x = xs[v];
                 }
-            }
-            else {
+            } else {
                 for (const v of Object.keys(xss.ul)) {
                     const xs = [ xss.ul[v], xss.ur[v], xss.dl[v], xss.dr[v] ].sort((a, b) => a - b);
                     g.node(v).label.x = (xs[1] + xs[2]) / 2;
@@ -1859,6 +1864,7 @@ dagre.layout = (graph, options) => {
                     switch (edge.labelpos) {
                         case 'l': edge.x -= edge.width / 2 + edge.labeloffset; break;
                         case 'r': edge.x += edge.width / 2 + edge.labeloffset; break;
+                        default: throw new dagre.Error("Unsupported label position '" + edge.labelpos + "'.");
                     }
                 }
             }
@@ -1919,30 +1925,19 @@ dagre.layout = (graph, options) => {
                 // Rectangle intersection algorithm from: http://math.stackexchange.com/questions/108113/find-edge-between-two-boxes
                 const dx = point.x - x;
                 const dy = point.y - y;
-                let w = rect.width / 2;
-                let h = rect.height / 2;
-                if (!dx && !dy) {
+                if (dx === 0 && dy === 0) {
                     throw new Error('Not possible to find intersection inside of the rectangle');
                 }
-                let sx;
-                let sy;
+                let w = rect.width / 2;
+                let h = rect.height / 2;
                 if (Math.abs(dy) * w > Math.abs(dx) * h) {
                     // Intersection is top or bottom of rect.
-                    if (dy < 0) {
-                        h = -h;
-                    }
-                    sx = h * dx / dy;
-                    sy = h;
+                    h = dy < 0 ? -h : h;
+                    return { x: x + (h * dx / dy), y: y + h };
                 }
-                else {
-                    // Intersection is left or right of rect.
-                    if (dx < 0) {
-                        w = -w;
-                    }
-                    sx = w;
-                    sy = w * dy / dx;
-                }
-                return { x: x + sx, y: y + sy };
+                // Intersection is left or right of rect.
+                w = dx < 0 ? -w : w;
+                return { x: x + w, y: y + (w * dy / dx) };
             };
             for (const e of g.edges.values()) {
                 const edge = e.label;
@@ -1954,8 +1949,7 @@ dagre.layout = (graph, options) => {
                     edge.points = [];
                     p1 = wNode;
                     p2 = vNode;
-                }
-                else {
+                } else {
                     p1 = edge.points[0];
                     p2 = edge.points[edge.points.length - 1];
                 }
@@ -1964,31 +1958,31 @@ dagre.layout = (graph, options) => {
             }
         };
 
-        time('    makeSpaceForEdgeLabels',        () => { makeSpaceForEdgeLabels(g); });
-        time('    removeSelfEdges',               () => { removeSelfEdges(g); });
-        time('    acyclic_run',                   () => { acyclic_run(g); });
-        time('    nestingGraph_run',              () => { nestingGraph_run(g); });
-        time('    rank',                          () => { rank(asNonCompoundGraph(g)); });
-        time('    injectEdgeLabelProxies',        () => { injectEdgeLabelProxies(g); });
-        time('    removeEmptyRanks',              () => { removeEmptyRanks(g); });
-        time('    nestingGraph_cleanup',          () => { nestingGraph_cleanup(g); });
-        time('    assignRankMinMax',              () => { assignRankMinMax(g); });
-        time('    removeEdgeLabelProxies',        () => { removeEdgeLabelProxies(g); });
-        time('    normalize',                     () => { normalize(g); });
-        time('    parentDummyChains',             () => { parentDummyChains(g); });
-        time('    addBorderSegments',             () => { addBorderSegments(g); });
-        time('    order',                         () => { order(g); });
-        time('    insertSelfEdges',               () => { insertSelfEdges(g); });
-        time('    coordinateSystem_adjust',       () => { coordinateSystem_adjust(g); });
-        time('    position',                      () => { position(g); });
-        time('    positionSelfEdges',             () => { positionSelfEdges(g); });
-        time('    removeBorderNodes',             () => { removeBorderNodes(g); });
-        time('    denormalize',                   () => { denormalize(g); });
-        time('    fixupEdgeLabelCoords',          () => { fixupEdgeLabelCoords(g); });
-        time('    coordinateSystem_undo',         () => { coordinateSystem_undo(g); });
-        time('    translateGraph',                () => { translateGraph(g); });
-        time('    assignNodeIntersects',          () => { assignNodeIntersects(g); });
-        time('    acyclic_undo',                  () => { acyclic_undo(g); });
+        time('    makeSpaceForEdgeLabels',        () => makeSpaceForEdgeLabels(g));
+        time('    removeSelfEdges',               () => removeSelfEdges(g));
+        time('    acyclic_run',                   () => acyclic_run(g));
+        time('    nestingGraph_run',              () => nestingGraph_run(g));
+        time('    rank',                          () => rank(asNonCompoundGraph(g)));
+        time('    injectEdgeLabelProxies',        () => injectEdgeLabelProxies(g));
+        time('    removeEmptyRanks',              () => removeEmptyRanks(g));
+        time('    nestingGraph_cleanup',          () => nestingGraph_cleanup(g));
+        time('    assignRankMinMax',              () => assignRankMinMax(g));
+        time('    removeEdgeLabelProxies',        () => removeEdgeLabelProxies(g));
+        time('    normalize',                     () => normalize(g));
+        time('    parentDummyChains',             () => parentDummyChains(g));
+        time('    addBorderSegments',             () => addBorderSegments(g));
+        time('    order',                         () => order(g));
+        time('    insertSelfEdges',               () => insertSelfEdges(g));
+        time('    coordinateSystem_adjust',       () => coordinateSystem_adjust(g));
+        time('    position',                      () => position(g));
+        time('    positionSelfEdges',             () => positionSelfEdges(g));
+        time('    removeBorderNodes',             () => removeBorderNodes(g));
+        time('    denormalize',                   () => denormalize(g));
+        time('    fixupEdgeLabelCoords',          () => fixupEdgeLabelCoords(g));
+        time('    coordinateSystem_undo',         () => coordinateSystem_undo(g));
+        time('    translateGraph',                () => translateGraph(g));
+        time('    assignNodeIntersects',          () => assignNodeIntersects(g));
+        time('    acyclic_undo',                  () => acyclic_undo(g));
     };
 
     // Copies final layout information from the layout graph back to the input graph.
@@ -2022,9 +2016,9 @@ dagre.layout = (graph, options) => {
 
     time('layout', () => {
         const layoutGraph =
-        time('  buildLayoutGraph',  () => { return buildLayoutGraph(graph); });
-        time('  runLayout',         () => { runLayout(layoutGraph, time); });
-        time('  updateSourceGraph', () => { updateSourceGraph(graph, layoutGraph); });
+        time('  buildLayoutGraph',  () => buildLayoutGraph(graph));
+        time('  runLayout',         () => runLayout(layoutGraph, time));
+        time('  updateSourceGraph', () => updateSourceGraph(graph, layoutGraph));
     });
 };
 
@@ -2073,8 +2067,7 @@ dagre.Graph = class {
             if (label) {
                 node.label = label;
             }
-        }
-        else {
+        } else {
             const node = { label: label ? label : this._defaultNodeLabelFn(v), in: [], out: [], predecessors: {}, successors: {}, v: v };
             this.nodes.set(v, node);
             if (this._compound) {
@@ -2125,8 +2118,7 @@ dagre.Graph = class {
                 }
             }
             this.setNode(parent);
-        }
-        else {
+        } else {
             parent = '\x00';
         }
         delete this._children[this._parent[v]][v];
@@ -2141,18 +2133,18 @@ dagre.Graph = class {
                 return parent;
             }
         }
+        return null;
     }
 
     children(v) {
         if (this._compound) {
             return Object.keys(this._children[v === undefined ? '\x00' : v]);
-        }
-        else if (v === undefined) {
+        } else if (v === undefined) {
             return this.nodes.keys();
-        }
-        else if (this.hasNode(v)) {
+        } else if (this.hasNode(v)) {
             return [];
         }
+        return null;
     }
 
     predecessors(v) {
@@ -2176,8 +2168,7 @@ dagre.Graph = class {
         const edge = this.edges.get(key);
         if (edge) {
             edge.label = label;
-        }
-        else {
+        } else {
             if (!this._directed && v > w) {
                 const tmp = v;
                 v = w;
@@ -2194,8 +2185,7 @@ dagre.Graph = class {
             const incrementOrInitEntry = (map, k) => {
                 if (map[k]) {
                     map[k]++;
-                }
-                else {
+                } else {
                     map[k] = 1;
                 }
             };

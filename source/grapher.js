@@ -1,6 +1,6 @@
 
-var grapher = grapher || {};
-var dagre = dagre || require('./dagre');
+var grapher = {};
+var dagre = require('./dagre');
 
 grapher.Graph = class {
 
@@ -23,8 +23,7 @@ grapher.Graph = class {
         const value = this._nodes.get(key);
         if (value) {
             value.label = node;
-        }
-        else {
+        } else {
             this._nodes.set(key, { v: key, label: node });
             if (this._isCompound) {
                 this._parent[key] = '\x00';
@@ -36,10 +35,10 @@ grapher.Graph = class {
 
     setEdge(edge) {
         if (!this._nodes.has(edge.v)) {
-            throw new grapher.Error();
+            throw new grapher.Error("Invalid edge '" + JSON.stringify(edge.v) + "'.");
         }
         if (!this._nodes.has(edge.w)) {
-            throw new grapher.Error();
+            throw new grapher.Error("Invalid edge '" + JSON.stringify(edge.w) + "'.");
         }
         const key = edge.v + ':' + edge.w;
         if (!this._edges.has(key)) {
@@ -86,6 +85,7 @@ grapher.Graph = class {
                 return parent;
             }
         }
+        return null;
     }
 
     children(key) {
@@ -95,13 +95,12 @@ grapher.Graph = class {
             if (children) {
                 return Object.keys(children);
             }
-        }
-        else if (key === '\x00') {
+        } else if (key === '\x00') {
             return this.nodes.keys();
-        }
-        else if (this.hasNode(key)) {
+        } else if (this.hasNode(key)) {
             return [];
         }
+        return null;
     }
 
     build(document, origin) {
@@ -136,16 +135,16 @@ grapher.Graph = class {
             element.appendChild(markerPath);
             return element;
         };
-        edgePathGroupDefs.appendChild(marker("arrowhead-vee"));
-        edgePathGroupDefs.appendChild(marker("arrowhead-vee-select"));
+        edgePathGroupDefs.appendChild(marker("arrowhead"));
+        edgePathGroupDefs.appendChild(marker("arrowhead-select"));
+        edgePathGroupDefs.appendChild(marker("arrowhead-hover"));
 
         for (const nodeId of this.nodes.keys()) {
             const node = this.node(nodeId);
             if (this.children(nodeId).length == 0) {
                 // node
                 node.label.build(document, nodeGroup);
-            }
-            else {
+            } else {
                 // cluster
                 node.label.rectangle = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
                 if (node.label.rx) {
@@ -173,13 +172,12 @@ grapher.Graph = class {
             if (this.children(nodeId).length == 0) {
                 // node
                 node.label.update();
-            }
-            else {
+            } else {
                 // cluster
                 const node = this.node(nodeId);
                 node.label.element.setAttribute('transform', 'translate(' + node.label.x + ',' + node.label.y + ')');
                 node.label.rectangle.setAttribute('x', - node.label.width / 2);
-                node.label.rectangle.setAttribute('y', - node.label.height / 2 );
+                node.label.rectangle.setAttribute('y', - node.label.height / 2);
                 node.label.rectangle.setAttribute('width', node.label.width);
                 node.label.rectangle.setAttribute('height', node.label.height);
             }
@@ -254,6 +252,15 @@ grapher.Node = class {
         this.element.style.opacity = 1;
     }
 
+    select() {
+        this.element.classList.add('select');
+        return [ this.element ];
+    }
+
+    deselect() {
+        this.element.classList.remove('select');
+    }
+
     static roundedRect(x, y, width, height, r1, r2, r3, r4) {
         const radius = 5;
         r1 = r1 ? radius : 0;
@@ -312,8 +319,7 @@ grapher.Node.Header = class {
             const entry = this._entries[i];
             if (i == 0) {
                 entry.width = entry.width + dx;
-            }
-            else {
+            } else {
                 entry.x = entry.x + dx;
                 entry.tx = entry.tx + dx;
             }
@@ -360,17 +366,17 @@ grapher.Node.Header.Entry = class {
         this.content = content;
         this.tooltip = tooltip;
         this.handler = handler;
-        this.events = {};
+        this._events = {};
     }
 
     on(event, callback) {
-        this.events[event] = this.events[event] || [];
-        this.events[event].push(callback);
+        this._events[event] = this._events[event] || [];
+        this._events[event].push(callback);
     }
 
-    raise(event, data) {
-        if (this.events && this.events[event]) {
-            for (const callback of this.events[event]) {
+    emit(event, data) {
+        if (this._events && this._events[event]) {
+            for (const callback of this._events[event]) {
                 callback(this, data);
             }
         }
@@ -393,13 +399,13 @@ grapher.Node.Header.Entry = class {
         if (this.id) {
             this.element.setAttribute('id', this.id);
         }
-        if (this.events.click) {
-            this.element.addEventListener('click', () => this.raise('click'));
+        if (this._events.click) {
+            this.element.addEventListener('click', () => this.emit('click'));
         }
         if (this.tooltip) {
-            const titleElement = document.createElementNS('http://www.w3.org/2000/svg', 'title');
-            titleElement.textContent = this.tooltip;
-            this.element.appendChild(titleElement);
+            const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+            title.textContent = this.tooltip;
+            this.element.appendChild(title);
         }
         if (this.content) {
             this.text.textContent = this.content;
@@ -416,7 +422,7 @@ grapher.Node.List = class {
 
     constructor() {
         this._items = [];
-        this.events = {};
+        this._events = {};
     }
 
     add(id, name, value, tooltip, separator) {
@@ -426,13 +432,13 @@ grapher.Node.List = class {
     }
 
     on(event, callback) {
-        this.events[event] = this.events[event] || [];
-        this.events[event].push(callback);
+        this._events[event] = this._events[event] || [];
+        this._events[event].push(callback);
     }
 
-    raise(event, data) {
-        if (this.events && this.events[event]) {
-            for (const callback of this.events[event]) {
+    emit(event, data) {
+        if (this._events && this._events[event]) {
+            for (const callback of this._events[event]) {
                 callback(this, data);
             }
         }
@@ -446,8 +452,8 @@ grapher.Node.List = class {
         const y = 0;
         this.element = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         this.element.setAttribute('class', 'node-attribute');
-        if (this.events.click) {
-            this.element.addEventListener('click', () => this.raise('click'));
+        if (this._events.click) {
+            this.element.addEventListener('click', () => this.emit('click'));
         }
         this.element.setAttribute('transform', 'translate(' + x + ',' + y + ')');
         this.background = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -537,10 +543,6 @@ grapher.Edge = class {
         this.to = to;
     }
 
-    get arrowhead() {
-        return 'vee';
-    }
-
     build(document, edgePathGroupElement, edgeLabelGroupElement) {
         const createElement = (name) => {
             return document.createElementNS('http://www.w3.org/2000/svg', name);
@@ -551,6 +553,11 @@ grapher.Edge = class {
         }
         this.element.setAttribute('class', this.class ? 'edge-path ' + this.class : 'edge-path');
         edgePathGroupElement.appendChild(this.element);
+        this.hitTest = createElement('path');
+        this.hitTest.setAttribute('class', 'edge-path-hit-test');
+        this.hitTest.addEventListener('pointerover', () => this.emit('pointerover'));
+        this.hitTest.addEventListener('pointerleave', () => this.emit('pointerleave'));
+        edgePathGroupElement.appendChild(this.hitTest);
         if (this.label) {
             const tspan = createElement('tspan');
             tspan.setAttribute('xml:space', 'preserve');
@@ -572,49 +579,59 @@ grapher.Edge = class {
     }
 
     update() {
-        const edgePath = grapher.Edge._computeCurvePath(this, this.from, this.to);
+        const intersectRect = (node, point) => {
+            const x = node.x;
+            const y = node.y;
+            const dx = point.x - x;
+            const dy = point.y - y;
+            let h = node.height / 2;
+            let w = node.width / 2;
+            if (Math.abs(dy) * w > Math.abs(dx) * h) {
+                if (dy < 0) {
+                    h = -h;
+                }
+                return { x: x + (dy === 0 ? 0 : h * dx / dy), y: y + h };
+            }
+            if (dx < 0) {
+                w = -w;
+            }
+            return { x: x + w, y: y + (dx === 0 ? 0 : w * dy / dx) };
+        };
+        const curvePath = (edge, tail, head) => {
+            const points = edge.points.slice(1, edge.points.length - 1);
+            points.unshift(intersectRect(tail, points[0]));
+            points.push(intersectRect(head, points[points.length - 1]));
+            return new grapher.Edge.Curve(points).path.data;
+        };
+        const edgePath = curvePath(this, this.from, this.to);
         this.element.setAttribute('d', edgePath);
+        this.hitTest.setAttribute('d', edgePath);
         if (this.labelElement) {
             this.labelElement.setAttribute('transform', 'translate(' + (this.x - (this.width / 2)) + ',' + (this.y - (this.height / 2)) + ')');
             this.labelElement.style.opacity = 1;
         }
     }
 
-    static _computeCurvePath(edge, tail, head) {
-        const points = edge.points.slice(1, edge.points.length - 1);
-        points.unshift(grapher.Edge._intersectRect(tail, points[0]));
-        points.push(grapher.Edge._intersectRect(head, points[points.length - 1]));
-        const curve = new grapher.Edge.Curve(points);
-        return curve.path.data;
+    select() {
+        if (this.element) {
+            if (!this.element.classList.contains('select')) {
+                const path = this.element;
+                path.classList.add('select');
+                this.element = path.cloneNode(true);
+                path.parentNode.replaceChild(this.element, path);
+            }
+            return [ this.element ];
+        }
+        return [];
     }
 
-    static _intersectRect(node, point) {
-        const x = node.x;
-        const y = node.y;
-        const dx = point.x - x;
-        const dy = point.y - y;
-        let w = node.width / 2;
-        let h = node.height / 2;
-        let sx;
-        let sy;
-        if (Math.abs(dy) * w > Math.abs(dx) * h) {
-            if (dy < 0) {
-                h = -h;
-            }
-            sx = dy === 0 ? 0 : h * dx / dy;
-            sy = h;
+    deselect() {
+        if (this.element && this.element.classList.contains('select')) {
+            const path = this.element;
+            path.classList.remove('select');
+            this.element = path.cloneNode(true);
+            path.parentNode.replaceChild(this.element, path);
         }
-        else {
-            if (dx < 0) {
-                w = -w;
-            }
-            sx = w;
-            sy = dx === 0 ? 0 : w * dy / dx;
-        }
-        return {
-            x: x + sx,
-            y: y + sy
-        };
     }
 };
 
@@ -639,6 +656,8 @@ grapher.Edge.Curve = class {
                     case 2:
                         this._path.lineTo(this._x1, this._y1);
                         break;
+                    default:
+                        break;
                 }
                 if (this._line || (this._line !== 0 && this._point === 1)) {
                     this._path.closePath();
@@ -660,8 +679,7 @@ grapher.Edge.Curve = class {
                 this._state = 1;
                 if (this._line) {
                     this._path.lineTo(x, y);
-                }
-                else {
+                } else {
                     this._path.moveTo(x, y);
                 }
                 break;

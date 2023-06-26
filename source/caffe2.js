@@ -1,188 +1,187 @@
 
-var caffe2 = caffe2 || {};
-var protobuf = protobuf || require('./protobuf');
+var caffe2 = {};
+var protobuf = require('./protobuf');
 
 caffe2.ModelFactory = class {
 
     match(context) {
         const identifier = context.identifier.toLowerCase();
         const extension = identifier.split('.').pop().toLowerCase();
-        switch (extension) {
-            case 'pb': {
-                const tags = context.tags('pb');
-                if (tags.size > 0 &&
-                    Array.from(tags.keys()).every((tag) => tag <= 9) &&
-                    Array.from(tags.values()).every((type) => type <= 4)) {
-                    if (tags.size === 1 && tags.get(2) === 2 && identifier.endsWith('saved_model.pb')) {
-                        return undefined;
-                    }
-                    const schema = [[1,2],[2,2],[3,2],[4,0],[5,2],[6,2],[7,2],[8,2],[9,2]];
-                    if (schema.every((pair) => !tags.has(pair[0]) || tags.get(pair[0]) === pair[1])) {
-                        const stream = context.stream;
-                        if (stream.length > 3) {
-                            const buffer = stream.peek(Math.min(stream.length, 67));
-                            if (buffer[0] == 0x0A) {
-                                const size = buffer[1];
-                                if (size < 64 &&
-                                    buffer.length > 2 + size + 1 &&
-                                    buffer.slice(2, 2 + size).every((c) => c >= 32 && c <= 127) &&
-                                    buffer[2 + size] == 0x12) {
-                                    return 'caffe2.pb';
-                                }
-                            }
-                            if (buffer[0] == 0x12) {
+        if (extension === 'pb') {
+            const tags = context.tags('pb');
+            if (tags.size > 0 &&
+                Array.from(tags.keys()).every((tag) => tag <= 9) &&
+                Array.from(tags.values()).every((type) => type <= 4)) {
+                if (tags.size === 1 && tags.get(2) === 2 && identifier.endsWith('saved_model.pb')) {
+                    return undefined;
+                }
+                const schema = [[1,2],[2,2],[3,2],[4,0],[5,2],[6,2],[7,2],[8,2],[9,2]];
+                if (schema.every((pair) => !tags.has(pair[0]) || tags.get(pair[0]) === pair[1])) {
+                    const stream = context.stream;
+                    if (stream.length > 3) {
+                        const buffer = stream.peek(Math.min(stream.length, 67));
+                        if (buffer[0] == 0x0A) {
+                            const size = buffer[1];
+                            if (size < 64 &&
+                                buffer.length > 2 + size + 1 &&
+                                buffer.slice(2, 2 + size).every((c) => c >= 32 && c <= 127) &&
+                                buffer[2 + size] == 0x12) {
                                 return 'caffe2.pb';
                             }
                         }
+                        if (buffer[0] == 0x12) {
+                            return 'caffe2.pb';
+                        }
                     }
                 }
-                break;
             }
-            case 'pbtxt':
-            case 'prototxt': {
-                const tags = context.tags('pbtxt');
-                if (tags.has('op') && !tags.has('op.attr') && !tags.has('op.graph_op_name') && !tags.has('op.endpoint')) {
-                    return 'caffe2.pbtxt';
-                }
-                break;
+        }
+        if (extension === 'pbtxt' || extension === 'prototxt') {
+            const tags = context.tags('pbtxt');
+            if (tags.has('op') && !tags.has('op.attr') && !tags.has('op.graph_op_name') && !tags.has('op.endpoint')) {
+                return 'caffe2.pbtxt';
             }
         }
         return undefined;
     }
 
-    open(context, match) {
-        return context.require('./caffe2-proto').then(() => {
-            return caffe2.Metadata.open(context).then((metadata) => {
-                const identifier = context.identifier;
-                const parts = identifier.split('.');
-                const extension = parts.pop().toLowerCase();
-                const base = parts.join('.');
-                switch (match) {
-                    case 'caffe2.pbtxt': {
-                        const openText = (predictBuffer, initBuffer, initTextFormat) => {
-                            let predict_net = null;
-                            let init_net = null;
-                            try {
-                                caffe2.proto = protobuf.get('caffe2').caffe2;
-                                const reader = protobuf.TextReader.open(predictBuffer);
-                                reader.field = function(tag, message) {
-                                    if (message instanceof caffe2.proto.DeviceOption) {
-                                        message[tag] = this.read();
-                                        return;
-                                    }
-                                    throw new Error("Unknown field '" + tag + "'" + this.location());
-                                };
-                                predict_net = caffe2.proto.NetDef.decodeText(reader);
+    async open(context, match) {
+        await context.require('./caffe2-proto');
+        const metadata = await context.metadata('caffe2-metadata.json');
+        const identifier = context.identifier;
+        const parts = identifier.split('.');
+        const extension = parts.pop().toLowerCase();
+        const base = parts.join('.');
+        switch (match) {
+            case 'caffe2.pbtxt': {
+                const openText = (predictBuffer, initBuffer, initTextFormat) => {
+                    let predict_net = null;
+                    let init_net = null;
+                    try {
+                        caffe2.proto = protobuf.get('caffe2').caffe2;
+                        const reader = protobuf.TextReader.open(predictBuffer);
+                        reader.field = function(tag, message) {
+                            if (message instanceof caffe2.proto.DeviceOption) {
+                                message[tag] = this.read();
+                                return;
                             }
-                            catch (error) {
-                                const message = error && error.message ? error.message : error.toString();
-                                throw new caffe2.Error('File text format is not caffe2.NetDef (' + message.replace(/\.$/, '') + ').');
-                            }
-                            try {
-                                caffe2.proto = protobuf.get('caffe2').caffe2;
-                                if (initBuffer) {
-                                    if (initTextFormat) {
-                                        const reader = protobuf.TextReader.open(initBuffer);
-                                        init_net = caffe2.proto.NetDef.decodeText(reader);
-                                    }
-                                    else {
-                                        const reader = protobuf.BinaryReader.open(initBuffer);
-                                        init_net = caffe2.proto.NetDef.decode(reader);
-                                    }
-                                }
-                            }
-                            catch (error) {
-                                // continue regardless of error
-                            }
-                            return new caffe2.Model(metadata, predict_net, init_net);
+                            throw new Error("Unknown field '" + tag + "'" + this.location());
                         };
-                        if (base.toLowerCase().endsWith('init_net') || base.toLowerCase().startsWith('init_net')) {
-                            return context.request(identifier.replace('init_net', 'predict_net'), null).then((stream) => {
-                                const buffer = stream.read();
-                                return openText(buffer, context.stream.peek(), true);
-                            }).catch(() => {
-                                return openText(context.stream.peek(), null, true);
-                            });
-                        }
-                        if (base.toLowerCase().endsWith('predict_net') || base.toLowerCase().startsWith('predict_net')) {
-                            return context.request(identifier.replace('predict_net', 'init_net').replace(/\.pbtxt/, '.pb'), null).then((stream) => {
-                                const buffer = stream.read();
-                                return openText(context.stream.peek(), buffer, false);
-                            }).catch(() => {
-                                return context.request(identifier.replace('predict_net', 'init_net'), null).then((stream) => {
-                                    const buffer = stream.read();
-                                    return openText(context.stream.peek(), buffer, true);
-                                }).catch(() => {
-                                    return openText(context.stream.peek(), null, true);
-                                });
-                            });
-                        }
-                        return context.request(base + '_init.pb', null).then((stream) => {
-                            const buffer = stream.read();
-                            return openText(context.stream.peek(), buffer, false);
-                        }).catch(() => {
-                            return openText(context.stream.peek(), null, false);
-                        });
+                        predict_net = caffe2.proto.NetDef.decodeText(reader);
+                    } catch (error) {
+                        const message = error && error.message ? error.message : error.toString();
+                        throw new caffe2.Error('File text format is not caffe2.NetDef (' + message.replace(/\.$/, '') + ').');
                     }
-                    case 'caffe2.pb': {
-                        const openBinary = (predictBuffer, initBuffer) => {
-                            let predict_net = null;
-                            let init_net = null;
-                            try {
-                                caffe2.proto = protobuf.get('caffe2').caffe2;
-                                const reader = protobuf.BinaryReader.open(predictBuffer);
-                                predict_net = caffe2.proto.NetDef.decode(reader);
+                    try {
+                        caffe2.proto = protobuf.get('caffe2').caffe2;
+                        if (initBuffer) {
+                            if (initTextFormat) {
+                                const reader = protobuf.TextReader.open(initBuffer);
+                                init_net = caffe2.proto.NetDef.decodeText(reader);
+                            } else {
+                                const reader = protobuf.BinaryReader.open(initBuffer);
+                                init_net = caffe2.proto.NetDef.decode(reader);
                             }
-                            catch (error) {
-                                const message = error && error.message ? error.message : error.toString();
-                                throw new caffe2.Error('File format is not caffe2.NetDef (' + message.replace(/\.$/, '') + ').');
-                            }
-                            try {
-                                if (initBuffer) {
-                                    caffe2.proto = protobuf.get('caffe2').caffe2;
-                                    const reader = protobuf.BinaryReader.open(initBuffer);
-                                    init_net = caffe2.proto.NetDef.decode(reader);
-                                }
-                            }
-                            catch (error) {
-                                // continue regardless of error
-                            }
-                            return new caffe2.Model(metadata, predict_net, init_net);
-                        };
-                        if (base.toLowerCase().endsWith('init_net')) {
-                            return context.request(base.replace(/init_net$/, '') + 'predict_net.' + extension, null).then((stream) => {
-                                const buffer = stream.read();
-                                return openBinary(buffer, context.stream.peek());
-                            }).catch(() => {
-                                return openBinary(context.stream.peek(), null);
-                            });
                         }
-                        if (base.toLowerCase().endsWith('_init')) {
-                            return context.request(base.replace(/_init$/, '') + '.' + extension, null).then((stream) => {
-                                const buffer = stream.read();
-                                return openBinary(buffer, context.stream.peek());
-                            }).catch(() => {
-                                return openBinary(context.stream.peek(), null);
-                            });
-                        }
-                        if (base.toLowerCase().endsWith('predict_net') || base.toLowerCase().startsWith('predict_net')) {
-                            return context.request(identifier.replace('predict_net', 'init_net'), null).then((stream) => {
-                                const buffer = stream.read();
-                                return openBinary(context.stream.peek(), buffer);
-                            }).catch(() => {
-                                return openBinary(context.stream.peek(), null);
-                            });
-                        }
-                        return context.request(base + '_init.' + extension, null).then((stream) => {
-                            const buffer = stream.read();
-                            return openBinary(context.stream.peek(), buffer);
-                        }).catch(() => {
-                            return openBinary(context.stream.peek(), null);
-                        });
+                    } catch (error) {
+                        // continue regardless of error
+                    }
+                    return new caffe2.Model(metadata, predict_net, init_net);
+                };
+                if (base.toLowerCase().endsWith('init_net') || base.toLowerCase().startsWith('init_net')) {
+                    try {
+                        const stream =  await context.request(identifier.replace('init_net', 'predict_net'), null);
+                        const buffer = stream.read();
+                        return openText(buffer, context.stream.peek(), true);
+                    } catch (error) {
+                        return openText(context.stream.peek(), null, true);
                     }
                 }
-            });
-        });
+                if (base.toLowerCase().endsWith('predict_net') || base.toLowerCase().startsWith('predict_net')) {
+                    try {
+                        const stream = await context.request(identifier.replace('predict_net', 'init_net').replace(/\.pbtxt/, '.pb'), null);
+                        const buffer = stream.read();
+                        return openText(context.stream.peek(), buffer, false);
+                    } catch (error) {
+                        try {
+                            const stream = await context.request(identifier.replace('predict_net', 'init_net'), null);
+                            const buffer = stream.read();
+                            return openText(context.stream.peek(), buffer, true);
+                        } catch (error) {
+                            return openText(context.stream.peek(), null, true);
+                        }
+                    }
+                }
+                try {
+                    const stream = await context.request(base + '_init.pb', null);
+                    const buffer = stream.read();
+                    return openText(context.stream.peek(), buffer, false);
+                } catch (error) {
+                    return openText(context.stream.peek(), null, false);
+                }
+            }
+            case 'caffe2.pb': {
+                const openBinary = (predictBuffer, initBuffer) => {
+                    let predict_net = null;
+                    let init_net = null;
+                    try {
+                        caffe2.proto = protobuf.get('caffe2').caffe2;
+                        const reader = protobuf.BinaryReader.open(predictBuffer);
+                        predict_net = caffe2.proto.NetDef.decode(reader);
+                    } catch (error) {
+                        const message = error && error.message ? error.message : error.toString();
+                        throw new caffe2.Error('File format is not caffe2.NetDef (' + message.replace(/\.$/, '') + ').');
+                    }
+                    try {
+                        if (initBuffer) {
+                            caffe2.proto = protobuf.get('caffe2').caffe2;
+                            const reader = protobuf.BinaryReader.open(initBuffer);
+                            init_net = caffe2.proto.NetDef.decode(reader);
+                        }
+                    } catch (error) {
+                        // continue regardless of error
+                    }
+                    return new caffe2.Model(metadata, predict_net, init_net);
+                };
+                if (base.toLowerCase().endsWith('init_net')) {
+                    try {
+                        const stream = await context.request(base.replace(/init_net$/, '') + 'predict_net.' + extension, null);
+                        const buffer = stream.read();
+                        return openBinary(buffer, context.stream.peek());
+                    } catch (error) {
+                        return openBinary(context.stream.peek(), null);
+                    }
+                }
+                if (base.toLowerCase().endsWith('_init')) {
+                    try {
+                        const stream = await context.request(base.replace(/_init$/, '') + '.' + extension, null);
+                        const buffer = stream.read();
+                        return openBinary(buffer, context.stream.peek());
+                    } catch (error) {
+                        return openBinary(context.stream.peek(), null);
+                    }
+                }
+                if (base.toLowerCase().endsWith('predict_net') || base.toLowerCase().startsWith('predict_net')) {
+                    try {
+                        const stream = await context.request(identifier.replace('predict_net', 'init_net'), null);
+                        const buffer = stream.read();
+                        return openBinary(context.stream.peek(), buffer);
+                    } catch (error) {
+                        return openBinary(context.stream.peek(), null);
+                    }
+                }
+                try {
+                    const stream = await context.request(base + '_init.' + extension, null);
+                    const buffer = stream.read();
+                    return openBinary(context.stream.peek(), buffer);
+                } catch (error) {
+                    return openBinary(context.stream.peek(), null);
+                }
+            }
+            default: {
+                throw new caffe2.Error("Unsupported Caffe2 format '" + match + "'.");
+            }
+        }
     }
 };
 
@@ -213,68 +212,45 @@ caffe2.Graph = class {
         this._name = netDef.name || '';
         this._type = netDef.type || '';
         this._nodes = [];
-
-        const inputs = new Map();
-        for (const input of netDef.external_input) {
-            inputs.set(input, {});
+        const initializers = new Set();
+        const tensors = new Map();
+        for (const name of netDef.external_input) {
+            tensors.set(name, new caffe2.Tensor(name, {}));
         }
         if (init) {
+            const dataTypes = new Map([
+                [ 'GivenTensorFill', 'float32' ],
+                [ 'GivenTensorDoubleFill', 'float64' ],
+                [ 'GivenTensorBoolFill', 'boolean' ],
+                [ 'GivenTensorByteStringToUInt8Fill', 'uint8' ],
+                [ 'GivenTensorInt16Fill', 'int16' ],
+                [ 'GivenTensorSInt16Fill', 'int16' ],
+                [ 'GivenTensorIntFill', 'int32' ],
+                [ 'GivenTensorInt64Fill', 'int64' ],
+                [ 'GivenTensorStringFill', 'string' ],
+                [ 'Int8GivenIntTensorFill', 'int32' ],
+                [ 'Int8GivenTensorFill', 'int8' ],
+                [ 'XavierFill', null ],
+                [ 'ConstantFill', null ]
+            ]);
             for (const op of init.op) {
                 if (op.output && op.output.length == 1) {
                     const name = op.output[0];
-                    if (!inputs.has(name)) {
-                        inputs.set(name, {});
-                    }
-                    const initializer = inputs.get(name);
+                    const tensor = {};
                     for (const arg of op.arg) {
-                        initializer[arg.name] = arg;
+                        tensor[arg.name] = arg;
                     }
-                    switch (op.type) {
-                        case 'GivenTensorFill':
-                            initializer.dataType = 'float32';
-                            break;
-                        case 'GivenTensorDoubleFill':
-                            initializer.dataType = 'float64';
-                            break;
-                        case 'GivenTensorBoolFill':
-                            initializer.dataType = 'boolean';
-                            break;
-                        case 'GivenTensorByteStringToUInt8Fill':
-                            initializer.dataType = 'uint8';
-                            break;
-                        case 'GivenTensorInt16Fill':
-                        case 'GivenTensorSInt16Fill':
-                            initializer.dataType = 'int16';
-                            break;
-                        case 'GivenTensorIntFill':
-                            initializer.dataType = 'int32';
-                            break;
-                        case 'GivenTensorInt64Fill':
-                            initializer.dataType = 'int64';
-                            break;
-                        case 'GivenTensorStringFill':
-                            initializer.dataType = 'string';
-                            break;
-                        case 'Int8GivenIntTensorFill':
-                            initializer.dataType = 'int32';
-                            break;
-                        case 'Int8GivenTensorFill':
-                            initializer.dataType = 'int8';
-                            break;
-                        case 'XavierFill':
-                            break;
-                        case 'ConstantFill':
-                            break;
-                        default:
-                            throw new caffe2.Error("Unknown init op '" + op.type + "'.");
+                    if (!dataTypes.has(op.type)) {
+                        throw new caffe2.Error("Unsupported init op '" + op.type + "'.");
                     }
-                    if (initializer.values && initializer.values.floats && (initializer.values.floats.length !== 1 || initializer.values.floats[0] !== 0)) {
-                        initializer.input = false;
+                    tensor.dataType = dataTypes.get(op.type);
+                    if (tensor.values && tensor.values.floats && (tensor.values.floats.length !== 1 || tensor.values.floats[0] !== 0)) {
+                        initializers.add(name);
                     }
+                    tensors.set(name, new caffe2.Tensor(name, tensor));
                 }
             }
         }
-
         const scope = {};
         let index = 0;
         for (const op of netDef.op) {
@@ -290,19 +266,45 @@ caffe2.Graph = class {
             });
             index++;
         }
-
+        const args = new Map();
+        const arg = (name, type, tensor) => {
+            if (!args.has(name)) {
+                args.set(name, new caffe2.Value(name, type || null, tensor || null));
+            } else if (type || tensor) {
+                throw new caffe2.Value("Duplicate value '" + name + "'.");
+            }
+            return args.get(name);
+        };
+        for (const op of netDef.op) {
+            let index = 0;
+            for (const name of op.input) {
+                if (index > 0 && tensors.has(name)) {
+                    if (!args.has(name)) {
+                        args.set(name, new caffe2.Value(name, null, tensors.get(name)));
+                    }
+                    initializers.add(name);
+                }
+                index++;
+            }
+        }
+        for (const op of netDef.op) {
+            for (const name of op.output) {
+                if (tensors.has(name)) {
+                    initializers.add(name);
+                }
+            }
+        }
         let lastNode = null;
         let lastOutput = null;
         for (const op of netDef.op) {
-            const node = new caffe2.Node(metadata, op, inputs);
+            const node = new caffe2.Node(metadata, op, arg);
             if (op.input.length == 1 &&
                 op.output.length >= 1 &&
                 op.input[0].split('\n').shift() == op.output[0].split('\n').shift() &&
                 lastNode &&
                 lastOutput == op.input[0].split('\n').shift()) {
                 lastNode.chain.push(node);
-            }
-            else {
+            } else {
                 this._nodes.push(node);
                 lastNode = null;
                 lastOutput = null;
@@ -312,21 +314,16 @@ caffe2.Graph = class {
                 }
             }
         }
-
         this._inputs = [];
         for (const input of netDef.external_input) {
-            if (netDef.external_input.length > 1) {
-                const initializer = inputs.get(input);
-                if (initializer && initializer.input === false) {
-                    continue;
-                }
+            if (netDef.external_input.length > 1 && initializers.has(input)) {
+                continue;
             }
-            this._inputs.push(new caffe2.Parameter(input, [ new caffe2.Argument(input, null, null) ]));
+            this._inputs.push(new caffe2.Argument(input, [ arg(input) ]));
         }
-
         this._outputs = [];
         for (const output of netDef.external_output) {
-            this._outputs.push(new caffe2.Parameter(output, [ new caffe2.Argument(output, null, null) ]));
+            this._outputs.push(new caffe2.Argument(output, [ arg(output) ]));
         }
     }
 
@@ -349,37 +346,29 @@ caffe2.Graph = class {
     get nodes() {
         return this._nodes;
     }
-
-    toString() {
-        return 'graph(' + this.name + ')';
-    }
 };
 
-caffe2.Parameter = class {
+caffe2.Argument = class {
 
-    constructor(name, args) {
+    constructor(name, value) {
         this._name = name;
-        this._arguments = args;
+        this._value = value;
     }
 
     get name() {
         return this._name;
     }
 
-    get visible() {
-        return true;
-    }
-
-    get arguments() {
-        return this._arguments;
+    get value() {
+        return this._value;
     }
 };
 
-caffe2.Argument = class {
+caffe2.Value = class {
 
     constructor(name, type, initializer) {
         if (typeof name !== 'string') {
-            throw new caffe2.Error("Invalid argument identifier '" + JSON.stringify(name) + "'.");
+            throw new caffe2.Error("Invalid value identifier '" + JSON.stringify(name) + "'.");
         }
         this._name = name;
         this._type = type || null;
@@ -411,55 +400,30 @@ caffe2.Argument = class {
 
 caffe2.Node = class {
 
-    constructor(metadata, op, initializers) {
+    constructor(metadata, op, arg) {
         this._name = op.name || '';
         this._device = op.engine || '';
         this._metadata = metadata;
         this._chain = [];
-        this._attributes = [];
         this._type = metadata.type(op.type);
-        for (const arg of op.arg) {
-            const attribute = new caffe2.Attribute(metadata, metadata.attribute(this._type.name, arg.name), arg);
-            this._attributes.push(attribute);
-        }
+        this._attributes = op.arg.map((arg) => new caffe2.Attribute(metadata, this._type.name, arg));
         const inputs = op.input;
         const outputs = op.output;
-        const tensors = {};
-        let index = 0;
-        for (const input of inputs) {
-            if (index > 0 && initializers.has(input)) {
-                const initializer = initializers.get(input);
-                tensors[input] = new caffe2.Tensor(input, initializer);
-                initializer.input = false;
-            }
-            index++;
-        }
-        for (const output of outputs) {
-            if (initializers.has(output)) {
-                const initializer = initializers.get(output);
-                initializer.input = false;
-            }
-        }
         this._inputs = [];
         let inputIndex = 0;
         if (this._type && this._type.inputs) {
             for (const inputDef of this._type.inputs) {
                 if (inputIndex < inputs.length || inputDef.option != 'optional') {
                     const inputCount = (inputDef.option == 'variadic') ? (inputs.length - inputIndex) : 1;
-                    const inputArguments = inputs.slice(inputIndex, inputIndex + inputCount).filter((id) => id != '' || inputDef.option != 'optional').map((id) => {
-                        return new caffe2.Argument(id, null, tensors[id]);
-                    });
-                    this._inputs.push(new caffe2.Parameter(inputDef.name, inputArguments));
+                    const inputArguments = inputs.slice(inputIndex, inputIndex + inputCount).filter((id) => id != '' || inputDef.option != 'optional').map((id) => arg(id));
+                    this._inputs.push(new caffe2.Argument(inputDef.name, inputArguments));
                     inputIndex += inputCount;
                 }
             }
-        }
-        else {
+        } else {
             this._inputs.push(...inputs.slice(inputIndex).map((input, index) => {
                 const inputName = ((inputIndex + index) == 0) ? 'input' : (inputIndex + index).toString();
-                return new caffe2.Parameter(inputName, [
-                    new caffe2.Argument(input, null, tensors[input])
-                ]);
+                return new caffe2.Argument(inputName, [ arg(input) ]);
             }));
         }
         this._outputs = [];
@@ -468,18 +432,15 @@ caffe2.Node = class {
             for (const outputDef of this._type.outputs) {
                 if (outputIndex < outputs.length || outputDef.option != 'optional') {
                     const outputCount = (outputDef.option == 'variadic') ? (outputs.length - outputIndex) : 1;
-                    const outputArguments = outputs.slice(outputIndex, outputIndex + outputCount).map((id) => new caffe2.Argument(id));
-                    this._outputs.push(new caffe2.Parameter(outputDef.name, outputArguments));
+                    const outputArguments = outputs.slice(outputIndex, outputIndex + outputCount).map((id) => arg(id));
+                    this._outputs.push(new caffe2.Argument(outputDef.name, outputArguments));
                     outputIndex += outputCount;
                 }
             }
-        }
-        else {
+        } else {
             this._outputs.push(...outputs.slice(outputIndex).map((output, index) => {
                 const outputName = ((outputIndex + index) == 0) ? 'output' : (outputIndex + index).toString();
-                return new caffe2.Parameter(outputName, [
-                    new caffe2.Argument(output, null, null)
-                ]);
+                return new caffe2.Argument(outputName, [ arg(output) ]);
             }));
         }
     }
@@ -515,46 +476,38 @@ caffe2.Node = class {
 
 caffe2.Attribute = class {
 
-    constructor(metadata, schema, arg) {
+    constructor(metadata, type, arg) {
         this._name = arg.name;
         if (arg.floats && arg.floats.length > 0) {
             this._value = arg.floats;
-        }
-        else if (arg.ints && arg.ints.length > 0) {
+        } else if (arg.ints && arg.ints.length > 0) {
             this._value = arg.ints;
-        }
-        else if (arg.nets && arg.nets.length > 0) {
+        } else if (arg.nets && arg.nets.length > 0) {
             this._value = arg.nets.map((net) => new caffe2.Graph(metadata, net, null));
             this._type = 'graph[]';
-        }
-        else if (arg.n) {
+        } else if (arg.n) {
             this._value = new caffe2.Graph(metadata, arg.n, null);
             this._type = 'graph';
-        }
-        else if (arg.i != 0) {
+        } else if (arg.i != 0) {
+            this._value = arg.i;
+        } else {
             this._value = arg.i;
         }
-        else {
-            this._value = arg.i;
-        }
-        if (schema) {
-            if (Object.prototype.hasOwnProperty.call(schema, 'type')) {
-                this._type = schema.type;
+        metadata = metadata.attribute(type, arg.name);
+        if (metadata) {
+            if (Object.prototype.hasOwnProperty.call(metadata, 'type')) {
+                this._type = metadata.type;
                 if (this._type == 'boolean') {
-                    switch (this._value) {
-                        case 1: this._value = true; break;
-                        case 0: this._value = false; break;
-                    }
+                    this._value = this._value !== 0 && this._value.toString() !== '0' ? true : false;
                 }
             }
         }
 
-        if (schema) {
-            if (Object.prototype.hasOwnProperty.call(schema, 'visible') && !schema.visible) {
+        if (metadata) {
+            if (Object.prototype.hasOwnProperty.call(metadata, 'visible') && !metadata.visible) {
                 this._visible = false;
-            }
-            else if (Object.prototype.hasOwnProperty.call(schema, 'default')) {
-                if (this._value == schema.default || (this._value && this._value.toString() == schema.default.toString())) {
+            } else if (metadata.default !== undefined) {
+                if (this._value == metadata.default || (this._value && this._value.toString() == metadata.default.toString())) {
                     this._visible = false;
                 }
             }
@@ -597,7 +550,7 @@ caffe2.Tensor = class {
         return this._type;
     }
 
-    get kind() {
+    get category() {
         return 'Initializer';
     }
 
@@ -608,130 +561,21 @@ caffe2.Tensor = class {
         return null;
     }
 
-    get state() {
-        return this._context().state;
+    get layout() {
+        return '|';
     }
 
-    get value() {
-        const context = this._context();
-        if (context.state) {
+    get values() {
+        if (!this._values) {
             return null;
         }
-        context.limit = Number.MAX_SAFE_INTEGER;
-        return this._decode(context, 0);
-    }
-
-    toString() {
-        const context = this._context();
-        if (context.state) {
-            return '';
-        }
-        context.limit = 10000;
-        const value = this._decode(context, 0);
-        return caffe2.Tensor._stringify(value, '', '    ');
-    }
-
-    _context() {
-        const context = {};
-        context.state = null;
-        context.index = 0;
-        context.count = 0;
-        if (!this._values) {
-            context.state = 'Tensor data is empty.';
-            return context;
-        }
-        if (this._values.floats === undefined) {
-            context.state = 'Tensor data is too large to load in Chrome.';
-            return context;
-        }
         switch (this._type.dataType) {
-            case 'float32':
-                context.data = this._values.floats;
-                break;
-            case 'boolean':
-                context.data = this._values.ints;
-                break;
-            case 'int8':
-                context.data = new Int8Array(this._values.s);
-                break;
-            case 'int32':
-                context.data = this._values.ints;
-                break;
-            default:
-                context.state = 'Unknown data type.';
-                return context;
+            case 'float32': return this._values.floats;
+            case 'boolean': return this._values.ints;
+            case 'int8': return new Int8Array(this._values.s);
+            case 'int32': return this._values.ints;
+            default: return null;
         }
-        context.shape = this._type.shape.dimensions;
-        context.dataType = this._type.dataType;
-        return context;
-    }
-
-    _decode(context, dimension) {
-        const results = [];
-        const size = context.shape[dimension];
-        if (dimension == context.shape.length - 1) {
-            for (let i = 0; i < size; i++) {
-                if (context.count > context.limit) {
-                    results.push('...');
-                    return results;
-                }
-                switch (context.dataType) {
-                    case 'float32':
-                        results.push(context.data[context.index]);
-                        break;
-                    case 'boolean':
-                        results.push(context.data[context.index] == 0 ? false : true);
-                        break;
-                    case 'int8':
-                        results.push(context.data[context.index]);
-                        break;
-                    case 'int32':
-                        results.push(context.data[context.index]);
-                        break;
-                    default:
-                        context.state = 'Unknown data type.';
-                        break;
-                }
-                context.index++;
-                context.count++;
-            }
-        }
-        else {
-            for (let j = 0; j < size; j++) {
-                if (context.count > context.limit) {
-                    results.push('...');
-                    return results;
-                }
-                results.push(this._decode(context, dimension + 1));
-            }
-        }
-        return results;
-    }
-
-    static _stringify(value, indentation, indent) {
-        if (Array.isArray(value)) {
-            const result = [];
-            result.push(indentation + '[');
-            const items = value.map((item) => caffe2.Tensor._stringify(item, indentation + indent, indent));
-            if (items.length > 0) {
-                result.push(items.join(',\n'));
-            }
-            result.push(indentation + ']');
-            return result.join('\n');
-        }
-        if (typeof value == 'string') {
-            return indentation + value;
-        }
-        if (value == Infinity) {
-            return indentation + 'Infinity';
-        }
-        if (value == -Infinity) {
-            return indentation + '-Infinity';
-        }
-        if (isNaN(value)) {
-            return indentation + 'NaN';
-        }
-        return indentation + value.toString();
     }
 };
 
@@ -767,52 +611,6 @@ caffe2.TensorShape = class {
 
     toString() {
         return this._dimensions ? ('[' + this._dimensions.map((dimension) => dimension.toString()).join(',') + ']') : '';
-    }
-};
-
-caffe2.Metadata = class {
-
-    static open(context) {
-        if (caffe2.Metadata._metadata) {
-            return Promise.resolve(caffe2.Metadata._metadata);
-        }
-        return context.request('caffe2-metadata.json', 'utf-8', null).then((data) => {
-            caffe2.Metadata._metadata = new caffe2.Metadata(data);
-            return caffe2.Metadata._metadata;
-        }).catch(() => {
-            caffe2.Metadata._metadata = new caffe2.Metadata(null);
-            return caffe2.Metadata._metadata;
-        });
-    }
-
-    constructor(data) {
-        this._types = new Map();
-        this._attributes = new Map();
-        if (data) {
-            const metadata = JSON.parse(data);
-            this._types = new Map(metadata.map((item) => [ item.name, item ]));
-        }
-    }
-
-    type(name) {
-        if (!this._types.has(name)) {
-            this._types.set(name, { name: name });
-        }
-        return this._types.get(name);
-    }
-
-    attribute(type, name) {
-        const key = type + ':' + name;
-        if (!this._attributes.has(key)) {
-            this._attributes.set(key, null);
-            const metadata = this.type(type);
-            if (metadata && Array.isArray(metadata.attributes)) {
-                for (const attribute of metadata.attributes) {
-                    this._attributes.set(type + ':' + attribute.name, attribute);
-                }
-            }
-        }
-        return this._attributes.get(key);
     }
 };
 

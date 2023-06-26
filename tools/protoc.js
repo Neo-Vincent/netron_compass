@@ -48,8 +48,7 @@ protoc.Namespace = class extends protoc.Object {
                 if (!(parent instanceof protoc.Namespace)) {
                     throw new protoc.Error('Invalid path.');
                 }
-            }
-            else {
+            } else {
                 parent = new protoc.Namespace(parent, part);
             }
         }
@@ -87,12 +86,10 @@ protoc.Namespace = class extends protoc.Object {
                 if (found instanceof filterType) {
                     return found;
                 }
-            }
-            else if (found instanceof protoc.Namespace && (found = found.find(path.slice(1), filterType, true))) {
+            } else if (found instanceof protoc.Namespace && (found = found.find(path.slice(1), filterType, true))) {
                 return found;
             }
-        }
-        else {
+        } else {
             for (const child of this.children.values()) {
                 if (child instanceof protoc.Namespace && (found = child.find(path, filterType, true))) {
                     return found;
@@ -160,8 +157,7 @@ protoc.Root = class extends protoc.Namespace {
             const resolved = this._resolve(file, '', paths);
             if (resolved) {
                 this._loadFile(paths, resolved);
-            }
-            else {
+            } else {
                 throw new protoc.Error("File '" + file + "' not found.");
             }
         }
@@ -174,14 +170,12 @@ protoc.Root = class extends protoc.Namespace {
             if (!this._library.has(file)) {
                 try {
                     this._parseFile(paths, file);
-                }
-                catch (err) {
+                } catch (err) {
                     if (!weak) {
                         throw err;
                     }
                 }
-            }
-            else {
+            } else {
                 const callback = this._library.get(file);
                 callback();
             }
@@ -271,8 +265,7 @@ protoc.Enum = class extends protoc.Type {
             if (!this.options.has('allow_alias')) {
                 throw new protoc.Error("Duplicate identifier '" + id + "' in '" + this.name + "'.");
             }
-        }
-        else {
+        } else {
             this.valuesById[id] = name;
         }
         this.values[name] = id;
@@ -320,7 +313,7 @@ protoc.Field = class extends protoc.Object {
         if (!Number.isInteger(id) || id < 0) {
             throw new protoc.Error('Identifier must be a non-negative integer.');
         }
-        if (rule && !/^required|optional|repeated$/.test(rule = rule.toString().toLowerCase())) {
+        if (rule && rule !== 'required' && rule !== 'optional' && rule !== 'repeated') {
             throw new protoc.Error('Rule must be a string.');
         }
         this.id = id;
@@ -358,8 +351,7 @@ protoc.Field = class extends protoc.Object {
         let value = null;
         if (type instanceof protoc.PrimitiveType) {
             value = type.defaultValue;
-        }
-        else if (type instanceof protoc.Enum) {
+        } else if (type instanceof protoc.Enum) {
             value = type.values[Object.keys(type.values)[0]];
         }
         if (this.options.has('default')) {
@@ -399,7 +391,7 @@ protoc.Parser = class {
 
     constructor(text, file, root) {
         this._context = root;
-        this._tokenizer = new protoc.Parser.Tokenizer(text, file);
+        this._tokenizer = new protoc.Tokenizer(text, file);
         this._head = true;
         this._imports = [];
         this._weakImports = [];
@@ -451,20 +443,22 @@ protoc.Parser = class {
                 return 0x1fffffff;
             case '0':
                 return 0;
+            default: {
+                if (!acceptNegative && token.charAt(0) === "-") {
+                    throw this._parseError(token, 'id');
+                }
+                if (/^-?[1-9][0-9]*$/.test(token)) {
+                    return parseInt(token, 10);
+                }
+                if (/^-?0[x][0-9a-fA-F]+$/.test(token)) {
+                    return parseInt(token, 16);
+                }
+                if (/^-?0[0-7]+$/.test(token)) {
+                    return parseInt(token, 8);
+                }
+                throw this._parseError(token, 'id');
+            }
         }
-        if (!acceptNegative && token.charAt(0) === "-") {
-            throw this._parseError(token, "id");
-        }
-        if (/^-?[1-9][0-9]*$/.test(token)) {
-            return parseInt(token, 10);
-        }
-        if (/^-?0[x][0-9a-fA-F]+$/.test(token)) {
-            return parseInt(token, 16);
-        }
-        if (/^-?0[0-7]+$/.test(token)) {
-            return parseInt(token, 8);
-        }
-        throw this._parseError(token, "id");
     }
 
     _parsePackage() {
@@ -473,7 +467,7 @@ protoc.Parser = class {
         }
         this._package = this._tokenizer.next();
         if (!protoc.Parser._isTypeReference(this._package)) {
-            throw this._parseError(this._package, "name");
+            throw this._parseError(this._package, 'name');
         }
         this._context = this._context.defineNamespace(this._package);
         this._tokenizer.expect(";");
@@ -481,29 +475,26 @@ protoc.Parser = class {
 
     _parseImport() {
         let token = this._tokenizer.peek();
-        let whichImports;
-        switch (token) {
-            case "weak":
-                whichImports = this._weakImports;
+        if (token === 'weak') {
+            this._tokenizer.next();
+            token = this._readString();
+            this._tokenizer.expect(";");
+            this._weakImports.push(token);
+        } else {
+            if (token === 'public') {
                 this._tokenizer.next();
-                break;
-            case "public":
-                this._tokenizer.next();
-                // eslint-disable-line no-fallthrough
-            default:
-                whichImports = this._imports;
-                break;
+            }
+            token = this._readString();
+            this._tokenizer.expect(";");
+            this._imports.push(token);
         }
-        token = this._readString();
-        this._tokenizer.expect(";");
-        whichImports.push(token);
     }
 
     _parseSyntax() {
         this._tokenizer.expect("=");
         this._syntax = this._readString();
         if (this._syntax !== 'proto2' && this._syntax !== 'proto3') {
-            throw this._parseError(this._syntax, "syntax");
+            throw this._parseError(this._syntax, 'syntax');
         }
         this._tokenizer.expect(";");
     }
@@ -525,8 +516,9 @@ protoc.Parser = class {
                 return true;
             case 'service':
                 throw new protoc.Error("Keyword '" + token + "' is not supported" + this._tokenizer.location());
+            default:
+                return false;
         }
-        return false;
     }
 
     _ifBlock(obj, ifCallback, elseCallback) {
@@ -539,8 +531,7 @@ protoc.Parser = class {
                 ifCallback(token);
             }
             this._tokenizer.eat(";");
-        }
-        else {
+        } else {
             if (elseCallback) {
                 elseCallback();
             }
@@ -551,39 +542,38 @@ protoc.Parser = class {
     _parseType(parent, token) {
         token = this._tokenizer.next();
         if (!protoc.Parser._isName(token)) {
-            throw this._parseError(token, "type");
+            throw this._parseError(token, 'type');
         }
         const type = new protoc.Type(parent, token);
-        const self = this;
-        this._ifBlock(type, function(token) {
-            if (self._parseCommon(type, token)) {
+        this._ifBlock(type, (token) => {
+            if (this._parseCommon(type, token)) {
                 return;
             }
             switch (token) {
-                case "map":
-                    self._parseMapField(type, token);
+                case 'map':
+                    this._parseMapField(type, token);
                     break;
-                case "required":
-                case "optional":
-                case "repeated":
-                    self._parseField(type, token);
+                case 'required':
+                case 'optional':
+                case 'repeated':
+                    this._parseField(type, token);
                     break;
-                case "oneof":
-                    self._parseOneOf(type, token);
+                case 'oneof':
+                    this._parseOneOf(type, token);
                     break;
-                case "reserved":
-                    self._readRanges(type.reserved, true);
+                case 'reserved':
+                    this._readRanges(type.reserved, true);
                     break;
                 case 'extensions':
-                    self._readRanges(type.extensions);
+                    this._readRanges(type.extensions);
                     break;
                     // throw new protoc.Error("Keyword 'extensions' is not supported" + self._tokenizer.location());
                 default:
-                    if (self._syntax !== 'proto3' || !protoc.Parser._isTypeReference(token)) {
-                        throw self._parseError(token);
+                    if (this._syntax !== 'proto3' || !protoc.Parser._isTypeReference(token)) {
+                        throw this._parseError(token);
                     }
-                    self._tokenizer.push(token);
-                    self._parseField(type, "optional");
+                    this._tokenizer.push(token);
+                    this._parseField(type, 'optional');
                     break;
             }
         });
@@ -596,33 +586,31 @@ protoc.Parser = class {
             return;
         }
         if (!protoc.Parser._isTypeReference(type)) {
-            throw this._parseError(type, "type");
+            throw this._parseError(type, 'type');
         }
         const name = this._tokenizer.next();
         if (!protoc.Parser._isName(name)) {
-            throw this._parseError(name, "name");
+            throw this._parseError(name, 'name');
         }
         this._tokenizer.expect("=");
         const id = this._parseId(this._tokenizer.next());
         const field = new protoc.Field(parent, name, id, type, rule, extend);
-        const self = this;
-        this._ifBlock(field, function (token) {
+        this._ifBlock(field, (token) => {
             if (token === "option") {
-                self._parseOption(field, token);
-                self._tokenizer.expect(";");
+                this._parseOption(field, token);
+                this._tokenizer.expect(";");
+            } else {
+                throw this._parseError(token);
             }
-            else {
-                throw self._parseError(token);
-            }
-        }, function () {
-            self._parseInlineOptions(field);
+        }, () => {
+            this._parseInlineOptions(field);
         });
     }
 
     _parseGroup(parent, rule) {
         let name = this._tokenizer.next();
         if (!protoc.Parser._isName(name)) {
-            throw this._parseError(name, "name");
+            throw this._parseError(name, 'name');
         }
         const fieldName = name.charAt(0).toLowerCase() + name.substring(1);
         if (name === fieldName) {
@@ -634,19 +622,19 @@ protoc.Parser = class {
         type.group = true;
         const field = new protoc.Field(parent, fieldName, id, name, rule);
         field.file = this._file;
-        this._ifBlock(type, function parseGroup_block(token) {
+        this._ifBlock(type, (token) => {
             switch (token) {
                 case "option":
-                    self._parseOption(type, token);
-                    self._tokenizer.expect(";");
+                    this._parseOption(type, token);
+                    this._tokenizer.expect(";");
                     break;
                 case "required":
                 case "optional":
                 case "repeated":
-                    self._parseField(type, token);
+                    this._parseField(type, token);
                     break;
                 default:
-                    throw self._parseError(token); // there are no groups with proto3 semantics
+                    throw this._parseError(token); // there are no groups with proto3 semantics
             }
         });
         parent.add(type).add(field);
@@ -657,33 +645,30 @@ protoc.Parser = class {
         const keyType = this._tokenizer.next();
         const resolvedKeyType = protoc.PrimitiveType.get(keyType);
         if (!resolvedKeyType || !resolvedKeyType.mapKey) {
-            throw this._parseError(keyType, "type");
+            throw this._parseError(keyType, 'type');
         }
         this._tokenizer.expect(",");
         const valueType = this._tokenizer.next();
         if (!protoc.Parser._isTypeReference(valueType)) {
-            throw this._parseError(valueType, "type");
+            throw this._parseError(valueType, 'type');
         }
         this._tokenizer.expect(">");
         const name = this._tokenizer.next();
         if (!protoc.Parser._isName(name)) {
-            throw this._parseError(name, "name");
+            throw this._parseError(name, 'name');
         }
         this._tokenizer.expect("=");
         const id = this._parseId(this._tokenizer.next());
         const field = new protoc.MapField(parent, name, id, keyType, valueType);
-        const self = this;
-        this._ifBlock(field, function(token) {
+        this._ifBlock(field, (token) => {
             if (token === "option") {
-                self._parseOption(field, token);
-                self._tokenizer.expect(";");
+                this._parseOption(field, token);
+                this._tokenizer.expect(";");
+            } else {
+                throw this._parseError(token);
             }
-            else {
-                throw self._parseError(token);
-            }
-
-        }, function() {
-            self._parseInlineOptions(field);
+        }, () => {
+            this._parseInlineOptions(field);
         });
     }
 
@@ -691,18 +676,16 @@ protoc.Parser = class {
 
         token = this._tokenizer.next();
         if (!protoc.Parser._isName(token)) {
-            throw this._parseError(token, "name");
+            throw this._parseError(token, 'name');
         }
         const oneof = new protoc.OneOf(parent, token);
-        const self = this;
-        this._ifBlock(oneof, function(token) {
+        this._ifBlock(oneof, (token) => {
             if (token === "option") {
-                self._parseOption(oneof, token);
-                self._tokenizer.expect(";");
-            }
-            else {
-                self._tokenizer.push(token);
-                self._parseField(oneof, "optional");
+                this._parseOption(oneof, token);
+                this._tokenizer.expect(";");
+            } else {
+                this._tokenizer.push(token);
+                this._parseField(oneof, 'optional');
             }
         });
     }
@@ -710,21 +693,20 @@ protoc.Parser = class {
     _parseEnum(parent, token) {
         token = this._tokenizer.next();
         if (!protoc.Parser._isName(token)) {
-            throw this._parseError(token, "name");
+            throw this._parseError(token, 'name');
         }
         const obj = new protoc.Enum(parent, token);
-        const self = this;
-        this._ifBlock(obj, function(token) {
-            switch(token) {
+        this._ifBlock(obj, (token) => {
+            switch (token) {
                 case "option":
-                    self._parseOption(obj, token);
-                    self._tokenizer.expect(";");
+                    this._parseOption(obj, token);
+                    this._tokenizer.expect(";");
                     break;
                 case "reserved":
-                    self._readRanges(obj.reserved, true);
+                    this._readRanges(obj.reserved, true);
                     break;
                 default:
-                    self._parseEnumValue(obj, token);
+                    this._parseEnumValue(obj, token);
                     break;
             }
         });
@@ -732,23 +714,21 @@ protoc.Parser = class {
 
     _parseEnumValue(parent, token) {
         if (!protoc.Parser._isName(token)) {
-            throw this._parseError(token, "name");
+            throw this._parseError(token, 'name');
         }
         this._tokenizer.expect("=");
         const value = this._parseId(this._tokenizer.next(), true);
         const dummy = {};
-        const self = this;
-        this._ifBlock(dummy, function(token) {
+        this._ifBlock(dummy, (token) => {
             if (token === "option") {
-                self._parseOption(dummy, token); // skip
-                self._tokenizer.expect(";");
-            }
-            else {
-                throw self._parseError(token);
+                this._parseOption(dummy, token); // skip
+                this._tokenizer.expect(";");
+            } else {
+                throw this._parseError(token);
             }
 
-        }, function() {
-            self._parseInlineOptions(dummy); // skip
+        }, () => {
+            this._parseInlineOptions(dummy); // skip
         });
         parent.add(token, value);
     }
@@ -756,23 +736,22 @@ protoc.Parser = class {
     _parseExtend(parent, token) {
         token = this._tokenizer.next();
         if (!protoc.Parser._isTypeReference(token)) {
-            throw this._parseError(token, "reference");
+            throw this._parseError(token, 'reference');
         }
         const reference = token;
-        const self = this;
-        this._ifBlock(null, function(token) {
+        this._ifBlock(null, (token) => {
             switch (token) {
                 case "required":
                 case "repeated":
                 case "optional":
-                    self._parseField(parent, token, reference);
+                    this._parseField(parent, token, reference);
                     break;
                 default:
-                    if (!self._syntax !== 'proto3' || !protoc.Parser._isTypeReference(token)) {
-                        throw self._parseError(token);
+                    if (this._syntax === 'proto3' || !protoc.Parser._isTypeReference(token)) {
+                        throw this._parseError(token);
                     }
-                    self._tokenizer.push(token);
-                    self._parseField(parent, "optional", reference);
+                    this._tokenizer.push(token);
+                    this._parseField(parent, 'optional', reference);
                     break;
             }
         });
@@ -782,7 +761,7 @@ protoc.Parser = class {
         const custom = this._tokenizer.eat("(");
         token = this._tokenizer.next();
         if (!protoc.Parser._isTypeReference(token)) {
-            throw this._parseError(token, "name");
+            throw this._parseError(token, 'name');
         }
         let name = token;
         if (custom) {
@@ -807,20 +786,17 @@ protoc.Parser = class {
                 }
                 if (this._tokenizer.peek() === '{') {
                     this._parseOptionValue(parent, name + '.' + token);
-                }
-                else {
+                } else {
                     this._tokenizer.expect(':');
                     if (this._tokenizer.peek() === '{') {
                         this._parseOptionValue(parent, name + '.' + token);
-                    }
-                    else {
+                    } else {
                         parent.options.set(name + '.' + token, this._readValue());
                     }
                 }
                 this._tokenizer.eat(',');
             }
-        }
-        else {
+        } else {
             parent.options.set(name, this._readValue());
         }
     }
@@ -864,15 +840,17 @@ protoc.Parser = class {
             case 'false':
             case 'FALSE':
                 return false;
+            default: {
+                const value = this._parseNumber(token);
+                if (value !== undefined) {
+                    return value;
+                }
+                if (protoc.Parser._isTypeReference(token)) {
+                    return token;
+                }
+                throw this._parseError(token, 'value');
+            }
         }
-        const value = this._parseNumber(token);
-        if (value !== undefined) {
-            return value;
-        }
-        if (protoc.Parser._isTypeReference(token)) {
-            return token;
-        }
-        throw this._parseError(token, 'value');
     }
 
     _readRanges(target, acceptStrings) {
@@ -880,8 +858,7 @@ protoc.Parser = class {
             let token;
             if (acceptStrings && ((token = this._tokenizer.peek()) === '"' || token === "'")) {
                 target.push(this._readString());
-            }
-            else {
+            } else {
                 const start = this._parseId(this._tokenizer.next());
                 const end = this._tokenizer.eat('to') ? this._parseId(this._tokenizer.next()) : start;
                 target.push([ start, end ]);
@@ -898,26 +875,36 @@ protoc.Parser = class {
             token = token.substring(1);
         }
         switch (token) {
-            case 'inf': case 'INF': case 'Inf':
+            case 'inf':
+            case 'INF':
+            case 'Inf': {
                 return sign * Infinity;
-            case 'nan': case 'NAN': case 'Nan': case 'NaN':
+            }
+            case 'nan':
+            case 'NAN':
+            case 'Nan':
+            case 'NaN': {
                 return NaN;
-            case '0':
+            }
+            case '0': {
                 return 0;
+            }
+            default: {
+                if (/^[1-9][0-9]*$/.test(token)) {
+                    return sign * parseInt(token, 10);
+                }
+                if (/^0[x][0-9a-fA-F]+$/.test(token)) {
+                    return sign * parseInt(token, 16);
+                }
+                if (/^0[0-7]+$/.test(token)) {
+                    return sign * parseInt(token, 8);
+                }
+                if (/^(?![eE])[0-9]*(?:\.[0-9]*)?(?:[eE][+-]?[0-9]+)?$/.test(token)) {
+                    return sign * parseFloat(token);
+                }
+                return undefined;
+            }
         }
-        if (/^[1-9][0-9]*$/.test(token)) {
-            return sign * parseInt(token, 10);
-        }
-        if (/^0[x][0-9a-fA-F]+$/.test(token)) {
-            return sign * parseInt(token, 16);
-        }
-        if (/^0[0-7]+$/.test(token)) {
-            return sign * parseInt(token, 8);
-        }
-        if (/^(?![eE])[0-9]*(?:\.[0-9]*)?(?:[eE][+-]?[0-9]+)?$/.test(token)) {
-            return sign * parseFloat(token);
-        }
-        return undefined;
     }
 
     static _isName(value) {
@@ -935,7 +922,7 @@ protoc.Parser = class {
     }
 };
 
-protoc.Parser.Tokenizer = class {
+protoc.Tokenizer = class {
 
     constructor(text, file) {
         this._text = text;
@@ -995,8 +982,7 @@ protoc.Parser.Tokenizer = class {
                     this._position++;
                     this._line++;
                     repeat = true;
-                }
-                else if ((curr = this._get(this._position)) === '*') {
+                } else if ((curr = this._get(this._position)) === '*') {
                     do {
                         if (curr === '\n') {
                             this._line++;
@@ -1010,8 +996,7 @@ protoc.Parser.Tokenizer = class {
                     } while (prev !== '*' || curr !== '/');
                     this._position++;
                     repeat = true;
-                }
-                else {
+                } else {
                     return '/';
                 }
             }
@@ -1102,7 +1087,7 @@ protoc.Parser.Tokenizer = class {
         this._position = re.lastIndex;
         this.push(this._delimiter);
         this._delimiter = null;
-        return protoc.Parser.Tokenizer._unescape(match[1]);
+        return protoc.Tokenizer._unescape(match[1]);
     }
 
     _readError(message) {
@@ -1135,11 +1120,9 @@ protoc.Generator = class {
             this._builder.add('');
             if (child instanceof protoc.Enum) {
                 this._buildEnum(child);
-            }
-            else if (child instanceof protoc.Type) {
+            } else if (child instanceof protoc.Type) {
                 this._buildType(child);
-            }
-            else {
+            } else {
                 this._buildNamespace(child);
             }
         }
@@ -1211,15 +1194,12 @@ protoc.Generator = class {
             if (field.type.long) {
                 if (field.type.name === 'uint64' || field.type.name === 'fixed64') {
                     this._builder.add(name + '.prototype' + protoc.Generator._propertyReference(field.name) + ' = protobuf.Uint64.create(' + field.defaultValue + ');');
-                }
-                else {
+                } else {
                     this._builder.add(name + '.prototype' + protoc.Generator._propertyReference(field.name) + ' = protobuf.Int64.create(' + field.defaultValue + ');');
                 }
-            }
-            else if (field.type.name === 'bytes') {
+            } else if (field.type.name === 'bytes') {
                 this._builder.add(name + '.prototype' + protoc.Generator._propertyReference(field.name) + ' = new Uint8Array(' + JSON.stringify(Array.prototype.slice.call(field.defaultValue)) + ");");
-            }
-            else {
+            } else {
                 this._builder.add(name + '.prototype' + protoc.Generator._propertyReference(field.name) + ' = ' + JSON.stringify(field.defaultValue) + ';');
             }
         }
@@ -1234,8 +1214,7 @@ protoc.Generator = class {
             for (const field of type.fields.values()) {
                 if (field instanceof protoc.MapField) {
                     this._builder.add('this' + protoc.Generator._propertyReference(field.name) + ' = {};');
-                }
-                else if (field.repeated) {
+                } else if (field.repeated) {
                     this._builder.add('this' + protoc.Generator._propertyReference(field.name) + ' = [];');
                 }
             }
@@ -1271,42 +1250,28 @@ protoc.Generator = class {
                                     'reader.' + field.type.name + '()' :
                                     fieldTypeName(field) + '.decode(reader, reader.uint32())';
                                 this._builder.add('reader.entry(' + variable + ', () => reader.' + field.keyType.name + '(), () => ' + value + ');');
-                            }
-                            else if (field.repeated) {
+                            } else if (field.repeated) {
                                 if (field.type.name === 'float' || field.type.name === 'double') {
                                     this._builder.add(variable + ' = reader.' + field.type.name + 's(' + variable + ', tag);');
-                                }
-                                else if (field.type instanceof protoc.Enum) {
+                                } else if (field.type instanceof protoc.Enum) {
                                     this._builder.add(variable + ' = reader.array(' + variable + ', () => reader.int32(), tag);');
-                                }
-                                else if (field.type instanceof protoc.PrimitiveType && field.type.packed) {
+                                } else if (field.type instanceof protoc.PrimitiveType && field.type.packed) {
                                     this._builder.add(variable + ' = reader.array(' + variable + ', () => reader.' + field.type.name + '(), tag);');
-                                }
-                                else if (field.type instanceof protoc.PrimitiveType) {
+                                } else if (field.type instanceof protoc.PrimitiveType) {
                                     this._builder.add(variable + '.push(reader.' + field.type.name + '());');
+                                } else if (field.type.group) {
+                                    this._builder.add(variable + '.push(' + fieldTypeName(field) + '.decode(reader));');
+                                } else {
+                                    this._builder.add(variable + '.push(' + fieldTypeName(field) + '.decode(reader, reader.uint32()));');
                                 }
-                                else {
-                                    if (field.type.group) {
-                                        this._builder.add(variable + '.push(' + fieldTypeName(field) + '.decode(reader));');
-                                    }
-                                    else {
-                                        this._builder.add(variable + '.push(' + fieldTypeName(field) + '.decode(reader, reader.uint32()));');
-                                    }
-                                }
-                            }
-                            else if (field.type instanceof protoc.Enum) {
+                            } else if (field.type instanceof protoc.Enum) {
                                 this._builder.add(variable + ' = reader.int32();');
-                            }
-                            else if (field.type instanceof protoc.PrimitiveType) {
+                            } else if (field.type instanceof protoc.PrimitiveType) {
                                 this._builder.add(variable + ' = reader.' + field.type.name + '();');
-                            }
-                            else {
-                                if (field.type.group) {
-                                    this._builder.add(variable + ' = ' + fieldTypeName(field) + '.decode(reader);');
-                                }
-                                else {
-                                    this._builder.add(variable + ' = ' + fieldTypeName(field) + '.decode(reader, reader.uint32());');
-                                }
+                            } else if (field.type.group) {
+                                this._builder.add(variable + ' = ' + fieldTypeName(field) + '.decode(reader);');
+                            } else {
+                                this._builder.add(variable + ' = ' + fieldTypeName(field) + '.decode(reader, reader.uint32());');
                             }
                             this._builder.add('break;');
                         this._builder.outdent();
@@ -1343,8 +1308,7 @@ protoc.Generator = class {
         this._builder.indent();
             if (type.fullName === '.google.protobuf.Any') {
                 this._builder.add('return reader.any(() => new ' + typeName(type) + '());');
-            }
-            else {
+            } else {
                 this._builder.add('const message = new ' + typeName(type) + '();');
                 this._builder.add('reader.start();');
                 this._builder.add('while (!reader.end()) {');
@@ -1362,29 +1326,22 @@ protoc.Generator = class {
                                         'reader.' + field.type.name + '()' :
                                         typeName(field.type) + '.decodeText(reader)';
                                     this._builder.add('reader.entry(' + variable + ', () => reader.' + field.keyType.name + '(), () => ' + value + ');');
-                                }
-                                else if (field.repeated) { // Repeated fields
+                                } else if (field.repeated) { // Repeated fields
                                     if (field.type instanceof protoc.Enum) {
                                         this._builder.add('reader.array(' + variable + ', () => reader.enum(' + typeName(field.type) + '));');
-                                    }
-                                    else if (field.type instanceof protoc.PrimitiveType) {
+                                    } else if (field.type instanceof protoc.PrimitiveType) {
                                         this._builder.add('reader.array(' + variable + ', () => reader.' + field.type.name + '());');
-                                    }
-                                    else if (field.type.fullName === '.google.protobuf.Any') {
+                                    } else if (field.type.fullName === '.google.protobuf.Any') {
                                         this._builder.add('reader.anyarray(' + variable + ', () => new ' + typeName(field.type) + '());');
-                                    }
-                                    else {
+                                    } else {
                                         this._builder.add(variable + '.push(' + typeName(field.type) + '.decodeText(reader));');
                                     }
                                 // Non-repeated
-                                }
-                                else if (field.type instanceof protoc.Enum) {
+                                } else if (field.type instanceof protoc.Enum) {
                                     this._builder.add(variable + ' = reader.enum(' + typeName(field.type) + ');');
-                                }
-                                else if (field.type instanceof protoc.PrimitiveType) {
+                                } else if (field.type instanceof protoc.PrimitiveType) {
                                     this._builder.add(variable + ' = reader.' + field.type.name + '();');
-                                }
-                                else {
+                                } else {
                                     this._builder.add(variable + ' = ' + typeName(field.type) + '.decodeText(reader);');
                                 }
                                 this._builder.add("break;");
@@ -1509,12 +1466,10 @@ const main = (args) => {
         if (options.out) {
             fs.writeFileSync(options.out, generator.content, 'utf-8');
         }
-    }
-    catch (err) {
+    } catch (err) {
         if (err instanceof protoc.Error && !options.verbose) {
             process.stderr.write(err.message + '\n');
-        }
-        else {
+        } else {
             process.stderr.write(err.stack + '\n');
         }
         return 1;

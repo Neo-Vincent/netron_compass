@@ -1,8 +1,8 @@
 
 // Experimental
 
-var mlnet = mlnet || {};
-var zip = zip || require('./zip');
+var mlnet = {};
+var base = require('./base');
 
 mlnet.ModelFactory = class {
 
@@ -14,15 +14,14 @@ mlnet.ModelFactory = class {
                 return 'mlnet';
             }
         }
-        return undefined;
+        return null;
     }
 
-    open(context) {
-        return mlnet.Metadata.open(context).then((metadata) => {
-            const entries = context.entries('zip');
-            const reader = new mlnet.ModelReader(entries);
-            return new mlnet.Model(metadata, reader);
-        });
+    async open(context) {
+        const metadata = await context.metadata('mlnet-metadata.json');
+        const entries = context.entries('zip');
+        const reader = new mlnet.ModelReader(entries);
+        return new mlnet.Model(metadata, reader);
     }
 };
 
@@ -49,75 +48,73 @@ mlnet.Model = class {
 mlnet.Graph = class {
 
     constructor(metadata, reader) {
-
         this._inputs = [];
         this._outputs = [];
         this._nodes = [];
         this._groups = false;
-
+        const args = new Map();
+        const arg = (name, type) => {
+            if (!args.has(name)) {
+                args.set(name, new mlnet.Value(name, type || null));
+            } else if (type) {
+                throw new mlnet.Error("Duplicate value '" + name + "'.");
+            }
+            return args.get(name);
+        };
         if (reader.schema && reader.schema.inputs) {
             for (const input of reader.schema.inputs) {
-                this._inputs.push(new mlnet.Parameter(input.name, [
-                    new mlnet.Argument(input.name, new mlnet.TensorType(input.type))
-                ]));
+                this._inputs.push(new mlnet.Argument(input.name, [ arg(input.name, new mlnet.TensorType(input.type)) ]));
             }
         }
-
+        const createNode = (scope, group, transformer) => {
+            if (transformer.inputs && transformer.outputs) {
+                for (const input of transformer.inputs) {
+                    input.name = scope[input.name] ? scope[input.name].argument : input.name;
+                }
+                for (const output of transformer.outputs) {
+                    if (scope[output.name]) {
+                        scope[output.name].counter++;
+                        const next = output.name + '\n' + scope[output.name].counter.toString(); // custom argument id
+                        scope[output.name].argument = next;
+                        output.name = next;
+                    } else {
+                        scope[output.name] = {
+                            argument: output.name,
+                            counter: 0
+                        };
+                    }
+                }
+            }
+            this._nodes.push(new mlnet.Node(metadata, group, transformer, arg));
+        };
+        const loadChain = (scope, name, chain) => {
+            this._groups = true;
+            const group = name.split('/').splice(1).join('/');
+            for (const childTransformer of chain) {
+                loadTransformer(scope, group, childTransformer);
+            }
+        };
+        const loadTransformer = (scope, group, transformer) => {
+            switch (transformer.__type__) {
+                case 'TransformerChain':
+                case 'Text':
+                    loadChain(scope, transformer.__name__, transformer.chain);
+                    break;
+                default:
+                    createNode(scope, group, transformer);
+                    break;
+            }
+        };
         const scope = new Map();
         if (reader.dataLoaderModel) {
-            this._loadTransformer(metadata, scope, '', reader.dataLoaderModel);
+            loadTransformer(scope, '', reader.dataLoaderModel);
         }
         if (reader.predictor) {
-            this._loadTransformer(metadata, scope, '', reader.predictor);
+            loadTransformer(scope, '', reader.predictor);
         }
         if (reader.transformerChain) {
-            this._loadTransformer(metadata, scope, '', reader.transformerChain);
+            loadTransformer(scope, '', reader.transformerChain);
         }
-    }
-
-    _loadTransformer(metadata, scope, group, transformer) {
-        switch (transformer.__type__) {
-            case 'TransformerChain':
-            case 'Text':
-                this._loadChain(metadata, scope, transformer.__name__, transformer.chain);
-                break;
-            default:
-                this._createNode(metadata, scope, group, transformer);
-                break;
-        }
-    }
-
-    _loadChain(metadata, scope, name, chain) {
-        this._groups = true;
-        const group = name.split('/').splice(1).join('/');
-        for (const childTransformer of chain) {
-            this._loadTransformer(metadata, scope, group, childTransformer);
-        }
-    }
-
-    _createNode(metadata, scope, group, transformer) {
-
-        if (transformer.inputs && transformer.outputs) {
-            for (const input of transformer.inputs) {
-                input.name = scope[input.name] ? scope[input.name].argument : input.name;
-            }
-            for (const output of transformer.outputs) {
-                if (scope[output.name]) {
-                    scope[output.name].counter++;
-                    const next = output.name + '\n' + scope[output.name].counter.toString(); // custom argument id
-                    scope[output.name].argument = next;
-                    output.name = next;
-                }
-                else {
-                    scope[output.name] = {
-                        argument: output.name,
-                        counter: 0
-                    };
-                }
-            }
-        }
-
-        this._nodes.push(new mlnet.Node(metadata, group, transformer));
     }
 
     get groups() {
@@ -137,31 +134,27 @@ mlnet.Graph = class {
     }
 };
 
-mlnet.Parameter = class {
+mlnet.Argument = class {
 
-    constructor(name, args) {
+    constructor(name, value) {
         this._name = name;
-        this._arguments = args;
+        this._value = value;
     }
 
     get name() {
         return this._name;
     }
 
-    get visible() {
-        return true;
-    }
-
-    get arguments() {
-        return this._arguments;
+    get value() {
+        return this._value;
     }
 };
 
-mlnet.Argument = class {
+mlnet.Value = class {
 
     constructor(name, type) {
         if (typeof name !== 'string') {
-            throw new mlnet.Error("Invalid argument identifier '" + JSON.stringify(name) + "'.");
+            throw new mlnet.Error("Invalid value identifier '" + JSON.stringify(name) + "'.");
         }
         this._name = name;
         this._type = type;
@@ -178,7 +171,7 @@ mlnet.Argument = class {
 
 mlnet.Node = class {
 
-    constructor(metadata, group, transformer) {
+    constructor(metadata, group, transformer, arg) {
         this._metadata = metadata;
         this._group = group;
         this._name = transformer.__name__;
@@ -187,30 +180,23 @@ mlnet.Node = class {
         this._attributes = [];
         const type = transformer.__type__;
         this._type = metadata.type(type) || { name: type };
-
         if (transformer.inputs) {
             let i = 0;
             for (const input of transformer.inputs) {
-                this._inputs.push(new mlnet.Parameter(i.toString(), [
-                    new mlnet.Argument(input.name)
-                ]));
+                this._inputs.push(new mlnet.Argument(i.toString(), [ arg(input.name) ]));
                 i++;
             }
         }
-
         if (transformer.outputs) {
             let i = 0;
             for (const output of transformer.outputs) {
-                this._outputs.push(new mlnet.Parameter(i.toString(), [
-                    new mlnet.Argument(output.name)
-                ]));
+                this._outputs.push(new mlnet.Argument(i.toString(), [ arg(output.name) ]));
                 i++;
             }
         }
-
         for (const key of Object.keys(transformer).filter((key) => !key.startsWith('_') && key !== 'inputs' && key !== 'outputs')) {
-            const schema = metadata.attribute(type, this._name);
-            this._attributes.push(new mlnet.Attribute(schema, key, transformer[key]));
+            const attribute = new mlnet.Attribute(metadata.attribute(type, this._name), key, transformer[key]);
+            this._attributes.push(attribute);
         }
     }
 
@@ -307,21 +293,17 @@ mlnet.TensorType = class {
 
         if (mlnet.TensorType._map.has(codec.name)) {
             this._dataType = mlnet.TensorType._map.get(codec.name);
-        }
-        else if (codec.name == 'VBuffer') {
+        } else if (codec.name == 'VBuffer') {
             if (mlnet.TensorType._map.has(codec.itemType.name)) {
                 this._dataType = mlnet.TensorType._map.get(codec.itemType.name);
-            }
-            else {
-                throw new mlnet.Error("Unknown data type '" + codec.itemType.name + "'.");
+            } else {
+                throw new mlnet.Error("Unsupported data type '" + codec.itemType.name + "'.");
             }
             this._shape = new mlnet.TensorShape(codec.dims);
-        }
-        else if (codec.name == 'Key2') {
+        } else if (codec.name == 'Key2') {
             this._dataType = 'key2';
-        }
-        else {
-            throw new mlnet.Error("Unknown data type '" + codec.name + "'.");
+        } else {
+            throw new mlnet.Error("Unsupported data type '" + codec.name + "'.");
         }
     }
 
@@ -353,50 +335,6 @@ mlnet.TensorShape = class {
             return '';
         }
         return '[' + this._dimensions.join(',') + ']';
-    }
-};
-
-mlnet.Metadata = class {
-
-    static open(context) {
-        if (mlnet.Metadata._metadata) {
-            return Promise.resolve(mlnet.Metadata._metadata);
-        }
-        return context.request('mlnet-metadata.json', 'utf-8', null).then((data) => {
-            mlnet.Metadata._metadata = new mlnet.Metadata(data);
-            return mlnet.Metadata._metadata;
-        }).catch(() => {
-            mlnet.Metadata._metadata = new mlnet.Metadata(null);
-            return mlnet.Metadata._metadatas;
-        });
-    }
-
-    constructor(data) {
-        this._map = {};
-        this._attributeCache = {};
-        if (data) {
-            const metadata = JSON.parse(data);
-            this._map = new Map(metadata.map((item) => [ item.name, item ]));
-        }
-    }
-
-    type(name) {
-        return this._map.get(name);
-    }
-
-    attribute(type, name) {
-        let map = this._attributeCache[type];
-        if (!map) {
-            map = {};
-            const schema = this.type(type);
-            if (schema && schema.attributes && schema.attributes.length > 0) {
-                for (const attribute of schema.attributes) {
-                    map[attribute.name] = attribute;
-                }
-            }
-            this._attributeCache[type] = map;
-        }
-        return map[name] || null;
     }
 };
 
@@ -526,7 +464,7 @@ mlnet.ComponentCatalog = class {
 
     create(signature, context) {
         if (!this._map.has(signature)) {
-            throw new mlnet.Error("Unknown loader signature '" + signature + "'.");
+            throw new mlnet.Error("Unsupported loader signature '" + signature + "'.");
         }
         const type = this._map.get(signature);
         return Reflect.construct(type, [ context ]);
@@ -542,9 +480,9 @@ mlnet.ModelHeader = class {
         this._directory = directory;
 
         if (data) {
-            const reader = new mlnet.Reader(data);
+            const reader = new mlnet.BinaryReader(data);
 
-            const textDecoder = new TextDecoder('ascii');
+            const decoder = new TextDecoder('ascii');
             reader.assert('ML\0MODEL');
             this.versionWritten = reader.uint32();
             this.versionReadable = reader.uint32();
@@ -555,11 +493,11 @@ mlnet.ModelHeader = class {
             const stringTableSize = reader.uint64();
             const stringCharsOffset = reader.uint64();
             /* v stringCharsSize = */ reader.uint64();
-            this.modelSignature = textDecoder.decode(reader.bytes(8));
+            this.modelSignature = decoder.decode(reader.read(8));
             this.modelVersionWritten = reader.uint32();
             this.modelVersionReadable = reader.uint32();
-            this.loaderSignature = textDecoder.decode(reader.bytes(24).filter((c) => c != 0));
-            this.loaderSignatureAlt = textDecoder.decode(reader.bytes(24).filter((c) => c != 0));
+            this.loaderSignature = decoder.decode(reader.read(24).filter((c) => c != 0));
+            this.loaderSignatureAlt = decoder.decode(reader.read(24).filter((c) => c != 0));
             const tailOffset = reader.uint64();
             /* let tailLimit = */ reader.uint64();
             const assemblyNameOffset = reader.uint64();
@@ -587,7 +525,7 @@ mlnet.ModelHeader = class {
             }
             if (assemblyNameOffset != 0) {
                 reader.seek(assemblyNameOffset);
-                this.assemblyName = textDecoder.decode(reader.bytes(assemblyNameSize));
+                this.assemblyName = decoder.decode(reader.read(assemblyNameSize));
             }
             reader.seek(tailOffset);
             reader.assert('LEDOM\0LM');
@@ -630,8 +568,7 @@ mlnet.ModelHeader = class {
         name = dir + name;
         const stream = this._entries.get(name) || this._entries.get(name.replace(/\//g, '\\'));
         if (stream) {
-            const buffer = stream.peek();
-            return new mlnet.Reader(buffer);
+            return new mlnet.BinaryReader(stream);
         }
         return null;
     }
@@ -653,34 +590,13 @@ mlnet.ModelHeader = class {
     }
 };
 
-mlnet.Reader = class {
-
-    constructor(buffer) {
-        this._buffer = buffer;
-        this._dataView = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-        this._position = 0;
-    }
-
-    get position() {
-        return this._position;
-    }
-
-    seek(position) {
-        this._position = position;
-    }
-
-    skip(offset) {
-        this._position += offset;
-        if (this._position > this._buffer.length) {
-            throw new mlnet.Error('Expected ' + (this._position - this._buffer.length) + ' more bytes. The file might be corrupted. Unexpected end of file.');
-        }
-    }
+mlnet.BinaryReader = class extends base.BinaryReader {
 
     match(text) {
-        const position = this._position;
+        const position = this.position;
         for (let i = 0; i < text.length; i++) {
             if (this.byte() != text.charCodeAt(i)) {
-                this._position = position;
+                this.seek(position);
                 return false;
             }
         }
@@ -693,10 +609,6 @@ mlnet.Reader = class {
         }
     }
 
-    boolean() {
-        return this.byte() != 0 ? true : false;
-    }
-
     booleans(count) {
         const values = [];
         for (let i = 0; i < count; i++) {
@@ -705,48 +617,12 @@ mlnet.Reader = class {
         return values;
     }
 
-    byte() {
-        const position = this._position;
-        this.skip(1);
-        return this._dataView.getUint8(position);
-    }
-
-    bytes(length) {
-        const position = this._position;
-        this.skip(length);
-        return this._buffer.subarray(position, this._position);
-    }
-
-    int16() {
-        const position = this._position;
-        this.skip(2);
-        return this._dataView.getInt16(position, true);
-    }
-
-    uint16() {
-        const position = this._position;
-        this.skip(2);
-        return this._dataView.getUint16(position, true);
-    }
-
-    int32() {
-        const position = this._position;
-        this.skip(4);
-        return this._dataView.getInt32(position, true);
-    }
-
     int32s(count) {
         const values = [];
         for (let i = 0; i < count; i++) {
             values.push(this.int32());
         }
         return values;
-    }
-
-    uint32() {
-        const position = this._position;
-        this.skip(4);
-        return this._dataView.getUint32(position, true);
     }
 
     uint32s(count) {
@@ -763,31 +639,13 @@ mlnet.Reader = class {
         if (low == 0xffffffff && hi == 0x7fffffff) {
             return Number.MAX_SAFE_INTEGER;
         }
-        if (hi == -1) {
+        if (hi === 0xffffffff) {
             return -low;
         }
-        if (hi != 0) {
-            throw new mlnet.Error('Value not in 48-bit range.');
+        if (hi !== 0) {
+            throw new mlnet.Error('Value not in 32-bit range.');
         }
-        return (hi << 32) | low;
-    }
-
-    uint64() {
-        const low = this.uint32();
-        const hi = this.uint32();
-        if (hi == 0) {
-            return low;
-        }
-        if (hi > 1048576) {
-            throw new mlnet.Error('Value not in 48-bit range.');
-        }
-        return (hi * 4294967296) + low;
-    }
-
-    float32() {
-        const position = this._position;
-        this.skip(4);
-        return this._dataView.getFloat32(position, true);
+        return low;
     }
 
     float32s(count) {
@@ -796,12 +654,6 @@ mlnet.Reader = class {
             values.push(this.float32());
         }
         return values;
-    }
-
-    float64() {
-        const position = this._position;
-        this.skip(8);
-        return this._dataView.getFloat64(position, true);
     }
 
     float64s(count) {
@@ -814,7 +666,7 @@ mlnet.Reader = class {
 
     string() {
         const size = this.leb128();
-        const buffer = this.bytes(size);
+        const buffer = this.read(size);
         return new TextDecoder('utf-8').decode(buffer);
     }
 
@@ -844,8 +696,8 @@ mlnet.BinaryLoader = class { // 'BINLOADR'
         }
         // https://github.com/dotnet/machinelearning/blob/master/docs/code/IdvFileFormat.md
         reader.assert('CML\0DVB\0');
-        reader.bytes(8); // version
-        reader.bytes(8); // compatibleVersion
+        reader.skip(8); // version
+        reader.skip(8); // compatibleVersion
         const tableOfContentsOffset = reader.uint64();
         const tailOffset = reader.int64();
         reader.int64(); // rowCount
@@ -963,8 +815,7 @@ mlnet.ColumnConcatenatingTransformer = class {
                     this.inputs.push(input);
                 }
             }
-        }
-        else {
+        } else {
             this.precision = reader.int32();
             const n = reader.int32();
             const names = [];
@@ -997,7 +848,7 @@ mlnet.ColumnConcatenatingTransformer = class {
             }
 
             if (n > 1) {
-                throw new mlnet.Error('');
+                throw new mlnet.Error("Unsupported ColumnConcatenatingTransformer name count '" + n.toString() + "'.");
             }
 
             this.outputs = [];
@@ -1105,8 +956,7 @@ mlnet.AffineNormSerializationUtils = class {
         if (morphCount == -1) {
             this.ScalesSparse = reader.float32s(reader.int32());
             this.OffsetsSparse = reader.float32s(reader.int32());
-        }
-        else {
+        } else {
             // debugger;
         }
     }
@@ -1255,8 +1105,7 @@ mlnet.LinearModelParameterStatistics = class extends mlnet.ModelStatisticsBase {
         const length = reader.int32();
         if (length == this.ParametersCount) {
             this._coeffStdError = stdErrorValues;
-        }
-        else {
+        } else {
             this.stdErrorIndices = reader.int32s(this.ParametersCount);
             this._coeffStdError = stdErrorValues;
         }
@@ -1267,8 +1116,7 @@ mlnet.LinearModelParameterStatistics = class extends mlnet.ModelStatisticsBase {
 
         if (isWeightsDense) {
             this._weights = weightsValues;
-        }
-        else {
+        } else {
             this.weightsIndices = reader.int32s(weightsLength);
         }
     }
@@ -1291,8 +1139,7 @@ mlnet.LinearMulticlassModelParametersBase = class extends mlnet.ModelParametersB
                 const w = reader.float32s(numberOfFeatures);
                 this.Weights.push(w);
             }
-        }
-        else {
+        } else {
 
             const starts = reader.int32s(reader.int32());
             /* let numIndices = */ reader.int32();
@@ -1374,7 +1221,7 @@ mlnet.SequencePool = class {
     constructor(reader) {
         this.idLim = reader.int32();
         this.start = reader.int32s(this.idLim + 1);
-        this.bytes = reader.bytes(this.start[this.idLim]);
+        this.bytes = reader.read(this.start[this.idLim]);
     }
 };
 
@@ -1385,8 +1232,7 @@ mlnet.NgramExtractingTransformer = class extends mlnet.OneToOneTransformerBase {
         const reader = context.reader;
         if (this.inputs.length == 1) {
             this._option(context, reader, this);
-        }
-        else {
+        } else {
             // debugger;
         }
     }
@@ -1425,8 +1271,7 @@ mlnet.NgramHashingTransformer = class extends mlnet.RowToRowTransformerBase {
             for (let i = 0; i < columnsLength; i++) {
                 this.Columns.push(new NgramHashingEstimator.ColumnOptions(context));
             } */
-        }
-        else {
+        } else {
             for (let i = 0; i < columnsLength; i++) {
                 this.outputs.push(context.string());
                 const csrc = reader.int32();
@@ -1451,8 +1296,7 @@ mlnet.WordTokenizingTransformer = class extends mlnet.OneToOneTransformerBase {
             for (let i = 0; i < count; i++) {
                 this.Separators.push(String.fromCharCode(reader.int16()));
             }
-        }
-        else {
+        } else {
             // debugger;
         }
     }
@@ -1515,8 +1359,7 @@ mlnet.LpNormNormalizingTransformer = class extends mlnet.OneToOneTransformerBase
             this.EnsureZeroMean = reader.boolean();
             this.Norm = reader.byte();
             this.Scale = reader.float32();
-        }
-        else {
+        } else {
             // debugger;
         }
     }
@@ -1558,8 +1401,7 @@ mlnet.ImageResizingTransformer = class extends mlnet.OneToOneTransformerBase {
         const reader = context.reader;
         if (this.inputs.length == 1) {
             this._option(reader, this);
-        }
-        else {
+        } else {
             this.Options = [];
             for (let i = 0; i < this.inputs.length; i++) {
                 const option = {};
@@ -1598,8 +1440,7 @@ mlnet.ImagePixelExtractingTransformer = class extends mlnet.OneToOneTransformerB
         const reader = context.reader;
         if (this.inputs.length == 1) {
             this._option(context, reader, this);
-        }
-        else {
+        } else {
             this.Options = [];
             for (let i = 0; i < this.inputs.length; i++) {
                 const option = {};
@@ -1655,8 +1496,7 @@ mlnet.NormalizingTransformer = class extends mlnet.OneToOneTransformerBase {
                 isVector = reader.boolean();
                 shape = [ reader.int32() ];
                 itemKind = reader.byte();
-            }
-            else {
+            } else {
                 isVector = reader.boolean();
                 itemKind = reader.byte();
                 shape = reader.int32s(reader.int32());
@@ -1665,7 +1505,7 @@ mlnet.NormalizingTransformer = class extends mlnet.OneToOneTransformerBase {
             switch (itemKind) {
                 case 9: itemType = 'float32'; break;
                 case 10: itemType = 'float64'; break;
-                default: throw new mlnet.Error("Unknown NormalizingTransformer item kind '" + itemKind + "'.");
+                default: throw new mlnet.Error("Unsupported NormalizingTransformer item kind '" + itemKind + "'.");
             }
             const type = itemType + (!isVector ? '' : '[' + shape.map((dim) => dim.toString()).join(',') + ']');
             const name = 'Normalizer_' + ('00' + i).slice(-3);
@@ -1689,8 +1529,7 @@ mlnet.ValueToKeyMappingTransformer = class extends mlnet.OneToOneTransformerBase
         const reader = context.reader;
         if (context.modelVersionWritten >= 0x00010003) {
             this.textMetadata = reader.booleans(this.outputs.length + this.inputs.length);
-        }
-        else {
+        } else {
             this.textMetadata = [];
             for (let i = 0; i < this.columnPairs.length; i++) {
                 this.textMetadata.push(false);
@@ -1724,7 +1563,7 @@ mlnet.TermMap = class {
                 break;
             }
             default:
-                throw new mlnet.Error("Unknown term map type '" + mtype.toString() + "'.");
+                throw new mlnet.Error("Unsupported term map type '" + mtype.toString() + "'.");
         }
     }
 };
@@ -1741,8 +1580,7 @@ mlnet.TermManager = class {
                 // debugger;
                 // termMap[i] = TermMap.Load(c, host, CodecFactory);
             }
-        }
-        else {
+        } else {
             throw new mlnet.Error('Unsupported TermManager version.');
             // for (let i = 0; i < cmap; ++i) {
             //    debugger;
@@ -1941,8 +1779,7 @@ mlnet.TextFeaturizingEstimator = class {
             }
 
             // throw new mlnet.Error('Unsupported TextFeaturizingEstimator format.');
-        }
-        else {
+        } else {
             const chain = context.open('Chain');
             this.chain = chain.chain;
         }
@@ -2066,8 +1903,7 @@ mlnet.PcaModelParameters = class extends mlnet.ModelParametersBase {
         const center = reader.boolean();
         if (center) {
             this.Mean = reader.float32s(this.Dimension);
-        }
-        else {
+        } else {
             this.Mean = [];
         }
         this.EigenVectors = [];
@@ -2113,9 +1949,9 @@ mlnet.InternalTreeEnsemble = class {
                 case mlnet.InternalTreeEnsemble.TreeType.Affine:
                     // Affine regression trees do not actually work, nor is it clear how they ever
                     // could have worked within TLC, so the chance of this happening seems remote.
-                    throw new mlnet.Error('Affine regression trees unsupported');
+                    throw new mlnet.Error('Affine regression trees unsupported.');
                 default:
-                    throw new mlnet.Error('Unknown ensemble tree type.');
+                    throw new mlnet.Error('Unsupported ensemble tree type.');
             }
         }
         this.Bias = reader.float64();
@@ -2174,9 +2010,17 @@ mlnet.FastTreeTweedieModelParameters = class extends mlnet.TreeEnsembleModelPara
         super(context);
     }
 
-    get VerNumFeaturesSerialized() { return 0x00010001; }
-    get VerDefaultValueSerialized() { return 0x00010002; }
-    get VerCategoricalSplitSerialized() { return 0x00010003; }
+    get VerNumFeaturesSerialized() {
+        return 0x00010001;
+    }
+
+    get VerDefaultValueSerialized() {
+        return 0x00010002;
+    }
+
+    get VerCategoricalSplitSerialized() {
+        return 0x00010003;
+    }
 };
 
 mlnet.FastTreeRankingModelParameters = class extends mlnet.TreeEnsembleModelParametersBasedOnRegressionTree {
@@ -2185,9 +2029,17 @@ mlnet.FastTreeRankingModelParameters = class extends mlnet.TreeEnsembleModelPara
         super(context);
     }
 
-    get VerNumFeaturesSerialized() { return 0x00010002; }
-    get VerDefaultValueSerialized() { return 0x00010004; }
-    get VerCategoricalSplitSerialized() { return 0x00010005; }
+    get VerNumFeaturesSerialized() {
+        return 0x00010002;
+    }
+
+    get VerDefaultValueSerialized() {
+        return 0x00010004;
+    }
+
+    get VerCategoricalSplitSerialized() {
+        return 0x00010005;
+    }
 };
 
 mlnet.FastTreeBinaryModelParameters = class extends mlnet.TreeEnsembleModelParametersBasedOnRegressionTree {
@@ -2196,9 +2048,17 @@ mlnet.FastTreeBinaryModelParameters = class extends mlnet.TreeEnsembleModelParam
         super(context);
     }
 
-    get VerNumFeaturesSerialized() { return 0x00010002; }
-    get VerDefaultValueSerialized() { return 0x00010004; }
-    get VerCategoricalSplitSerialized() { return 0x00010005; }
+    get VerNumFeaturesSerialized() {
+        return 0x00010002;
+    }
+
+    get VerDefaultValueSerialized() {
+        return 0x00010004;
+    }
+
+    get VerCategoricalSplitSerialized() {
+        return 0x00010005;
+    }
 };
 
 mlnet.FastTreeRegressionModelParameters = class extends mlnet.TreeEnsembleModelParametersBasedOnRegressionTree {
@@ -2207,9 +2067,17 @@ mlnet.FastTreeRegressionModelParameters = class extends mlnet.TreeEnsembleModelP
         super(context);
     }
 
-    get VerNumFeaturesSerialized() { return 0x00010002; }
-    get VerDefaultValueSerialized() { return 0x00010004; }
-    get VerCategoricalSplitSerialized() { return 0x00010005; }
+    get VerNumFeaturesSerialized() {
+        return 0x00010002;
+    }
+
+    get VerDefaultValueSerialized() {
+        return 0x00010004;
+    }
+
+    get VerCategoricalSplitSerialized() {
+        return 0x00010005;
+    }
 };
 
 mlnet.LightGbmRegressionModelParameters = class extends mlnet.TreeEnsembleModelParametersBasedOnRegressionTree {
@@ -2218,9 +2086,17 @@ mlnet.LightGbmRegressionModelParameters = class extends mlnet.TreeEnsembleModelP
         super(context);
     }
 
-    get VerNumFeaturesSerialized() { return 0x00010002; }
-    get VerDefaultValueSerialized() { return 0x00010004; }
-    get VerCategoricalSplitSerialized() { return 0x00010005; }
+    get VerNumFeaturesSerialized() {
+        return 0x00010002;
+    }
+
+    get VerDefaultValueSerialized() {
+        return 0x00010004;
+    }
+
+    get VerCategoricalSplitSerialized() {
+        return 0x00010005;
+    }
 };
 
 mlnet.LightGbmBinaryModelParameters = class extends mlnet.TreeEnsembleModelParametersBasedOnRegressionTree {
@@ -2229,9 +2105,17 @@ mlnet.LightGbmBinaryModelParameters = class extends mlnet.TreeEnsembleModelParam
         super(context);
     }
 
-    get VerNumFeaturesSerialized() { return 0x00010002; }
-    get VerDefaultValueSerialized() { return 0x00010004; }
-    get VerCategoricalSplitSerialized() { return 0x00010005; }
+    get VerNumFeaturesSerialized() {
+        return 0x00010002;
+    }
+
+    get VerDefaultValueSerialized() {
+        return 0x00010004;
+    }
+
+    get VerCategoricalSplitSerialized() {
+        return 0x00010005;
+    }
 };
 
 mlnet.FeatureWeightsCalibratedModelParameters = class extends mlnet.ValueMapperCalibratedModelParametersBase {
@@ -2268,8 +2152,8 @@ mlnet.Codec = class {
     constructor(reader) {
         this.name = reader.string();
         const size = reader.leb128();
-        const data = reader.bytes(size);
-        reader = new mlnet.Reader(data);
+        const data = reader.read(size);
+        reader = new mlnet.BinaryReader(data);
         switch (this.name) {
             case 'Boolean': break;
             case 'Single': break;
@@ -2289,7 +2173,7 @@ mlnet.Codec = class {
                 this.count = reader.uint64();
                 break;
             default:
-                throw new mlnet.Error("Unknown codec '" + this.name + "'.");
+                throw new mlnet.Error("Unsupported codec '" + this.name + "'.");
         }
     }
 
@@ -2312,7 +2196,7 @@ mlnet.Codec = class {
                 }
                 break;
             default:
-                throw new mlnet.Error("Unknown codec read operation '" + this.name + "'.");
+                throw new mlnet.Error("Unsupported codec read operation '" + this.name + "'.");
         }
         return values;
     }
@@ -2501,8 +2385,7 @@ mlnet.ColumnSelectingTransformer = class {
         const reader = context.reader;
         if (context.check('DRPCOLST', 0x00010002, 0x00010002)) {
             throw new mlnet.Error("'LoadDropColumnsTransform' not supported.");
-        }
-        else if (context.check('CHSCOLSF', 0x00010001, 0x00010001)) {
+        } else if (context.check('CHSCOLSF', 0x00010001, 0x00010001)) {
             reader.int32(); // cbFloat
             this.KeepHidden = this._getHiddenOption(reader.byte());
             const count = reader.int32();
@@ -2513,8 +2396,7 @@ mlnet.ColumnSelectingTransformer = class {
                 context.string(); // src
                 this._getHiddenOption(reader.byte()); // colKeepHidden
             }
-        }
-        else {
+        } else {
             const keepColumns = reader.boolean();
             this.KeepHidden = reader.boolean();
             this.IgnoreMissing = reader.boolean();
@@ -2525,8 +2407,7 @@ mlnet.ColumnSelectingTransformer = class {
             }
             if (keepColumns) {
                 this.ColumnsToKeep = this.inputs;
-            }
-            else {
+            } else {
                 this.ColumnsToDrop = this.inputs;
             }
         }
@@ -2570,10 +2451,10 @@ mlnet.Error = class extends Error {
 
     constructor(message) {
         super(message);
-        this.name = 'ML.NET Error';
+        this.name = 'Error loading ML.NET model.';
     }
 };
 
-if (module && module.exports) {
+if (typeof module !== 'undefined' && typeof module.exports === 'object') {
     module.exports.ModelFactory = mlnet.ModelFactory;
 }

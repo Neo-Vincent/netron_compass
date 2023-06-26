@@ -1,6 +1,6 @@
 
-var mediapipe = mediapipe || {};
-var protobuf = protobuf || require('./protobuf');
+var mediapipe = {};
+var protobuf = require('./protobuf');
 
 mediapipe.ModelFactory = class {
 
@@ -9,26 +9,23 @@ mediapipe.ModelFactory = class {
         if (tags.has('node') && ['input_stream', 'output_stream', 'input_side_packet', 'output_side_packet'].some((key) => tags.has(key) || tags.has('node.' + key))) {
             return 'mediapipe.pbtxt';
         }
-        return undefined;
+        return null;
     }
 
-    open(context) {
-        return Promise.resolve().then(() => {
-        // return context.require('./mediapipe-proto').then(() => {
-            mediapipe.proto = protobuf.get('mediapipe');
-            let config = null;
-            try {
-                const stream = context.stream;
-                const reader = protobuf.TextReader.open(stream);
-                // const config = mediapipe.proto.mediapipe.CalculatorGraphConfig.decodeText(reader);
-                config = new mediapipe.Object(reader);
-            }
-            catch (error) {
-                const message = error && error.message ? error.message : error.toString();
-                throw new mediapipe.Error('File text format is not mediapipe.CalculatorGraphConfig (' + message.replace(/\.$/, '') + ').');
-            }
-            return new mediapipe.Model(config);
-        });
+    async open(context) {
+        // await context.require('./mediapipe-proto');
+        mediapipe.proto = protobuf.get('mediapipe');
+        let config = null;
+        try {
+            const stream = context.stream;
+            const reader = protobuf.TextReader.open(stream);
+            // const config = mediapipe.proto.mediapipe.CalculatorGraphConfig.decodeText(reader);
+            config = new mediapipe.Object(reader);
+        } catch (error) {
+            const message = error && error.message ? error.message : error.toString();
+            throw new mediapipe.Error('File text format is not mediapipe.CalculatorGraphConfig (' + message.replace(/\.$/, '') + ').');
+        }
+        return new mediapipe.Model(config);
     }
 };
 
@@ -61,8 +58,8 @@ mediapipe.Graph = class {
                     const parts = input.split(':');
                     const type = (parts.length > 1) ? parts.shift() : '';
                     const name = parts.shift();
-                    this._inputs.push(new mediapipe.Parameter(name, [
-                        new mediapipe.Argument(name, type, null)
+                    this._inputs.push(new mediapipe.Argument(name, [
+                        new mediapipe.Value(name, type, null)
                     ]));
                 }
             }
@@ -72,8 +69,8 @@ mediapipe.Graph = class {
                     const parts = output.split(':');
                     const type = (parts.length > 1) ? parts.shift() : '';
                     const name = parts.shift();
-                    this._outputs.push(new mediapipe.Parameter(name, [
-                        new mediapipe.Argument(name, type, null)
+                    this._outputs.push(new mediapipe.Argument(name, [
+                        new mediapipe.Value(name, type, null)
                     ]));
                 }
             }
@@ -83,8 +80,8 @@ mediapipe.Graph = class {
                     const parts = input.split(':');
                     const type = (parts.length > 1) ? parts.shift() : '';
                     const name = parts.shift();
-                    this._inputs.push(new mediapipe.Parameter(name, [
-                        new mediapipe.Argument(name, type, null)
+                    this._inputs.push(new mediapipe.Argument(name, [
+                        new mediapipe.Value(name, type, null)
                     ]));
                 }
             }
@@ -94,8 +91,8 @@ mediapipe.Graph = class {
                     const parts = output.split(':');
                     const type = (parts.length > 1) ? parts.shift() : '';
                     const name = parts.shift();
-                    this._outputs.push(new mediapipe.Parameter(output, [
-                        new mediapipe.Argument(name, type, null)
+                    this._outputs.push(new mediapipe.Argument(output, [
+                        new mediapipe.Value(name, type, null)
                     ]));
                 }
             }
@@ -137,9 +134,9 @@ mediapipe.Node = class {
                 const parts = input.split(':');
                 const type = (parts.length > 1) ? parts.shift() : '';
                 const name = parts.shift();
-                args.push(new mediapipe.Argument(name, type, null));
+                args.push(new mediapipe.Value(name, type, null));
             }
-            this._inputs.push(new mediapipe.Parameter('input_stream', args));
+            this._inputs.push(new mediapipe.Argument('input_stream', args));
         }
         if (node.output_stream) {
             const args = [];
@@ -148,9 +145,9 @@ mediapipe.Node = class {
                 const parts = output.split(':');
                 const type = (parts.length > 1) ? parts.shift() : '';
                 const name = parts.shift();
-                args.push(new mediapipe.Argument(name, type, null));
+                args.push(new mediapipe.Value(name, type, null));
             }
-            this._outputs.push(new mediapipe.Parameter('output_stream', args));
+            this._outputs.push(new mediapipe.Argument('output_stream', args));
         }
         if (node.input_side_packet) {
             const args = [];
@@ -159,9 +156,9 @@ mediapipe.Node = class {
                 const parts = input.split(':');
                 const type = (parts.length > 1) ? parts.shift() : '';
                 const name = parts.shift();
-                args.push(new mediapipe.Argument(name, type, null));
+                args.push(new mediapipe.Value(name, type, null));
             }
-            this._inputs.push(new mediapipe.Parameter('input_side_packet', args));
+            this._inputs.push(new mediapipe.Argument('input_side_packet', args));
         }
         if (node.output_side_packet) {
             const args = [];
@@ -170,9 +167,9 @@ mediapipe.Node = class {
                 const parts = output.split(':');
                 const type = (parts.length > 1) ? parts.shift() : '';
                 const name = parts.shift();
-                args.push(new mediapipe.Argument(name, type, null));
+                args.push(new mediapipe.Value(name, type, null));
             }
-            this._outputs.push(new mediapipe.Parameter('output_side_packet', args));
+            this._outputs.push(new mediapipe.Argument('output_side_packet', args));
         }
         const options = new Map();
         if (node.options) {
@@ -201,8 +198,7 @@ mediapipe.Node = class {
                     options.set(key, message[key]);
                 }
             }
-        }
-        else {
+        } else {
             for (const entry of node_options) {
                 for (const key of Object.keys(entry)) {
                     if (key !== '__type__') {
@@ -251,17 +247,13 @@ mediapipe.Attribute = class {
     get value() {
         return this._value;
     }
-
-    get visible() {
-        return true;
-    }
 };
 
-mediapipe.Parameter = class {
+mediapipe.Argument = class {
 
-    constructor(name, args) {
+    constructor(name, value) {
         this._name = name;
-        this._arguments = args;
+        this._value = value;
     }
 
     get name() {
@@ -272,16 +264,16 @@ mediapipe.Parameter = class {
         return true;
     }
 
-    get arguments() {
-        return this._arguments;
+    get value() {
+        return this._value;
     }
 };
 
-mediapipe.Argument = class {
+mediapipe.Value = class {
 
     constructor(name, type, initializer) {
         if (typeof name !== 'string') {
-            throw new mediapipe.Error("Invalid argument identifier '" + JSON.stringify(name) + "'.");
+            throw new mediapipe.Error("Invalid value identifier '" + JSON.stringify(name) + "'.");
         }
         this._name = name;
         this._type = type || null;
@@ -342,16 +334,13 @@ mediapipe.Object = class {
                         break;
                     }
                 }
-            }
-            else if (next.startsWith('"') && next.endsWith('"')) {
+            } else if (next.startsWith('"') && next.endsWith('"')) {
                 obj = next.substring(1, next.length - 1);
                 reader.next();
-            }
-            else if (next === 'true' || next === 'false') {
+            } else if (next === 'true' || next === 'false') {
                 obj = next;
                 reader.next();
-            }
-            else if (reader.first()) {
+            } else if (reader.first()) {
                 obj = [];
                 while (!reader.last()) {
                     const data = reader.token();
@@ -360,12 +349,10 @@ mediapipe.Object = class {
                         obj.push(parseFloat(data));
                     }
                 }
-            }
-            else if (!isNaN(next)) {
+            } else if (!isNaN(next)) {
                 obj = parseFloat(next);
                 reader.next();
-            }
-            else {
+            } else {
                 obj = next;
                 reader.next();
             }
@@ -375,8 +362,7 @@ mediapipe.Object = class {
             }
             if (this[tag]) {
                 this[tag].push(obj);
-            }
-            else {
+            } else {
                 if (Array.isArray(obj)) {
                     arrayTags.add(tag);
                 }

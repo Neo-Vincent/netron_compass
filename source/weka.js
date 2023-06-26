@@ -2,7 +2,6 @@
 // Experimental
 
 var weka = weka || {};
-var json = json || require('./json');
 var java = {};
 
 weka.ModelFactory = class {
@@ -20,19 +19,16 @@ weka.ModelFactory = class {
                     }
                 }
             }
-        }
-        catch (err) {
+        } catch (err) {
             // continue regardless of error
         }
         return undefined;
     }
 
-    open(context) {
-        return Promise.resolve().then(() => {
-            const reader = new java.io.InputObjectStream(context.stream);
-            const obj = reader.read();
-            throw new weka.Error("Unsupported type '" + obj.$class.name + "'.");
-        });
+    async open(context) {
+        const reader = new java.io.InputObjectStream(context.stream);
+        const obj = reader.read();
+        throw new weka.Error("Unsupported type '" + obj.$class.name + "'.");
     }
 };
 
@@ -84,8 +80,10 @@ java.io.InputObjectStream = class {
             case 0x74: { // TC_STRING
                 return this._newString(false);
             }
+            default: {
+                throw new java.io.Error("Unsupported code '" + code + "'.");
+            }
         }
-        throw new java.io.Error("Unsupported code '" + code + "'.");
     }
 
     _classDesc() {
@@ -99,8 +97,9 @@ java.io.InputObjectStream = class {
             case 0x70: // TC_NULL
                 this._reader.byte();
                 return null;
+            default:
+                throw new java.io.Error("Unsupported code '" + code + "'.");
         }
-        throw new java.io.Error("Unsupported code '" + code + "'.");
     }
 
     _newClassDesc() {
@@ -108,7 +107,7 @@ java.io.InputObjectStream = class {
         switch (code) {
             case 0x72: { // TC_CLASSDESC
                 const classDesc = {};
-                classDesc.name = this._reader.string(),
+                classDesc.name = this._reader.string();
                 classDesc.id = this._reader.uint64().toString();
                 this._newHandle(classDesc);
                 classDesc.flags = this._reader.byte();
@@ -130,9 +129,10 @@ java.io.InputObjectStream = class {
                 return classDesc;
             }
             case 0x7D: // TC_PROXYCLASSDESC
-                break;
+                return null;
+            default:
+                throw new java.io.Error("Unsupported code '" + code + "'.");
         }
-        throw new java.io.Error("Unsupported code '" + code + "'.");
     }
 
     _classData(/* obj */) {
@@ -201,7 +201,6 @@ java.io.InputObjectStream.BinaryReader = class {
         this._position = 0;
         this._length = buffer.length;
         this._view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-        this._decoder = new TextDecoder('utf-8');
     }
 
     skip(offset) {
@@ -239,6 +238,7 @@ java.io.InputObjectStream.BinaryReader = class {
         const size = long ? this.uint64().toNumber() : this.uint16();
         const position = this._position;
         this.skip(size);
+        this._decoder = this._decoder || new TextDecoder('utf-8');
         return this._decoder.decode(this._buffer.subarray(position, this._position));
     }
 };

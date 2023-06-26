@@ -38,6 +38,10 @@
     "category": "Activation"
   },
   {
+    "name": "Relu",
+    "category": "Activation"
+  },
+  {
     "name": "Add",
     "inputs": [
       { "name": "x1" },
@@ -724,6 +728,10 @@
     ]
   },
   {
+    "name": "Elu",
+    "category": "Activation"
+  },
+  {
     "name": "Equal",
     "inputs": [
       { "name": "x1" },
@@ -818,6 +826,16 @@
     "attributes": [
       { "name": "num_bits" },
       { "name": "narrow_range" }
+    ]
+  },
+  {
+    "name": "Fc",
+    "category": "Layer",
+    "inputs": [
+      { "name": "x" }
+    ],
+    "outputs": [
+      { "name": "y" }
     ]
   },
   {
@@ -1171,13 +1189,16 @@
   },
   {
     "name": "InstanceNorm",
+    "category": "Normalization",
     "inputs": [
       { "name": "x" },
       { "name": "gamma" },
       { "name": "beta" }
     ],
     "outputs": [
-      { "name": "y" }
+      { "name": "y" },
+      { "name": "saved_mean" },
+      { "name": "saved_inv_stdev" }
     ],
     "attributes": [
       { "name": "data_format" },
@@ -1390,6 +1411,17 @@
     "category": "Pool",
     "inputs": [
       { "name": "input" }
+    ],
+    "outputs": [
+      { "name": "output" }
+    ]
+  },
+  {
+    "name": "AvgPool",
+    "category": "Pool",
+    "inputs": [
+      { "name": "input" },
+      { "name": "weights" }
     ],
     "outputs": [
       { "name": "output" }
@@ -1654,6 +1686,16 @@
     ]
   },
   {
+    "name": "PoolingAve",
+    "category": "Pool",
+    "inputs": [
+      { "name": "x" }
+    ],
+    "outputs": [
+      { "name": "y" }
+    ]
+  },
+  {
     "name": "PoolingD",
     "category": "Pool",
     "inputs": [
@@ -1671,6 +1713,16 @@
       { "name": "stride" },
       { "name": "ceil_mode" },
       { "name": "data_mode" }
+    ]
+  },
+  {
+    "name": "PoolingMax",
+    "category": "Pool",
+    "inputs": [
+      { "name": "x" }
+    ],
+    "outputs": [
+      { "name": "y" }
     ]
   },
   {
@@ -1699,6 +1751,7 @@
   },
   {
     "name": "PRelu",
+    "category": "Activation",
     "inputs": [
       { "name": "x" },
       { "name": "weight" }
@@ -2460,6 +2513,16 @@
     ]
   },
   {
+    "name": "Sigmoid",
+    "category": "Activation",
+    "inputs": [
+      { "name": "x" }
+    ],
+    "outputs": [
+      { "name": "y" }
+    ]
+  },
+  {
     "name": "Sin",
     "inputs": [
       { "name": "x" }
@@ -2704,6 +2767,16 @@
       { "name": "ellipsis_mask" },
       { "name": "new_axis_mask" },
       { "name": "shrink_axis_mask" }
+    ]
+  },
+  {
+    "name": "StridedSliceD",
+    "category": "Tensor",
+    "inputs": [
+      { "name": "x" }
+    ],
+    "outputs": [
+      { "name": "y" }
     ]
   },
   {

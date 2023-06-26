@@ -5,9 +5,12 @@ on:
   push:
     branches: [ '**' ]
     tags-ignore: [ '**' ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
   build:
+    name: Build
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -15,31 +18,35 @@ jobs:
         os: [ macos-latest, ubuntu-latest, windows-latest ]
 
     steps:
-      - name: Check out Git repository
-        uses: actions/checkout@v1
+      - name: Clone Git repository
+        uses: actions/checkout@v3
 
       - name: Install Node.js
-        uses: actions/setup-node@v1
+        uses: actions/setup-node@v3
         with:
-          node-version: 16
+          node-version: latest
 
       - name: Install Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v4
         with:
-          python-version: 3.9
+          python-version: '3.10'
 
       - name: Install npm packages 
-        run: make install
+        run: npm install
 
-      - name: ESLint
-        run: make lint
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test onnx/candy.onnx pytorch/alexnet.pt.zip tflite/squeezenet.tflite
 
       - name: Build Python Server
-        run: make build_python
+        run: npm run build python
 
       - name: Build Electron
         shell: bash
         run: |
+          npx electron-builder install-app-deps
           case "${{ matrix.os }}" in
             macos*)
               CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac --universal --publish never -c.mac.identity=null
@@ -52,3 +59,30 @@ jobs:
               npx electron-builder --win --x64 --arm64 --publish never
               ;;
           esac
+
+  analyze:
+    name: Analyze
+    runs-on: ubuntu-latest
+
+    permissions:
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'javascript', 'python' ]
+
+    steps:
+      - name: Clone Git repository
+        uses: actions/checkout@v3
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages: ${{ matrix.language }}
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v2
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2

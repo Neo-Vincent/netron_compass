@@ -1,6 +1,13 @@
 [
   {
     "type":     "_",
+    "target":   "boolean.onnx",
+    "source":   "https://github.com/lutzroeder/netron/files/8985631/boolean.onnx.zip[boolean.onnx]",
+    "error":    "Unsupported Pickle content.",
+    "link":     "https://github.com/lutzroeder/netron/issues/458"
+  },
+  {
+    "type":     "_",
     "target":   "config.json",
     "source":   "https://github.com/lutzroeder/netron/files/5398758/config.json.zip[config.json]",
     "error":    "Invalid file content. File contains keras-yolo2 configuration.",
@@ -17,7 +24,7 @@
     "type":     "_",
     "target":   "coreml_invalid_file.mlmodel",
     "source":   "https://github.com/lutzroeder/netron/files/3219681/coreml_invalid_file.mlmodel.zip",
-    "error":    "Archive contains no model files in 'coreml_invalid_file.mlmodel'.",
+    "error":    "Archive contains no model files.",
     "format":   "Core ML v1",
     "link":     "https://github.com/lutzroeder/netron/issues/193"
   },
@@ -25,7 +32,14 @@
     "type":     "_",
     "target":   "empty.zip",
     "source":   "https://github.com/lutzroeder/netron/files/5581087/empty.zip",
-    "error":    "Archive contains no model files in 'empty.zip'.",
+    "error":    "Archive contains no model files.",
+    "link":     "https://github.com/lutzroeder/netron/issues/458"
+  },
+  {
+    "type":     "_",
+    "target":   "fingerprint.pb",
+    "source":   "https://github.com/lutzroeder/netron/files/10475238/fingerprint.pb.zip[fingerprint.pb]",
+    "error":    "The file 'saved_model.pb' does not exist.",
     "link":     "https://github.com/lutzroeder/netron/issues/458"
   },
   {
@@ -45,8 +59,15 @@
     "type":     "_",
     "target":   "keras_metadata.pb",
     "source":   "https://github.com/lutzroeder/netron/files/6751650/keras_metadata.pb.zip[keras_metadata.pb]",
-    "error":    "The file 'saved_model.pb' does not exist in 'keras_metadata.pb'.",
+    "error":    "The file 'saved_model.pb' does not exist.",
     "link":     "https://github.com/lutzroeder/netron/issues/458"
+  },
+  {
+    "type":     "_",
+    "target":   "keras2onnx.onnx",
+    "source":   "https://github.com/lutzroeder/netron/files/5738366/keras2onnx.onnx.zip[keras2onnx.onnx]",
+    "error":    "File format is not onnx.ModelProto (Unexpected end of file).",
+    "link":     "https://github.com/lutzroeder/netron/issues/6"
   },
   {
     "type":     "_",
@@ -65,14 +86,14 @@
     "type":     "_",
     "target":   "gzip_invalid_archive.tar.gz",
     "source":   "https://github.com/lutzroeder/netron/files/5468427/gzip_invalid_archive.tar.gz",
-    "error":    "Unsupported file content (ff000000000000000000000000000000) for extension '.gz' in 'gzip_invalid_archive.tar.gz'.",
+    "error":    "Unsupported file content (ff000000000000000000000000000000) for extension '.gz'.",
     "link":     "https://github.com/lutzroeder/netron/issues/249"
   },
   {
     "type":     "_",
     "target":   "gzip_invalid_compression.tar.gz",
     "source":   "https://github.com/lutzroeder/netron/files/3027193/gzip_invalid_compression.tar.gz",
-    "error":    "Invalid compression method '1' in 'gzip_invalid_compression.tar.gz'.",
+    "error":    "Invalid compression method '1'.",
     "link":     "https://github.com/lutzroeder/netron/issues/249"
   },
   {
@@ -114,7 +135,7 @@
     "type":     "_",
     "target":   "random.onnx",
     "source":   "https://github.com/lutzroeder/netron/files/7449479/random.onnx.zip[random.onnx]",
-    "error":    "Unsupported file content (746d6c20786d6c6e733d22687474703a) for extension '.onnx' in 'random.onnx'.",
+    "error":    "Unsupported file content (746d6c20786d6c6e733d22687474703a) for extension '.onnx'.",
     "link":     "https://github.com/lutzroeder/netron/issues/458"
   },
   {
@@ -149,7 +170,7 @@
     "type":     "_",
     "target":   "zip_invalid_archive.zip",
     "source":   "https://github.com/lutzroeder/netron/files/5468425/zip_invalid_archive.zip",
-    "error":    "Unsupported file content (ff000000000000000000000000000000) for extension '.zip' in 'zip_invalid_archive.zip'.",
+    "error":    "Unsupported file content (ff000000000000000000000000000000) for extension '.zip'.",
     "link":     "https://github.com/lutzroeder/netron/issues/250"
   },
   {
@@ -259,7 +280,7 @@
   {
     "type":     "caffe",
     "target":   "bvlc_alexnet.caffemodel",
-    "source":   "http://dl.caffe.berkeleyvision.org/bvlc_alexnet.caffemodel",
+    "source":   "https://github.com/facebookarchive/models/raw/master/bvlc_alexnet/original.caffemodel",
     "format":   "Caffe v1",
     "link":     "https://github.com/BVLC/caffe/tree/master/models/bvlc_alexnet"
   },
@@ -280,7 +301,7 @@
   {
     "type":     "caffe",
     "target":   "bvlc_googlenet.caffemodel",
-    "source":   "http://dl.caffe.berkeleyvision.org/bvlc_googlenet.caffemodel",
+    "source":   "https://github.com/facebookarchive/models/raw/master/bvlc_googlenet/original.caffemodel",
     "format":   "Caffe v1",
     "link":     "https://github.com/BVLC/caffe/tree/master/models/bvlc_googlenet"
   },
@@ -295,14 +316,14 @@
     "type":     "caffe",
     "target":   "caffe_invalid_file.caffemodel",
     "source":   "https://github.com/lutzroeder/netron/files/3288816/caffe_examples.zip[caffe_invalid_file.caffemodel]",
-    "error":    "File format is not caffe.NetParameter (Invalid type 4 at offset 11) in 'caffe_invalid_file.caffemodel'.",
+    "error":    "File format is not caffe.NetParameter (Invalid type 4 at offset 11).",
     "link":     "https://github.com/lutzroeder/netron/issues/276"
   },
   {
     "type":     "caffe",
     "target":   "caffe_invalid_semicolon.prototxt",
     "source":   "https://github.com/lutzroeder/netron/files/3288816/caffe_examples.zip[caffe_invalid_semicolon.prototxt]",
-    "error":    "File text format is not caffe.NetParameter (Unexpected token ';' at 7:18) in 'caffe_invalid_semicolon.prototxt'.",
+    "error":    "File text format is not caffe.NetParameter (Unexpected token ';' at 7:18).",
     "link":     "https://github.com/lutzroeder/netron/issues/276"
   },
   {
@@ -358,7 +379,7 @@
     "type":     "caffe",
     "target":   "deploy_iResNet_ROB.tpl.prototxt",
     "source":   "https://raw.githubusercontent.com/leonzfa/iResNet/master/models/model/deploy_iResNet_ROB.tpl.prototxt",
-    "error":    "File text format is not caffe.NetParameter (Couldn't parse float '$SCALE_WIDTH' at 727:47) in 'deploy_iResNet_ROB.tpl.prototxt'.",
+    "error":    "File text format is not caffe.NetParameter (Couldn't parse float '$SCALE_WIDTH' at 727:47).",
     "link":     "https://github.com/leonzfa/iResNet"
   },
   {
@@ -769,35 +790,35 @@
   {
     "type":     "caffe2",
     "target":   "bvlc_alexnet/predict_net.pb,bvlc_alexnet/init_net.pb",
-    "source":   "https://s3.amazonaws.com/download.caffe2.ai/models/bvlc_alexnet/predict_net.pb,https://s3.amazonaws.com/download.caffe2.ai/models/bvlc_alexnet/init_net.pb",
+    "source":   "https://github.com/facebookarchive/models/raw/master/bvlc_alexnet/predict_net.pb,https://github.com/facebookarchive/models/raw/master/bvlc_alexnet/init_net.pb",
     "format":   "Caffe2",
     "link":     "https://github.com/caffe2/models"
   },
   {
     "type":     "caffe2",
     "target":   "bvlc_alexnet/init_net.pb",
-    "source":   "https://s3.amazonaws.com/download.caffe2.ai/models/bvlc_alexnet/init_net.pb",
+    "source":   "https://github.com/facebookarchive/models/raw/master/bvlc_alexnet/init_net.pb",
     "format":   "Caffe2",
     "link":     "https://github.com/caffe2/models"
   },
   {
     "type":     "caffe2",
     "target":   "bvlc_alexnet/predict_net.pbtxt,bvlc_alexnet/init_net.pb",
-    "source":   "https://raw.githubusercontent.com/caffe2/models/master/bvlc_alexnet/predict_net.pbtxt,https://s3.amazonaws.com/download.caffe2.ai/models/bvlc_alexnet/init_net.pb",
+    "source":   "https://github.com/facebookarchive/models/raw/master/bvlc_alexnet/predict_net.pbtxt,https://github.com/facebookarchive/models/raw/master/bvlc_alexnet/init_net.pb",
     "format":   "Caffe2",
     "link":     "https://github.com/caffe2/models"
   },
   {
     "type":     "caffe2",
     "target":   "bvlc_googlenet/predict_net.pb,bvlc_googlenet/init_net.pb",
-    "source":   "https://s3.amazonaws.com/download.caffe2.ai/models/bvlc_googlenet/predict_net.pb,https://s3.amazonaws.com/download.caffe2.ai/models/bvlc_googlenet/init_net.pb",
+    "source":   "https://github.com/facebookarchive/models/raw/master/bvlc_googlenet/predict_net.pb,https://github.com/facebookarchive/models/raw/master/bvlc_googlenet/init_net.pb",
     "format":   "Caffe2",
     "link":     "https://github.com/caffe2/models"
   },
   {
     "type":     "caffe2",
     "target":   "densenet121/predict_net.pb,densenet121/init_net.pb",
-    "source":   "https://s3.amazonaws.com/download.caffe2.ai/models/densenet121/predict_net.pb,https://s3.amazonaws.com/download.caffe2.ai/models/densenet121/init_net.pb",
+    "source":   "https://github.com/facebookarchive/models/raw/master/densenet121/predict_net.pb,https://github.com/facebookarchive/models/raw/master/densenet121/init_net.pb",
     "format":   "Caffe2",
     "link":     "https://github.com/caffe2/models"
   },
@@ -826,7 +847,7 @@
   {
     "type":     "caffe2",
     "target":   "inception_v2/predict_net.pb,inception_v2/init_net.pb",
-    "source":   "https://s3.amazonaws.com/download.caffe2.ai/models/inception_v2/predict_net.pb,https://s3.amazonaws.com/download.caffe2.ai/models/inception_v2/init_net.pb",
+    "source":   "https://github.com/facebookarchive/models/raw/master/inception_v2/predict_net.pb,https://github.com/facebookarchive/models/raw/master/inception_v2/init_net.pb",
     "format":   "Caffe2",
     "link":     "https://github.com/caffe2/models"
   },
@@ -847,30 +868,16 @@
   {
     "type":     "caffe2",
     "target":   "mobilenet_v2/predict_net.pb,mobilenet_v2/init_net.pb",
-    "source":   "https://s3.amazonaws.com/download.caffe2.ai/models/mobilenet_v2/predict_net.pb,https://s3.amazonaws.com/download.caffe2.ai/models/mobilenet_v2/init_net.pb",
+    "source":   "https://github.com/facebookarchive/models/raw/master/mobilenet_v2/predict_net.pb,https://github.com/facebookarchive/models/raw/master/mobilenet_v2/init_net.pb",
     "format":   "Caffe2",
     "link":     "https://github.com/caffe2/models"
   },
   {
     "type":     "caffe2",
     "target":   "mobilenet_v2/predict_net.pb",
-    "source":   "https://s3.amazonaws.com/download.caffe2.ai/models/mobilenet_v2/predict_net.pb",
+    "source":   "https://github.com/facebookarchive/models/raw/master/mobilenet_v2/predict_net.pb",
     "format":   "Caffe2",
     "link":     "https://github.com/caffe2/models"
-  },
-  {
-    "type":     "caffe2",
-    "target":   "mobilenet_v2_quantized/predict_net.pb,mobilenet_v2_quantized/init_net.pb",
-    "source":   "https://s3.amazonaws.com/download.caffe2.ai/models/mobilenet_v2_1.0_224_quant/predict_net.pb,https://s3.amazonaws.com/download.caffe2.ai/models/mobilenet_v2_1.0_224_quant/init_net.pb",
-    "format":   "Caffe2",
-    "link":     "https://github.com/caffe2/models"
-  },
-  {
-    "type":     "caffe2",
-    "target":   "resnet50_quantized/resnet50_quantized_predict_net.pb,resnet50_quantized/resnet50_quantized_init_net.pb",
-    "source":   "https://s3.amazonaws.com/download.caffe2.ai/models/resnet50_quantized/resnet50_quantized_predict_net.pb,https://s3.amazonaws.com/download.caffe2.ai/models/resnet50_quantized/resnet50_quantized_init_net.pb",
-    "format":   "Caffe2",
-    "link":     "https://github.com/caffe2/models/tree/master/resnet50_quantized"
   },
   {
     "type":     "caffe2",
@@ -882,16 +889,32 @@
   {
     "type":     "caffe2",
     "target":   "resnet50/predict_net.pb,resnet50/init_net.pb",
-    "source":   "https://s3.amazonaws.com/download.caffe2.ai/models/resnet50/predict_net.pb,https://s3.amazonaws.com/download.caffe2.ai/models/resnet50/init_net.pb",
+    "source":   "https://github.com/facebookarchive/models/raw/master/resnet50/predict_net.pb,https://github.com/facebookarchive/models/raw/master/resnet50/init_net.pb",
     "format":   "Caffe2",
     "link":     "https://github.com/caffe2/models"
   },
   {
     "type":     "caffe2",
     "target":   "squeezenet/squeezenet.pb,squeezenet/init_net.pb",
-    "source":   "https://s3.amazonaws.com/download.caffe2.ai/models/squeezenet/predict_net.pb,https://s3.amazonaws.com/download.caffe2.ai/models/squeezenet/init_net.pb",
+    "source":   "https://github.com/facebookarchive/models/raw/master/squeezenet/predict_net.pb,https://github.com/facebookarchive/models/raw/master/squeezenet/init_net.pb",
     "format":   "Caffe2",
     "link":     "https://github.com/caffe2/models"
+  },
+  {
+    "type":     "cambricon",
+    "target":   "deepsort_4c4b_bgr_270_v140.cambricon",
+    "source":   "https://github.com/lutzroeder/netron/files/8783170/deepsort_4c4b_bgr_270_v140.cambricon.zip[deepsort_4c4b_bgr_270_v140.cambricon]",
+    "format":   "Cambricon",
+    "error":    "File contains undocumented Cambricon data.",
+    "link":     "https://github.com/lutzroeder/netron/issues/917"
+  },
+  {
+    "type":     "cambricon",
+    "target":   "SR_face_x3_530x530.cambricon",
+    "source":   "https://github.com/lutzroeder/netron/files/8783172/SR_face_x3_530x530.cambricon.zip[SR_face_x3_530x530.cambricon]",
+    "format":   "Cambricon",
+    "error":    "File contains undocumented Cambricon data.",
+    "link":     "https://github.com/lutzroeder/netron/issues/917"
   },
   {
     "type":     "circle",
@@ -916,6 +939,13 @@
   },
   {
     "type":     "cntk",
+    "target":   "Bean.cntk",
+    "source":   "https://media.githubusercontent.com/media/Microsoft/ELL-models/master/models/ILSVRC2012/Bean/Bean.cntk.zip[Bean.cntk]",
+    "format":   "CNTK v2",
+    "link":     "https://github.com/Microsoft/ELL-models"
+  },
+  {
+    "type":     "cntk",
     "target":   "cifar10.pretrained.cmf",
     "source":   "https://raw.githubusercontent.com/Microsoft/CNTK/master/Tutorials/ImageHandsOn/cifar10.pretrained.cmf",
     "format":   "CNTK v1.14",
@@ -937,9 +967,24 @@
   },
   {
     "type":     "cntk",
-    "target":   "ResNet_18.model",
-    "source":   "https://www.cntk.ai/Models/ResNet/ResNet_18.model",
-    "format":   "CNTK v1.17"
+    "target":   "d_I160x160x3CMCMCMCMCMCMC1AS.model",
+    "source":   "https://media.githubusercontent.com/media/Microsoft/ELL-models/master/models/ILSVRC2012/d_I160x160x3CMCMCMCMCMCMC1AS/d_I160x160x3CMCMCMCMCMCMC1AS.cntk.zip[d_I160x160x3CMCMCMCMCMCMC1AS.cntk]",
+    "format":   "CNTK v2",
+    "link":     "https://github.com/Microsoft/ELL-models/tree/master/models/ILSVRC2012/d_I160x160x3CMCMCMCMCMCMC1AS"
+  },
+  {
+    "type":     "cntk",
+    "target":   "DRNN.model",
+    "source":   "https://github.com/lutzroeder/netron/files/9128732/DRNN.model.zip[DRNN.model]",
+    "format":   "CNTK v2",
+    "link":     "https://github.com/lutzroeder/netron/issues/153"
+  },
+  {
+    "type":     "cntk",
+    "target":   "initial_policy_network.dnn",
+    "source":   "https://raw.githubusercontent.com/Microsoft/CNTK/master/bindings/python/cntk/contrib/deeprl/tests/data/initial_policy_network.dnn",
+    "format":   "CNTK v2",
+    "link":     "https://github.com/Microsoft/CNTK"
   },
   {
     "type":     "cntk",
@@ -947,6 +992,20 @@
     "source":   "https://raw.githubusercontent.com/Microsoft/CNTK/master/Tests/UnitTests/NetworkTests/Models/ResNet20_CIFAR10_DataAug.dnn",
     "format":   "CNTK v1.18",
     "link":     "https://github.com/Microsoft/CNTK"
+  },
+  {
+    "type":     "cntk",
+    "target":   "ResNet20_CIFAR10_CNTK.model",
+    "source":   "https://github.com/lutzroeder/netron/files/9128733/ResNet20_CIFAR10_CNTK.model.zip[ResNet20_CIFAR10_CNTK.model]",
+    "format":   "CNTK v2",
+    "link":     "https://github.com/lutzroeder/netron/issues/153"
+  },
+  {
+    "type":     "cntk",
+    "target":   "ResNet110_CIFAR10_CNTK.model",
+    "source":   "https://github.com/lutzroeder/netron/files/9128736/ResNet110_CIFAR10_CNTK.model.zip[ResNet110_CIFAR10_CNTK.model]",
+    "format":   "CNTK v2",
+    "link":     "https://github.com/lutzroeder/netron/issues/153"
   },
   {
     "type":     "cntk",
@@ -975,76 +1034,6 @@
     "source":   "https://raw.githubusercontent.com/Microsoft/CNTK/master/Tutorials/SLUHandsOn/slu.forward.lookahead.cmf",
     "format":   "CNTK v1.14",
     "link":     "https://github.com/Microsoft/CNTK"
-  },
-  {
-    "type":     "cntk",
-    "target":   "Bean.cntk",
-    "source":   "https://media.githubusercontent.com/media/Microsoft/ELL-models/master/models/ILSVRC2012/Bean/Bean.cntk.zip[Bean.cntk]",
-    "format":   "CNTK v2",
-    "link":     "https://github.com/Microsoft/ELL-models"
-  },
-  {
-    "type":     "cntk",
-    "target":   "BNInception_ImageNet_Caffe.model",
-    "source":   "https://www.cntk.ai/Models/Caffe_Converted/BNInception_ImageNet_Caffe.model",
-    "format":   "CNTK v2",
-    "link":     "https://github.com/Microsoft/CNTK/blob/master/PretrainedModels/download_model.py"
-  },
-  {
-    "type":     "cntk",
-    "target":   "d_I160x160x3CMCMCMCMCMCMC1AS.model",
-    "source":   "https://media.githubusercontent.com/media/Microsoft/ELL-models/master/models/ILSVRC2012/d_I160x160x3CMCMCMCMCMCMC1AS/d_I160x160x3CMCMCMCMCMCMC1AS.cntk.zip[d_I160x160x3CMCMCMCMCMCMC1AS.cntk]",
-    "format":   "CNTK v2",
-    "link":     "https://github.com/Microsoft/ELL-models/tree/master/models/ILSVRC2012/d_I160x160x3CMCMCMCMCMCMC1AS"
-  },
-  {
-    "type":     "cntk",
-    "target":   "DRNN.model",
-    "source":   "https://www.cntk.ai/Models/SuperResolution/DRNN.model",
-    "format":   "CNTK v2",
-    "link":     "https://cntk.ai/pythondocs/CNTK_302A_Evaluation_of_Pretrained_Super-resolution_Models.html"
-  },
-  {
-    "type":     "cntk",
-    "target":   "initial_policy_network.dnn",
-    "source":   "https://raw.githubusercontent.com/Microsoft/CNTK/master/bindings/python/cntk/contrib/deeprl/tests/data/initial_policy_network.dnn",
-    "format":   "CNTK v2",
-    "link":     "https://github.com/Microsoft/CNTK"
-  },
-  {
-    "type":     "cntk",
-    "target":   "InceptionV3_ImageNet_CNTK.model",
-    "source":   "https://www.cntk.ai/Models/CNTK_Pretrained/InceptionV3_ImageNet_CNTK.model",
-    "format":   "CNTK v2",
-    "link":     "https://github.com/Microsoft/MMdnn/blob/master/mmdnn/conversion/examples/cntk/extract_model.py"
-  },
-  {
-    "type":     "cntk",
-    "target":   "ResNet18_ImageNet_CNTK.model",
-    "source":   "https://www.cntk.ai/Models/CNTK_Pretrained/ResNet18_ImageNet_CNTK.model",
-    "format":   "CNTK v2",
-    "link":     "https://github.com/Microsoft/CNTK/blob/master/PretrainedModels/Image.md"
-  },
-  {
-    "type":     "cntk",
-    "target":   "ResNet20_CIFAR10_CNTK.model",
-    "source":   "https://www.cntk.ai/Models/CNTK_Pretrained/ResNet20_CIFAR10_CNTK.model",
-    "format":   "CNTK v2",
-    "link":     "https://github.com/Microsoft/CNTK/blob/master/PretrainedModels/Image.md"
-  },
-  {
-    "type":     "cntk",
-    "target":   "ResNet110_CIFAR10_CNTK.model",
-    "source":   "https://www.cntk.ai/Models/CNTK_Pretrained/ResNet110_CIFAR10_CNTK.model",
-    "format":   "CNTK v2",
-    "link":     "https://github.com/Microsoft/CNTK/blob/master/PretrainedModels/Image.md"
-  },
-  {
-    "type":     "cntk",
-    "target":   "SRGAN.model",
-    "source":   "https://www.cntk.ai/Models/SuperResolution/SRGAN.model",
-    "format":   "CNTK v2",
-    "link":     "https://cntk.ai/pythondocs/CNTK_302A_Evaluation_of_Pretrained_Super-resolution_Models.html"
   },
   {
     "type":     "cntk",
@@ -1077,9 +1066,9 @@
   {
     "type":     "cntk",
     "target":   "VDSR.model",
-    "source":   "https://www.cntk.ai/Models/SuperResolution/VDSR.model",
+    "source":   "https://github.com/lutzroeder/netron/files/9128737/VDSR.model.zip[VDSR.model]",
     "format":   "CNTK v2",
-    "link":     "https://cntk.ai/pythondocs/CNTK_302A_Evaluation_of_Pretrained_Super-resolution_Models.html"
+    "link":     "https://github.com/lutzroeder/netron/issues/153"
   },
   {
     "type":     "coreml",
@@ -1364,12 +1353,6 @@
   },
   {
     "type":     "coreml",
-    "target":   "HED_fuse.mlmodel",
-    "source":   "https://raw.githubusercontent.com/s1ddok/HED-CoreML/master/HED-CoreML/Models/HED_fuse.mlmodel",
-    "link":     "https://github.com/s1ddok/HED-CoreML"
-  },
-  {
-    "type":     "coreml",
     "target":   "imdb_lstm.mlmodel",
     "source":   "https://github.com/lutzroeder/netron/files/2591614/imdb_lstm.mlmodel.zip[imdb_lstm.mlmodel]",
     "format":   "Core ML v1",
@@ -1492,11 +1475,6 @@
     "source":   "https://raw.githubusercontent.com/CapTechMobile/blogfest-coreml/d8e8c15d33e9591c9e81cb18e5ea4b2fb6972503/ReadTheRoom/ReadTheRoom.mlmodel",
     "format":   "Core ML v4",
     "link":     "https://github.com/CapTechMobile/blogfest-coreml"
-  },
-  {
-    "type":     "coreml",
-    "target":   "Resnet50.mlmodel",
-    "source":   "https://docs-assets.developer.apple.com/coreml/models/Resnet50.mlmodel"
   },
   {
     "type":     "coreml",
@@ -1625,11 +1603,6 @@
   },
   {
     "type":     "coreml",
-    "target":   "TinyYOLO.mlmodel",
-    "source":   "https://raw.githubusercontent.com/hollance/YOLO-CoreML-MPSNNGraph/master/TinyYOLO-CoreML/TinyYOLO-CoreML/TinyYOLO.mlmodel"
-  },
-  {
-    "type":     "coreml",
     "target":   "UpdatableKNN.mlmodel",
     "source":   "https://github.com/lutzroeder/netron/files/3424578/UpdatableKNN.zip[UpdatableKNN.mlmodel]",
     "format":   "Core ML v4",
@@ -1674,7 +1647,7 @@
     "type":     "darknet",
     "target":   "darknet_invalid_file.cfg",
     "source":   "https://github.com/lutzroeder/netron/files/3219696/darknet_invalid_file.cfg.zip[darknet_invalid_file.cfg]",
-    "error":    "Invalid cfg 'xxxx' at line 4 in 'darknet_invalid_file.cfg'.",
+    "error":    "Invalid cfg 'xxxx' at line 4.",
     "link":     "https://github.com/lutzroeder/netron/issues/277"
   },
   {
@@ -1800,7 +1773,7 @@
     "type":     "darknet",
     "target":   "vgg_bn_ssd300.cfg",
     "source":   "https://github.com/lutzroeder/netron/files/5287397/vgg_bn_ssd300.cfg.zip[vgg_bn_ssd300.cfg]",
-    "error":    "Unexpected '[convolutional]' section. First section must be [net] or [network] in 'vgg_bn_ssd300.cfg'.",
+    "error":    "Unexpected '[convolutional]' section. First section must be [net] or [network].",
     "link":     "https://github.com/lutzroeder/netron/issues/277"
   },
   {
@@ -1938,10 +1911,62 @@
   },
   {
     "type":     "dlc",
+    "target":   "dmonitoring_model_q/model,dmonitoring_model_q/model.params",
+    "source":   "https://github.com/lutzroeder/netron/files/8767267/dmonitoring_model_q.zip[model,model.params]",
+    "format":   "DLC",
+    "link":     "https://github.com/lutzroeder/netron/issues/640"
+  },
+  {
+    "type":     "dlc",
+    "target":   "dmonitoring_model_q.dlc",
+    "source":   "https://github.com/lutzroeder/netron/files/8767255/dmonitoring_model_q.dlc.zip[dmonitoring_model_q.dlc]",
+    "format":   "DLC",
+    "link":     "https://github.com/lutzroeder/netron/issues/640"
+  },
+  {
+    "type":     "dlc",
     "target":   "inception_v3_quantized.dlc",
     "source":   "https://github.com/lutzroeder/netron/files/5615377/inception_v3_quantized.dlc.zip[inception_v3_quantized.dlc]",
-    "error":    "File contains undocumented DLC data in 'inception_v3_quantized.dlc'.",
+    "format":   "DLC",
     "link":     "https://github.com/lutzroeder/netron/issues/640"
+  },
+  {
+    "type":     "dlc",
+    "target":   "model_front_mibokeh_video.dlc",
+    "source":   "https://github.com/lutzroeder/netron/files/8767521/model_front_mibokeh_video.dlc.zip[model_front_mibokeh_video.dlc]",
+    "format":   "DLC",
+    "error":    "File format is not dlc.NetParam (Offset is outside the bounds of the DataView).",
+    "link":     "https://github.com/lutzroeder/netron/issues/640"
+  },
+  {
+    "type":     "dlc",
+    "target":   "mobile_mosaic_hta/model.params",
+    "source":   "https://github.com/lutzroeder/netron/files/8767531/mobile_mosaic_hta.zip[model.params]",
+    "format":   "DLC Weights",
+    "link":     "https://github.com/lutzroeder/netron/issues/640"
+  },
+  {
+    "type":     "dlc",
+    "target":   "mobilenet-SSD.dlc",
+    "source":   "https://github.com/lutzroeder/netron/files/10528507/mobilenet-SSD.dlc.zip[mobilenet-SSD.dlc]",
+    "format":   "DLC",
+    "error":    "File contains undocumented DLC v2 data.",
+    "link":     "https://github.com/lutzroeder/netron/issues/640"
+  },
+  {
+    "type":     "dlc",
+    "target":   "yolov8n_op11_v1.dlc",
+    "source":   "https://github.com/lutzroeder/netron/files/10527011/yolov8n_op11_v1.dlc.zip[yolov8n_op11_v1.dlc]",
+    "format":   "DLC",
+    "link":     "https://github.com/lutzroeder/netron/issues/1037"
+  },
+  {
+    "type":     "dlc",
+    "target":   "yolov8n_op11_v2.dlc",
+    "source":   "https://github.com/lutzroeder/netron/files/10527012/yolov8n_op11_v2.dlc.zip[yolov8n_op11_v2.dlc]",
+    "format":   "DLC",
+    "error":    "File contains undocumented DLC v4 data.",
+    "link":     "https://github.com/lutzroeder/netron/issues/1037"
   },
   {
     "type":     "dnn",
@@ -1951,11 +1976,39 @@
     "link":     "https://github.com/lutzroeder/netron/issues/581"
   },
   {
+    "type":     "flax",
+    "target":   "flax_model.msgpack",
+    "source":   "https://github.com/lutzroeder/netron/files/8567810/flax_model.msgpack.zip[flax_model.msgpack]",
+    "format":   "Flax",
+    "link":     "https://github.com/lutzroeder/netron/issues/850"
+  },
+  {
     "type":     "flux",
     "target":   "helloworld.bson",
     "source":   "https://github.com/lutzroeder/netron/files/3638212/helloworld.zip[helloworld.bson]",
     "format":   "Flux",
     "link":     "https://github.com/lutzroeder/netron/issues/334"
+  },
+  {
+    "type":     "hailo",
+    "target":   "resnet_v1_8.hn",
+    "source":   "https://github.com/lutzroeder/netron/files/11015765/resnet_v1_8.zip[resnet_v1_8.hn]",
+    "format":   "Hailo NN",
+    "link":     "https://github.com/lutzroeder/netron/issues/1058"
+  },
+  {
+    "type":     "hailo",
+    "target":   "resnet_v1_8.har",
+    "source":   "https://github.com/lutzroeder/netron/files/11015765/resnet_v1_8.zip[resnet_v1_8_quantized.har]",
+    "format":   "Hailo Archive v3.23.0",
+    "link":     "https://github.com/lutzroeder/netron/issues/1058"
+  },
+  {
+    "type":     "hickle",
+    "target":   "googlenet.h5",
+    "source":   "https://github.com/vadimkantorov/metriclearningbench/releases/download/data/googlenet.h5",
+    "format":   "Hickle Weights",
+    "link":     "https://github.com/lutzroeder/netron/issues/998"
   },
   {
     "type":     "keras",
@@ -2019,6 +2072,13 @@
     "source":   "https://github.com/lutzroeder/netron/files/2452413/CNN_SN_flaw1_v1.h5.zip[CNN_SN_flaw1_v1.h5]",
     "format":   "Keras v2.2.3",
     "link":     "https://github.com/lutzroeder/netron/issues/157"
+  },
+  {
+    "type":     "keras",
+    "target":   "data_prediction.hdf5",
+    "source":   "https://github.com/lutzroeder/netron/files/8694214/data_prediction.hdf5.zip[data_prediction.hdf5]",
+    "format":   "HDF5 Weights",
+    "link":     "https://github.com/lutzroeder/netron/issues/467"
   },
   {
     "type":     "keras",
@@ -2154,6 +2214,13 @@
   },
   {
     "type":     "keras",
+    "target":   "model_hydra.h5",
+    "source":   "https://github.com/lutzroeder/netron/files/10398337/model_hydra.h5.zip[model_hydra.h5]",
+    "format":   "Keras v2.11.0",
+    "link":     "https://github.com/lutzroeder/netron/issues/1035"
+  },
+  {
+    "type":     "keras",
     "target":   "NASNetMobile.h5.zip",
     "source":   "https://github.com/lutzroeder/netron/files/6098153/NASNetMobile.h5.zip",
     "format":   "Keras v2.4.0",
@@ -2253,7 +2320,7 @@
     "type":     "keras",
     "target":   "snapshot_parent_0097.h5",
     "source":   "https://raw.githubusercontent.com/uber-research/deep-neuroevolution/master/visual_inspector/sample_data/mujoco/final_xy_bc/snapshots/snapshot_gen_0097/snapshot_parent_0097.h5",
-    "error":    "File format is not HDF5 Weights in 'snapshot_parent_0097.h5'.",
+    "error":    "File format is not HDF5 Weights.",
     "link":     "https://github.com/uber-research/deep-neuroevolution"
   },
   {
@@ -2323,6 +2390,13 @@
   },
   {
     "type":     "kmodel",
+    "target":   "deskv2beta4.kmodel",
+    "source":   "https://github.com/lutzroeder/netron/files/9040640/deskv2beta4.kmodel.zip[deskv2beta4.kmodel]",
+    "format":   "kmodel v4",
+    "link":     "https://github.com/lutzroeder/netron/issues/871"
+  },
+  {
+    "type":     "kmodel",
     "target":   "iris.kmodel",
     "source":   "https://github.com/lutzroeder/netron/files/8111178/iris.kmodel.zip[iris.kmodel]",
     "format":   "kmodel v4",
@@ -2344,10 +2418,16 @@
   },
   {
     "type":     "kmodel",
+    "target":   "mbnet75.kmodel",
+    "source":   "https://github.com/lutzroeder/netron/files/9040676/mbnet75.kmodel.zip[mbnet75.kmodel]",
+    "format":   "kmodel v4",
+    "link":     "https://github.com/lutzroeder/netron/issues/871"
+  },
+  {
+    "type":     "kmodel",
     "target":   "mobilenet_v2.kmodel",
     "source":   "https://github.com/lutzroeder/netron/files/7965168/mobilenet_v2.kmodel.zip[mobilenet_v2.kmodel]",
     "format":   "kmodel v5",
-    "error":    "Unsupported model version '5' in 'mobilenet_v2.kmodel'.",
     "link":     "https://github.com/lutzroeder/netron/issues/871"
   },
   {
@@ -2362,7 +2442,6 @@
     "target":   "mnist.kmodel",
     "source":   "https://github.com/lutzroeder/netron/files/8111312/mnist.kmodel.zip[mnist.kmodel]",
     "format":   "kmodel v5",
-    "error":    "Unsupported model version '5' in 'mnist.kmodel'.",
     "link":     "https://github.com/lutzroeder/netron/issues/871"
   },
   {
@@ -2374,9 +2453,30 @@
   },
   {
     "type":     "kmodel",
+    "target":   "test1.kmodel",
+    "source":   "https://github.com/lutzroeder/netron/files/8568261/test1.kmodel.zip[test1.kmodel]",
+    "format":   "kmodel v4",
+    "link":     "https://github.com/lutzroeder/netron/issues/871"
+  },
+  {
+    "type":     "kmodel",
     "target":   "ulffd_landmark.kmodel",
     "source":   "https://github.com/lutzroeder/netron/files/8111629/ulffd_landmark.kmodel.zip[ulffd_landmark.kmodel]",
     "format":   "kmodel v4",
+    "link":     "https://github.com/lutzroeder/netron/issues/871"
+  },
+  {
+    "type":     "kmodel",
+    "target":   "yolofast.kmodel",
+    "source":   "https://github.com/lutzroeder/netron/files/8758983/yolofast.kmodel.zip[yolofast.kmodel]",
+    "format":   "kmodel v5",
+    "link":     "https://github.com/lutzroeder/netron/issues/871"
+  },
+  {
+    "type":     "kmodel",
+    "target":   "yolox_nano_224.kmodel",
+    "source":   "https://github.com/lutzroeder/netron/files/8695383/yolox_nano_224.kmodel.zip[yolox_nano_224.kmodel]",
+    "format":   "kmodel v5",
     "link":     "https://github.com/lutzroeder/netron/issues/871"
   },
   {
@@ -2485,6 +2585,48 @@
     "link":     "https://github.com/google/mediapipe"
   },
   {
+    "type":     "megengine",
+    "target":   "add_with_data.mge",
+    "source":   "https://github.com/lutzroeder/netron/files/10529167/add_with_data.mge.zip[add_with_data.mge]",
+    "format":   "MegEngine Mge v2",
+    "link":     "https://github.com/lutzroeder/netron/issues/607"
+  },
+  {
+    "type":     "megengine",
+    "target":   "mobilenetv1.tm",
+    "source":   "https://github.com/lutzroeder/netron/files/9257882/mobilenetv1.tm.zip[mobilenetv1.tm]",
+    "format":   "MegEngine v1.10.0",
+    "link":     "https://github.com/lutzroeder/netron/issues/607"
+  },
+  {
+    "type":     "megengine",
+    "target":   "mobilenetv3-large.mge",
+    "source":   "https://github.com/lutzroeder/netron/files/10379182/mobilenetv3-large.mge.zip[mobilenetv3-large.mge]",
+    "format":   "MegEngine Mge v2",
+    "link":     "https://github.com/lutzroeder/netron/issues/607"
+  },
+  {
+    "type":     "megengine",
+    "target":   "shufflenet_v2_x1_0.tm",
+    "source":   "https://github.com/lutzroeder/netron/files/9257733/shufflenet_v2_x1_0.tm.zip[shufflenet_v2_x1_0.tm]",
+    "format":   "MegEngine v1.10.0",
+    "link":     "https://github.com/lutzroeder/netron/issues/607"
+  },
+  {
+    "type":     "megengine",
+    "target":   "shufflenetv2.mge",
+    "source":   "https://github.com/lutzroeder/netron/files/10379184/shufflenetv2.mge.zip[shufflenetv2.mge]",
+    "format":   "MegEngine Mge v2",
+    "link":     "https://github.com/lutzroeder/netron/issues/607"
+  },
+  {
+    "type":     "megengine",
+    "target":   "test.mge",
+    "source":   "https://github.com/lutzroeder/netron/files/10379177/test.mge.zip[test.mge]",
+    "format":   "MegEngine Mge v2",
+    "link":     "https://github.com/lutzroeder/netron/issues/607"
+  },
+  {
     "type":     "mlnet",
     "target":   "BinaryClassification_AutoML_SentimentModel.zip",
     "source":   "https://raw.githubusercontent.com/dotnet/machinelearning-samples/master/samples/csharp/getting-started/BinaryClassification_AutoML/SentimentAnalysis/MLModels/SentimentModel.zip",
@@ -2557,7 +2699,7 @@
   {
     "type":     "mlnet",
     "target":   "ngram.zip",
-    "source":   "https://github.com/lutzroeder/netron/files/4216079/ngram.zip?raw=true",
+    "source":   "https://github.com/lutzroeder/netron/files/4216079/ngram.zip",
     "format":   "ML.NET v3.10.29.504",
     "link":     "https://github.com/lutzroeder/netron/issues/170"
   },
@@ -2620,7 +2762,7 @@
   {
     "type":     "mlnet",
     "target":   "termlookup_with_key.zip",
-    "source":   "https://github.com/lutzroeder/netron/files/4216237/termlookup_with_key.zip?raw=true",
+    "source":   "https://github.com/lutzroeder/netron/files/4216237/termlookup_with_key.zip",
     "format":   "ML.NET v1.0.0.0",
     "link":     "https://github.com/lutzroeder/netron/issues/170"
   },
@@ -2631,10 +2773,25 @@
     "format":   "ML.NET v1.0.27701.1"
   },
   {
+    "type":     "mlir",
+    "target":   "examples.mnist_xla.mlir",
+    "source":   "https://github.com/lutzroeder/netron/files/10672271/examples.mnist_xla.mlir.zip[examples.mnist_xla.mlir]",
+    "format":   "MLIR",
+    "link":     "https://github.com/lutzroeder/netron/issues/1044"
+  },
+  {
+    "type":     "mlir",
+    "target":   "issue_1043.mlir",
+    "source":   "https://github.com/lutzroeder/netron/files/10672270/issue_1043.mlir.zip[issue_1043.mlir]",
+    "format":   "MLIR",
+    "link":     "https://github.com/lutzroeder/netron/issues/1044"
+  },
+  {
     "type":     "mnn",
     "target":   "blazeface.mnn",
     "source":   "https://raw.githubusercontent.com/xindongzhang/MNN-APPLICATIONS/master/applications/blazeface/tensorflow/jni/blazeface.mnn",
     "format":   "MNN v2",
+    "error":    "Invalid tensor data length.",
     "link":     "https://github.com/xindongzhang/MNN-APPLICATIONS"
   },
   {
@@ -2649,6 +2806,7 @@
     "target":   "face_det.mnn",
     "source":   "https://raw.githubusercontent.com/xindongzhang/MNN-APPLICATIONS/master/applications/mssd/tflite/jni/face_det.mnn",
     "format":   "MNN v2",
+    "error":    "Invalid tensor data length.",
     "link":     "https://github.com/xindongzhang/MNN-APPLICATIONS"
   },
   {
@@ -2712,6 +2870,7 @@
     "target":   "tf_body_det.mnn",
     "source":   "https://raw.githubusercontent.com/xindongzhang/MNN-APPLICATIONS/master/applications/mssd/tensorflow/jni/tf_body_det.mnn",
     "format":   "MNN v2",
+    "error":    "Invalid tensor data length.",
     "link":     "https://github.com/xindongzhang/MNN-APPLICATIONS"
   },
   {
@@ -2911,6 +3070,7 @@
     "target":   "centerface.param,centerface.bin",
     "source":   "https://raw.githubusercontent.com/MirrorYuChen/ncnn_example/798f64b7d5f0b883e05cb994258d43658b0661b6/models/centerface.param,https://raw.githubusercontent.com/MirrorYuChen/ncnn_example/798f64b7d5f0b883e05cb994258d43658b0661b6/models/centerface.bin",
     "format":   "ncnn",
+    "assert":   [ "model.graphs[0].nodes[0].type.name=Convolution" ],
     "link":     "https://github.com/MirrorYuChen/ncnn_example"
   },
   {
@@ -2974,6 +3134,7 @@
     "target":   "MobileNetSSD_deploy.param.bin,MobileNetSSD_deploy.bin",
     "source":   "https://raw.githubusercontent.com/chehongshu/ncnnforandroid_objectiondetection_Mobilenetssd/master/MobileNetSSD_demo/app/src/main/assets/MobileNetSSD_deploy.param.bin,https://raw.githubusercontent.com/chehongshu/ncnnforandroid_objectiondetection_Mobilenetssd/master/MobileNetSSD_demo/app/src/main/assets/MobileNetSSD_deploy.bin",
     "format":   "ncnn",
+    "assert":   [ "model.graphs[0].nodes[1].type.name=Convolution" ],
     "link":     "https://github.com/chehongshu/ncnnforandroid_objectiondetection_Mobilenetssd"
   },
   {
@@ -3078,36 +3239,44 @@
     "type":     "nnabla",
     "target":   "Resnet-18.nnp",
     "source":   "https://nnabla.org/pretrained-models/nnp_models/imagenet/Resnet-18/Resnet-18.nnp",
-    "format":   "nnabla v0.1",
+    "format":   "NNabla v0.1",
     "link":     "https://nnabla.readthedocs.io/en/latest/python/api/models/imagenet.html"
   },
   {
     "type":     "nnabla",
     "target":   "MobileNet-v2.nnp",
     "source":   "https://nnabla.org/pretrained-models/nnp_models/imagenet/MobileNet-v2/MobileNet-v2.nnp",
-    "format":   "nnabla v0.1",
+    "format":   "NNabla v0.1",
     "link":     "https://nnabla.readthedocs.io/en/latest/python/api/models/imagenet.html"
   },
   {
     "type":     "nnabla",
     "target":   "SqueezeNet-1.1.nnp",
     "source":   "https://nnabla.org/pretrained-models/nnp_models/imagenet/SqueezeNet-1.1/SqueezeNet-1.1.nnp",
-    "format":   "nnabla v0.1",
+    "format":   "NNabla v0.1",
     "link":     "https://nnabla.readthedocs.io/en/latest/python/api/models/imagenet.html"
   },
   {
     "type":     "nnabla",
     "target":   "NIN.nnp",
     "source":   "https://nnabla.org/pretrained-models/nnp_models/imagenet/NIN/NIN.nnp",
-    "format":   "nnabla v0.1",
+    "format":   "NNabla v0.1",
     "link":     "https://nnabla.readthedocs.io/en/latest/python/api/models/imagenet.html"
   },
   {
     "type":     "nnabla",
     "target":   "ShuffleNet-0.5x.nnp",
     "source":   "https://nnabla.org/pretrained-models/nnp_models/imagenet/ShuffleNet-0.5x/ShuffleNet-0.5x.nnp",
-    "format":   "nnabla v0.1",
+    "format":   "NNabla v0.1",
     "link":     "https://nnabla.readthedocs.io/en/latest/python/api/models/imagenet.html"
+  },
+  {
+    "type":     "nnef",
+    "target":   "squeezenet_v1.0.onnx.nnef.tgz",
+    "source":   "https://sfo2.digitaloceanspaces.com/nnef-public/squeezenet_v1.0.onnx.nnef.tgz",
+    "format":   "NNEF v1.0",
+    "error":    "NNEF v1.0 support not implemented.",
+    "link":     "https://github.com/lutzroeder/netron/issues/992"
   },
   {
     "type":     "numpy",
@@ -3115,6 +3284,13 @@
     "source":   "https://raw.githubusercontent.com/Xilinx/BNN-PYNQ/master/bnn/src/training/cifar10-1w-1a.npz",
     "format":   "NumPy Zip",
     "link":     "https://github.com/Xilinx/BNN-PYNQ"
+  },
+  {
+    "type":     "numpy",
+    "target":   "datasplit.pkl",
+    "source":   "https://github.com/lutzroeder/netron/files/10099644/datasplit.pkl.zip[datasplit.pkl]",
+    "format":   "NumPy Weights",
+    "link":     "https://github.com/lutzroeder/netron/issues/711"
   },
   {
     "type":     "numpy",
@@ -3139,10 +3315,24 @@
   },
   {
     "type":     "numpy",
+    "target":   "object.npy",
+    "source":   "https://github.com/lutzroeder/netron/files/9485289/object.npy.zip[object.npy]",
+    "format":   "NumPy Array",
+    "link":     "https://github.com/lutzroeder/netron/issues/711"
+  },
+  {
+    "type":     "numpy",
     "target":   "R-50.pkl",
     "source":   "https://dl.fbaipublicfiles.com/detectron/ImageNetPretrained/MSRA/R-50.pkl",
     "format":   "NumPy Weights",
     "link":     "https://github.com/facebookresearch/Detectron"
+  },
+  {
+    "type":     "numpy",
+    "target":   "string_matrix.npy",
+    "source":   "https://github.com/lutzroeder/netron/files/11854272/string_matrix.npy.zip[string_matrix.npy]",
+    "format":   "NumPy Array",
+    "link":     "https://github.com/lutzroeder/netron/issues/711"
   },
   {
     "type":     "numpy",
@@ -3152,19 +3342,32 @@
     "link":     "https://github.com/lutzroeder/netron/issues/711"
   },
   {
+    "type":     "onednn",
+    "target":   "sample-graph-100001.json",
+    "source":   "https://github.com/lutzroeder/netron/files/10037438/sample-graph-100001.json.zip[sample-graph-100001.json]",
+    "format":   "oneDNN Graph v3.0.0",
+    "link":     "https://github.com/lutzroeder/netron/issues/1006"
+  },
+  {
+    "type":     "onednn",
+    "target":   "resnet50-sample-graph.json",
+    "source":   "https://github.com/lutzroeder/netron/files/10065168/resnet50-sample-graph.json.zip[resnet50-sample-graph.json]",
+    "format":   "oneDNN Graph v3.0.0",
+    "link":     "https://github.com/lutzroeder/netron/issues/1006"
+  },
+  {
+    "type":     "onednn",
+    "target":   "sample-graph-with-ports-100001.json",
+    "source":   "https://github.com/lutzroeder/netron/files/11544591/sample-graph-with-ports-100001.json.zip[sample-graph-with-ports-100001.json]",
+    "format":   "oneDNN Graph v3.1.0",
+    "link":     "https://github.com/lutzroeder/netron/issues/1006"
+  },
+  {
     "type":     "onnx",
     "target":   "arcface-resnet100.onnx",
     "source":   "https://s3.amazonaws.com/onnx-model-zoo/arcface/resnet100/resnet100.onnx",
     "format":   "ONNX v3",
     "link":     "https://github.com/onnx/models/tree/main/models/face_recognition/ArcFace"
-  },
-  {
-    "type":     "onnx",
-    "target":   "bidaf-9.onnx.zip",
-    "source":   "https://github.com/lutzroeder/netron/files/6572387/bidaf-9.onnx.zip",
-    "format":   "ONNX v4",
-    "producer": "CNTK 2.7",
-    "link":     "https://github.com/lutzroeder/netron/issues/6"
   },
   {
     "type":     "onnx",
@@ -3183,16 +3386,33 @@
   },
   {
     "type":     "onnx",
-    "target":   "bvlc_alexnet_opset_3.onnx.zip",
-    "source":   "https://github.com/lutzroeder/netron/files/5296267/bvlc_alexnet_opset_3.onnx.zip",
-    "format":   "ONNX v3",
+    "target":   "bfloat16.int32_data.onnx",
+    "source":   "https://github.com/lutzroeder/netron/files/11740995/bfloat16.onnx.zip[bfloat16.int32_data.onnx]",
+    "format":   "ONNX v8",
+    "producer": "onnx-example",
     "link":     "https://github.com/lutzroeder/netron/issues/6"
   },
   {
     "type":     "onnx",
-    "target":   "bvlc_googlenet_opset_9.onnx",
-    "source":   "https://s3.amazonaws.com/download.onnx/models/opset_9/bvlc_googlenet.tar.gz[bvlc_googlenet/model.onnx]",
-    "link":     "https://github.com/onnx/models/tree/main/bvlc_googlenet"
+    "target":   "bfloat16.raw_data.onnx",
+    "source":   "https://github.com/lutzroeder/netron/files/11740995/bfloat16.onnx.zip[bfloat16.raw_data.onnx]",
+    "format":   "ONNX v8",
+    "link":     "https://github.com/lutzroeder/netron/issues/6"
+  },
+  {
+    "type":     "onnx",
+    "target":   "bidaf-9.onnx.zip",
+    "source":   "https://github.com/lutzroeder/netron/files/6572387/bidaf-9.onnx.zip",
+    "format":   "ONNX v4",
+    "producer": "CNTK 2.7",
+    "link":     "https://github.com/lutzroeder/netron/issues/6"
+  },
+  {
+    "type":     "onnx",
+    "target":   "bvlc_alexnet_opset_3.onnx.zip",
+    "source":   "https://github.com/lutzroeder/netron/files/5296267/bvlc_alexnet_opset_3.onnx.zip",
+    "format":   "ONNX v3",
+    "link":     "https://github.com/lutzroeder/netron/issues/6"
   },
   {
     "type":     "onnx",
@@ -3218,6 +3438,13 @@
   },
   {
     "type":     "onnx",
+    "target":   "complex_init.onnx",
+    "source":   "https://github.com/lutzroeder/netron/files/8582128/complex_init.onnx.zip[complex_init.onnx]",
+    "format":   "ONNX v4",
+    "link":     "https://github.com/lutzroeder/netron/issues/905"
+  },
+  {
+    "type":     "onnx",
     "target":   "conv_autopad.onnx",
     "source":   "https://raw.githubusercontent.com/microsoft/onnxruntime/master/onnxruntime/test/testdata/conv_autopad.onnx",
     "format":   "ONNX v3",
@@ -3232,10 +3459,17 @@
   },
   {
     "type":     "onnx",
+    "target":   "decoder_model_merged.onnx",
+    "source":   "https://github.com/lutzroeder/netron/files/10830273/decoder_model_merged.onnx.zip[decoder_model_merged.onnx]",
+    "format":   "ONNX v8",
+    "link":     "https://github.com/lutzroeder/netron/issues/1052"
+  },
+  {
+    "type":     "onnx",
     "target":   "denotation_Add_ImageNet1920WithImageMetadataBgr8_SRGB_0_255.onnx",
     "source":   "https://github.com/lutzroeder/netron/files/2587943/onnx_denotation_models.zip[denotation_Add_ImageNet1920WithImageMetadataBgr8_SRGB_0_255.onnx]",
     "format":   "ONNX v3",
-    "assert":   [ "model.graphs[0].nodes[0].outputs[0].arguments[0].type.denotation = Image(Bgr8,SRGB,NominalRange_0_255)" ],
+    "assert":   [ "model.graphs[0].nodes[0].outputs[0].value[0].type.denotation = Image(Bgr8,SRGB,NominalRange_0_255)" ],
     "link":     "https://github.com/lutzroeder/netron/issues/183"
   },
   {
@@ -3258,11 +3492,6 @@
     "source":   "https://github.com/lutzroeder/netron/files/2587943/onnx_denotation_models.zip[denotation_Add_ImageNet1920WithImageMetadataRgba8_SRGB_0_255.onnx]",
     "format":   "ONNX v3",
     "link":     "https://github.com/lutzroeder/netron/issues/183"
-  },
-  {
-    "type":     "onnx",
-    "target":   "densenet121_opset_9.onnx",
-    "source":   "https://s3.amazonaws.com/download.onnx/models/opset_9/densenet121.tar.gz[densenet121/model.onnx]"
   },
   {
     "type":     "onnx",
@@ -3296,7 +3525,7 @@
     "type":     "onnx",
     "target":   "eisber_model3_invalid.pbtxt",
     "source":   "https://github.com/lutzroeder/netron/files/5011185/eisber_model3_invalid.pbtxt.zip[eisber_model3_invalid.pbtxt]",
-    "error":    "File text format is not onnx.ModelProto (Unexpected '}' instead of ':' at 6:3) in 'eisber_model3_invalid.pbtxt'.",
+    "error":    "File text format is not onnx.ModelProto (Unexpected '}' instead of ':' at 6:3).",
     "link":     "https://github.com/lutzroeder/netron/issues/139"
   },
   {
@@ -3329,10 +3558,17 @@
   },
   {
     "type":     "onnx",
-    "target":   "FCLayer_graph.onnx",
-    "source":   "https://raw.githubusercontent.com/Xilinx/finn/master/notebooks/FCLayer_graph.onnx",
-    "format":   "ONNX v6",
-    "link":     "https://github.com/Xilinx/finn/tree/master/notebooks"
+    "target":   "fp8.onnx",
+    "source":   "https://github.com/lutzroeder/netron/files/11702419/fp8.onnx.zip[fp8.onnx]",
+    "format":   "ONNX v9",
+    "link":     "https://github.com/lutzroeder/netron/issues/6"
+  },
+  {
+    "type":     "onnx",
+    "target":   "gpt2.onnx.zip",
+    "source":   "https://github.com/lutzroeder/netron/files/11583198/gpt2.onnx.zip",
+    "format":   "ONNX v7",
+    "link":     "https://github.com/lutzroeder/netron/issues/6"
   },
   {
     "type":     "onnx",
@@ -3344,14 +3580,9 @@
   {
     "type":     "onnx",
     "target":   "input_0.pb",
-    "source":   "https://s3.amazonaws.com/download.onnx/models/opset_9/shufflenet.tar.gz[shufflenet/test_data_set_0/input_0.pb]",
+    "source":   "https://github.com/lutzroeder/netron/files/11067440/input_0.pb.zip[input_0.pb]",
     "format":   "ONNX Tensor",
-    "link":     "https://github.com/lutzroeder/netron/issues/550"
-  },
-  {
-    "type":     "onnx",
-    "target":   "inception_v1_opset_9.onnx",
-    "source":   "https://s3.amazonaws.com/download.onnx/models/opset_9/inception_v1.tar.gz[inception_v1/model.onnx]"
+    "link":     "https://github.com/lutzroeder/netron/issues/6"
   },
   {
     "type":     "onnx",
@@ -3369,10 +3600,10 @@
   },
   {
     "type":     "onnx",
-    "target":   "keras2onnx.onnx",
-    "source":   "https://github.com/lutzroeder/netron/files/5738366/keras2onnx.onnx.zip[keras2onnx.onnx]",
-    "error":    "File format is not onnx.ModelProto (Unexpected end of file) in 'keras2onnx.onnx'.",
-    "link":     "https://github.com/lutzroeder/netron/issues/6"
+    "target":   "issue_1029.onnx",
+    "source":   "https://github.com/lutzroeder/netron/files/10344328/issue_1029.onnx.zip[issue_1029.onnx]",
+    "format":   "ONNX v8",
+    "link":     "https://github.com/lutzroeder/netron/issues/1029"
   },
   {
     "type":     "onnx",
@@ -3442,36 +3673,44 @@
   },
   {
     "type":     "onnx",
-    "target":   "netron_issue_119.onnx",
-    "source":   "https://github.com/lutzroeder/netron/files/4260629/netron_issue_119.zip[netron_issue_119.onnx]",
+    "target":   "issue_119.onnx",
+    "source":   "https://github.com/lutzroeder/netron/files/10349170/issue_119.onnx.zip[issue_119.onnx]",
     "format":   "ONNX v4",
     "link":     "https://github.com/lutzroeder/netron/issues/119"
   },
   {
     "type":     "onnx",
-    "target":   "netron_issue168_onnx_if.pbtxt",
-    "source":   "https://github.com/lutzroeder/netron/files/3239859/netron_issue168_onnx.zip[netron_issue168_onnx_if.pbtxt]",
+    "target":   "issue_168_if.pbtxt",
+    "source":   "https://github.com/lutzroeder/netron/files/10349183/issue_168.zip[issue_168_if.pbtxt]",
     "format":   "ONNX v3",
     "link":     "https://github.com/lutzroeder/netron/issues/168"
   },
   {
     "type":     "onnx",
-    "target":   "netron_issue168_onnx_loop.pbtxt",
-    "source":   "https://github.com/lutzroeder/netron/files/3239859/netron_issue168_onnx.zip[netron_issue168_onnx_loop.pbtxt]",
+    "target":   "issue_168_loop.pbtxt",
+    "source":   "https://github.com/lutzroeder/netron/files/10349183/issue_168.zip[issue_168_loop.pbtxt]",
     "format":   "ONNX v3",
     "link":     "https://github.com/lutzroeder/netron/issues/168"
   },
   {
     "type":     "onnx",
-    "target":   "netron_issue168_onnx_scan.pbtxt",
-    "source":   "https://github.com/lutzroeder/netron/files/3239859/netron_issue168_onnx.zip[netron_issue168_onnx_scan.pbtxt]",
+    "target":   "issue_168_scan.pbtxt",
+    "source":   "https://github.com/lutzroeder/netron/files/10349183/issue_168.zip[issue_168_scan.pbtxt]",
     "format":   "ONNX v3",
     "link":     "https://github.com/lutzroeder/netron/issues/168"
   },
   {
     "type":     "onnx",
-    "target":   "netron_issue_845.onnx",
-    "source":   "https://github.com/lutzroeder/netron/files/7604948/netron_issue_845.onnx.zip[netron_issue_845.onnx]",
+    "target":   "issue_589.onnx.zip",
+    "source":   "https://github.com/lutzroeder/netron/files/10349190/issue_589.onnx.zip",
+    "format":   "ONNX v6",
+    "action":   "skip-render",
+    "link":     "https://github.com/lutzroeder/netron/issues/589"
+  },
+  {
+    "type":     "onnx",
+    "target":   "issue_845.onnx",
+    "source":   "https://github.com/lutzroeder/netron/files/10349194/issue_845.onnx.zip[issue_845.onnx]",
     "format":   "ONNX v4",
     "link":     "https://github.com/lutzroeder/netron/issues/6"
   },
@@ -3481,6 +3720,13 @@
     "source":   "https://raw.githubusercontent.com/microsoft/onnxruntime/master/onnxruntime/test/testdata/optional_1.onnx",
     "format":   "ONNX v3",
     "link":     "https://github.com/microsoft/onnxruntime/tree/master/onnxruntime/test/testdata"
+  },
+  {
+    "type":     "onnx",
+    "target":   "optional_type.onnx",
+    "source":   "https://github.com/lutzroeder/netron/files/8746170/optional_type.onnx.zip[optional_type.onnx]",
+    "format":   "ONNX v8",
+    "link":     "https://github.com/lutzroeder/netron/issues/914"
   },
   {
     "type":     "onnx",
@@ -3523,13 +3769,6 @@
     "source":   "https://github.com/lutzroeder/netron/files/2592368/shufflenet_float16.onnx.zip[shufflenet_float16.onnx]",
     "format":   "ONNX v3",
     "link":     "https://github.com/lutzroeder/netron/issues/186"
-  },
-  {
-    "type":     "onnx",
-    "target":   "shufflenet_opset_9.onnx",
-    "source":   "https://s3.amazonaws.com/download.onnx/models/opset_9/shufflenet.tar.gz[shufflenet/model.onnx]",
-    "format":   "ONNX v3",
-    "link":     "https://github.com/onnx/models/tree/main/shufflenet"
   },
   {
     "type":     "onnx",
@@ -3659,11 +3898,17 @@
     "format":   "ONNX Text v7",
     "link":     "https://github.com/lutzroeder/netron/issues/884"
   },
-
   {
     "type":     "onnx",
-    "target":   "yolov3.onnx",
-    "source":   "https://github.com/lutzroeder/netron/files/5581031/yolov3.onnx.zip[yolov3.onnx]",
+    "target":   "transformer.onnx.zip",
+    "source":   "https://github.com/lutzroeder/netron/files/10291185/transformer.onnx.zip",
+    "format":   "ONNX v7",
+    "link":     "https://github.com/lutzroeder/netron/issues/6"
+  },
+  {
+    "type":     "onnx",
+    "target":   "yolov3.onnx.zip",
+    "source":   "https://github.com/lutzroeder/netron/files/8942116/yolov3.onnx.zip",
     "format":   "ONNX v5",
     "producer": "keras2onnx 1.5.1",
     "link":     "https://github.com/lutzroeder/netron/issues/6"
@@ -3705,444 +3950,38 @@
   },
   {
     "type":     "om",
-    "target":   "resnet50v1_framework_tensorflow_aipp_0_batch_1_input_fp16_output_FP32.om",
-    "source":   "https://obs-9be7.obs.cn-east-2.myhuaweicloud.com/turing/resourcecenter/model/Resnet50V1/zh/1.1/ATC_Resnet50_V1_from_Tensorflow_Ascend310.zip[resnet50v1_framework_tensorflow_aipp_0_batch_1_input_fp16_output_FP32.om]",
-    "format":   "DaVinci OM",
-    "link":     "https://www.hiascend.com/zh/software/modelzoo/detail/1/7548422b6b9c4a809114435f6b128bb6"
+    "target":   "resnet50_issue_svp.om",
+    "source":   "https://github.com/lutzroeder/netron/files/9892582/resnet50_issue_svp.om.zip[resnet50_issue_svp.om]",
+    "format":   "DaVinci OM SVP",
+    "link":     "https://github.com/lutzroeder/netron/issues/799"
   },
   {
     "type":     "openvino",
     "target":   "2018_R3_age-gender-recognition-retail-0013.xml,2018_R3_age-gender-recognition-retail-0013.bin",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R3/open_model_zoo/age-gender-recognition-retail-0013/FP32/age-gender-recognition-retail-0013.xml,https://download.01.org/openvinotoolkit/2018_R3/open_model_zoo/age-gender-recognition-retail-0013/FP32/age-gender-recognition-retail-0013.bin",
+    "source":   "https://github.com/lutzroeder/netron/files/8983748/2018_R3_age-gender-recognition-retail-0013.zip[2018_R3_age-gender-recognition-retail-0013.xml,2018_R3_age-gender-recognition-retail-0013.bin]",
     "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R3_rm_cnn4a.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R3/models_contrib/GNA/rm_cnn4a_smbr/rm_cnn4a.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
+    "link":     "https://github.com/lutzroeder/netron/issues/191"
   },
   {
     "type":     "openvino",
     "target":   "2018_R3_rm_lstm4f.xml,2018_R3_rm_lstm4f.bin",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R3/models_contrib/GNA/rm_lstm4f/rm_lstm4f.xml,https://download.01.org/openvinotoolkit/2018_R3/models_contrib/GNA/rm_lstm4f/rm_lstm4f.bin",
+    "source":   "https://github.com/lutzroeder/netron/files/8983751/2018_R3_rm_lstm4f.zip[2018_R3_rm_lstm4f.xml,2018_R3_rm_lstm4f.bin]",
     "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R3_wsj_dnn5b.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R3/models_contrib/GNA/wsj_dnn5b_smbr/wsj_dnn5b.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R4_emotions-recognition-retail-0003.bin,2018_R4_emotions-recognition-retail-0003.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/emotions-recognition-retail-0003/FP32/emotions-recognition-retail-0003.bin,https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/emotions-recognition-retail-0003/FP32/emotions-recognition-retail-0003.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R4_face-detection-adas-0001.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/face-detection-adas-0001/FP32/face-detection-adas-0001.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R4_face-detection-retail-0004.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/face-detection-retail-0004/FP32/face-detection-retail-0004.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R4_face-person-detection-retail-0002.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/face-person-detection-retail-0002/FP32/face-person-detection-retail-0002.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R4_face-reidentification-retail-0071.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/face-reidentification-retail-0071/FP32/face-reidentification-retail-0071.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R4_facial-landmarks-35-adas-0001.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/facial-landmarks-35-adas-0001/FP32/facial-landmarks-35-adas-0001.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R4_head-pose-estimation-adas-0001.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/head-pose-estimation-adas-0001/FP32/head-pose-estimation-adas-0001.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R4_human-pose-estimation-0001.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/human-pose-estimation-0001/FP32/human-pose-estimation-0001.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R4_landmarks-regression-retail-0009.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/landmarks-regression-retail-0009/FP32/landmarks-regression-retail-0009.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R4_person-attributes-recognition-crossroad-0031.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/person-attributes-recognition-crossroad-0031/FP32/person-attributes-recognition-crossroad-0031.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R4_pedestrian-detection-adas-0002.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/pedestrian-detection-adas-0002/FP32/pedestrian-detection-adas-0002.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R4_person-detection-retail-0001.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/person-detection-retail-0001/FP32/person-detection-retail-0001.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R4_person-detection-retail-0013.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/person-detection-retail-0013/FP32/person-detection-retail-0013.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R4_person-reidentification-retail-0031.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/person-reidentification-retail-0031/FP32/person-reidentification-retail-0031.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R4_person-reidentification-retail-0076.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/person-reidentification-retail-0076/FP32/person-reidentification-retail-0076.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R4_person-detection-action-recognition-0003.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/person-detection-action-recognition-0003/FP32/person-detection-action-recognition-0003.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R4_person-reidentification-retail-0079.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/person-reidentification-retail-0079/FP32/person-reidentification-retail-0079.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R4_person-vehicle-bike-detection-crossroad-0078.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/person-vehicle-bike-detection-crossroad-0078/FP32/person-vehicle-bike-detection-crossroad-0078.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R4_road-segmentation-adas-0001.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/road-segmentation-adas-0001/FP32/road-segmentation-adas-0001.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_age-gender-recognition-retail-0013.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/age-gender-recognition-retail-0013/FP32/age-gender-recognition-retail-0013.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_emotions-recognition-retail-0003.xml,2018_R5_emotions-recognition-retail-0003.bin",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/emotions-recognition-retail-0003/FP32/emotions-recognition-retail-0003.xml,https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/emotions-recognition-retail-0003/FP32/emotions-recognition-retail-0003.bin",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_face-detection-adas-0001.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/face-detection-adas-0001/FP32/face-detection-adas-0001.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_face-detection-retail-0004.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/face-detection-retail-0004/FP32/face-detection-retail-0004.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_face-person-detection-retail-0002.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/face-person-detection-retail-0002/FP32/face-person-detection-retail-0002.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_face-reidentification-retail-0095.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/face-reidentification-retail-0095/FP32/face-reidentification-retail-0095.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_facial-landmarks-35-adas-0001.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/facial-landmarks-35-adas-0001/FP32/facial-landmarks-35-adas-0001.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_head-pose-estimation-adas-0001.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/head-pose-estimation-adas-0001/FP32/head-pose-estimation-adas-0001.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_human-pose-estimation-0001.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/human-pose-estimation-0001/FP32/human-pose-estimation-0001.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_landmarks-regression-retail-0009.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/landmarks-regression-retail-0009/FP32/landmarks-regression-retail-0009.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R4_landmarks-regression-retail-0009-fp16.xml,2018_R4_landmarks-regression-retail-0009-fp16.bin",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/landmarks-regression-retail-0009/FP16/landmarks-regression-retail-0009.xml,https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/landmarks-regression-retail-0009/FP16/landmarks-regression-retail-0009.bin",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R4_license-plate-recognition-barrier-0001.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/license-plate-recognition-barrier-0001/FP32/license-plate-recognition-barrier-0001.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R4_pedestrian-and-vehicle-detector-adas-0001.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/pedestrian-and-vehicle-detector-adas-0001/FP32/pedestrian-and-vehicle-detector-adas-0001.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R4_semantic-segmentation-adas-0001.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/semantic-segmentation-adas-0001/FP32/semantic-segmentation-adas-0001.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
+    "link":     "https://github.com/lutzroeder/netron/issues/191"
   },
   {
     "type":     "openvino",
     "target":   "2018_R4_single-image-super-resolution-0034.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/single-image-super-resolution-0034/FP32/single-image-super-resolution-0034.xml",
+    "source":   "https://github.com/lutzroeder/netron/files/8983769/2018_R4_single-image-super-resolution-0034.xml.zip[2018_R4_single-image-super-resolution-0034.xml]",
     "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R4_vehicle-attributes-recognition-barrier-0039.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/vehicle-attributes-recognition-barrier-0039/FP32/vehicle-attributes-recognition-barrier-0039.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R4_vehicle-detection-adas-0002.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/vehicle-detection-adas-0002/FP32/vehicle-detection-adas-0002.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R4_vehicle-license-plate-detection-barrier-0106.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R4/open_model_zoo/vehicle-license-plate-detection-barrier-0106/FP32/vehicle-license-plate-detection-barrier-0106.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_license-plate-recognition-barrier-0001.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/license-plate-recognition-barrier-0001/FP32/license-plate-recognition-barrier-0001.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_pedestrian-and-vehicle-detector-adas-0001.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/pedestrian-and-vehicle-detector-adas-0001/FP32/pedestrian-and-vehicle-detector-adas-0001.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_pedestrian-detection-adas-0002.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/pedestrian-detection-adas-0002/FP32/pedestrian-detection-adas-0002.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_person-attributes-recognition-crossroad-0200.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/person-attributes-recognition-crossroad-0200/FP32/person-attributes-recognition-crossroad-0200.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_person-detection-action-recognition-0004.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/person-detection-action-recognition-0004/FP32/person-detection-action-recognition-0004.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_person-detection-retail-0002.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/person-detection-retail-0002/FP32/person-detection-retail-0002.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_person-detection-retail-0013.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/person-detection-retail-0013/FP32/person-detection-retail-0013.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_person-reidentification-retail-0031.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/person-reidentification-retail-0031/FP32/person-reidentification-retail-0031.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_person-reidentification-retail-0076.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/person-reidentification-retail-0076/FP32/person-reidentification-retail-0076.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_person-reidentification-retail-0079.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/person-reidentification-retail-0079/FP32/person-reidentification-retail-0079.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_person-vehicle-bike-detection-crossroad-0078.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/person-vehicle-bike-detection-crossroad-0078/FP32/person-vehicle-bike-detection-crossroad-0078.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_road-segmentation-adas-0001.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/road-segmentation-adas-0001/FP32/road-segmentation-adas-0001.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_semantic-segmentation-adas-0001.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/semantic-segmentation-adas-0001/FP32/semantic-segmentation-adas-0001.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_single-image-super-resolution-0063.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/single-image-super-resolution-0063/FP32/single-image-super-resolution-0063.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_single-image-super-resolution-1011.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/single-image-super-resolution-1011/FP32/single-image-super-resolution-1011.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_single-image-super-resolution-1021.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/single-image-super-resolution-1021/FP32/single-image-super-resolution-1021.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_text-detection-0001.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/text-detection-0001/FP32/text-detection-0001.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_vehicle-attributes-recognition-barrier-0039.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/vehicle-attributes-recognition-barrier-0039/FP32/vehicle-attributes-recognition-barrier-0039.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2018_R5_vehicle-detection-adas-0002.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/vehicle-detection-adas-0002/FP32/vehicle-detection-adas-0002.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
+    "link":     "https://github.com/lutzroeder/netron/issues/191"
   },
   {
     "type":     "openvino",
     "target":   "2018_R5_vehicle-license-plate-detection-barrier-0106.xml",
-    "source":   "https://download.01.org/openvinotoolkit/2018_R5/open_model_zoo/vehicle-license-plate-detection-barrier-0106/FP32/vehicle-license-plate-detection-barrier-0106.xml",
+    "source":   "https://github.com/lutzroeder/netron/files/8983770/2018_R5_vehicle-license-plate-detection-barrier-0106.xml.zip[2018_R5_vehicle-license-plate-detection-barrier-0106.xml]",
     "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
-  },
-  {
-    "type":     "openvino",
-    "target":   "2019_R1_resnet50-binary-0001.bin,2019_R1_resnet50-binary-0001.xml",
-    "source":   "https://download.01.org/opencv/2019/open_model_zoo/R1/models_bin/resnet50-binary-0001/resnet50-binary-0001.bin,https://download.01.org/opencv/2019/open_model_zoo/R1/models_bin/resnet50-binary-0001/resnet50-binary-0001.xml",
-    "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/opencv"
+    "link":     "https://github.com/lutzroeder/netron/issues/191"
   },
   {
     "type":     "openvino",
@@ -4175,14 +4014,14 @@
   {
     "type":     "openvino",
     "target":   "text-recognition-0012.xml,text-recognition-0012.bin",
-    "source":   "https://download.01.org/opencv/2020/openvinotoolkit/2020.2/open_model_zoo/models_bin/3/text-recognition-0012/FP16-INT8/text-recognition-0012.xml,https://download.01.org/opencv/2020/openvinotoolkit/2020.2/open_model_zoo/models_bin/3/text-recognition-0012/FP16-INT8/text-recognition-0012.bin",
+    "source":   "https://github.com/lutzroeder/netron/files/8983714/text-recognition-0012.zip[text-recognition-0012.xml,text-recognition-0012.bin]",
     "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/opencv/2020/openvinotoolkit/2020.2/open_model_zoo/models_bin/3/text-recognition-0012/FP16-INT8"
+    "link":     "https://github.com/lutzroeder/netron/issues/191"
   },
   {
     "type":     "openvino",
     "target":   "text-spotting-0002-recognizer-decoder.xml,text-spotting-0002-recognizer-decoder.bin",
-    "source":   "https://download.01.org/opencv/2020/openvinotoolkit/2020.2/open_model_zoo/models_bin/3/text-spotting-0002-recognizer-decoder/FP32/text-spotting-0002-recognizer-decoder.xml,https://download.01.org/opencv/2020/openvinotoolkit/2020.2/open_model_zoo/models_bin/3/text-spotting-0002-recognizer-decoder/FP32/text-spotting-0002-recognizer-decoder.bin",
+    "source":   "https://github.com/lutzroeder/netron/files/8983746/text-spotting-0002-recognizer-decoder.zip[text-spotting-0002-recognizer-decoder.xml,text-spotting-0002-recognizer-decoder.bin]",
     "format":   "OpenVINO IR",
     "link":     "https://download.01.org/opencv/2020/openvinotoolkit/2020.2/open_model_zoo/models_bin/3/text-spotting-0002-recognizer-decoder/FP32"
   },
@@ -4191,57 +4030,92 @@
     "target":   "ti_with_large_body.xml",
     "source":   "https://github.com/lutzroeder/netron/files/2871678/ti_with_large_body.xml.zip[ti_with_large_body.xml]",
     "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
+    "link":     "https://github.com/lutzroeder/netron/issues/191"
   },
   {
     "type":     "openvino",
     "target":   "with_gather.xml",
     "source":   "https://github.com/lutzroeder/netron/files/2871676/with_gather.xml.zip[with_gather.xml]",
     "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
+    "link":     "https://github.com/lutzroeder/netron/issues/191"
   },
   {
     "type":     "openvino",
     "target":   "with_nd_conv_simple.xml",
     "source":   "https://github.com/lutzroeder/netron/files/2871696/with_nd_conv_simple.xml.zip[with_nd_conv_simple.xml]",
     "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
+    "link":     "https://github.com/lutzroeder/netron/issues/191"
   },
   {
     "type":     "openvino",
     "target":   "with_pad_simple.xml",
     "source":   "https://github.com/lutzroeder/netron/files/2871673/with_pad_simple.xml.zip[with_pad_simple.xml]",
     "format":   "OpenVINO IR",
-    "link":     "https://download.01.org/openvinotoolkit"
+    "link":     "https://github.com/lutzroeder/netron/issues/191"
+  },
+  {
+    "type":     "paddle",
+    "target":   "adam.pdopt",
+    "source":   "https://github.com/lutzroeder/netron/files/8882900/adam.pdopt.zip[adam.pdopt]",
+    "format":   "PaddlePaddle Pickle",
+    "link":     "https://github.com/lutzroeder/netron/issues/552"
   },
   {
     "type":     "paddle",
     "target":   "assign.pbtxt",
     "source":   "https://github.com/lutzroeder/netron/files/5485296/assign.pbtxt.zip[assign.pbtxt]",
     "format":   "PaddlePaddle",
-    "link":     "https://github.com/lutzroeder/netron/issues/198"
+    "link":     "https://github.com/lutzroeder/netron/issues/903"
   },
   {
     "type":     "paddle",
-    "target":   "ch_ppocr_mobile_v2.0_det_infer.tar",
-    "source":   "https://paddleocr.bj.bcebos.com/dygraph_v2.0/ch/ch_ppocr_mobile_v2.0_det_infer.tar",
+    "target":   "ch_ppocr_mobile_v2.0_det_infer.zip",
+    "source":   "https://github.com/lutzroeder/netron/files/8748319/ch_ppocr_mobile_v2.0_det_infer.zip",
     "format":   "PaddlePaddle",
+    "link":     "https://github.com/lutzroeder/netron/issues/552"
+  },
+  {
+    "type":     "paddle",
+    "target":   "ch_ppocr_mobile_v2.0_det_infer.pdiparams",
+    "source":   "https://github.com/lutzroeder/netron/files/8748319/ch_ppocr_mobile_v2.0_det_infer.zip[inference.pdiparams]",
+    "format":   "PaddlePaddle Inference Weights",
+    "link":     "https://github.com/lutzroeder/netron/issues/552"
+  },
+  {
+    "type":     "paddle",
+    "target":   "critic.pdparams",
+    "source":   "https://github.com/lutzroeder/netron/files/8748332/critic.pdparams.zip[critic.pdparams]",
+    "format":   "PaddlePaddle Pickle",
+    "link":     "https://github.com/lutzroeder/netron/issues/552"
+  },
+  {
+    "type":     "paddle",
+    "target":   "EDVR_M_wo_tsa_SRx4.pdparams",
+    "source":   "https://github.com/lutzroeder/netron/files/8882904/EDVR_M_wo_tsa_SRx4.pdparams.zip[EDVR_M_wo_tsa_SRx4.pdparams]",
+    "format":   "PaddlePaddle Pickle",
+    "link":     "https://github.com/lutzroeder/netron/issues/552"
+  },
+  {
+    "type":     "paddle",
+    "target":   "emb.pdparams",
+    "source":   "https://github.com/lutzroeder/netron/files/8882903/emb.pdparams.zip[emb.pdparams]",
+    "format":   "PaddlePaddle Pickle",
     "link":     "https://github.com/lutzroeder/netron/issues/552"
   },
   {
     "type":     "paddle",
     "target":   "lite_naive_model_opt.nb.tar.gz",
     "source":   "https://github.com/lutzroeder/netron/files/7084134/lite_naive_model_opt.nb.tar.gz",
-    "error":    "Paddle Lite naive buffer format is deprecated in '__model__.nb'.",
+    "error":    "Paddle Lite naive buffer format is deprecated.",
     "format":   "Paddle Lite",
     "link":     "https://github.com/lutzroeder/netron/issues/797"
   },
   {
     "type":     "paddle",
-    "target":   "PyramidBox_WiderFace.tar.gz",
-    "source":   "http://paddlemodels.bj.bcebos.com/PyramidBox_WiderFace.tar.gz",
-    "format":   "PaddlePaddle",
-    "link":     "https://github.com/PaddlePaddle/models/tree/develop/PaddleCV/face_detection"
+    "target":   "paddle_example.zip",
+    "source":   "https://github.com/lutzroeder/netron/files/8548969/paddle_example.zip",
+    "format":   "PaddlePaddle v2.2",
+    "link":     "https://github.com/lutzroeder/netron/issues/903"
   },
   {
     "type":     "paddle",
@@ -4255,28 +4129,14 @@
     "target":   "recognize_digits_multilayer_perceptron_weights.tar",
     "source":   "https://github.com/lutzroeder/netron/files/5551009/recognize_digits_multilayer_perceptron_weights.tar.zip[recognize_digits_multilayer_perceptron_weights.tar]",
     "format":   "PaddlePaddle Weights",
-    "link":     "https://github.com/lutzroeder/netron/issues/198"
+    "link":     "https://github.com/lutzroeder/netron/issues/903"
   },
   {
     "type":     "paddle",
     "target":   "tranformer_base.zip",
     "source":   "https://github.com/lutzroeder/netron/files/5160568/tranformer_base.zip",
     "format":   "PaddlePaddle v1.8.3",
-    "link":     "https://github.com/lutzroeder/netron/issues/198"
-  },
-  {
-    "type":     "paddle",
-    "target":   "resnet18.pdparams",
-    "source":   "https://paddle-hapi.bj.bcebos.com/models/resnet18.pdparams",
-    "format":   "PaddlePaddle Pickle",
-    "link":     "https://github.com/lutzroeder/netron/issues/552"
-  },
-  {
-    "type":     "paddle",
-    "target":   "resnet50_int8_model.tar.gz",
-    "source":   "http://paddle-inference-dist.bj.bcebos.com/int8/resnet50_int8_model.tar.gz",
-    "format":   "PaddlePaddle",
-    "link":     "https://github.com/lutzroeder/netron/issues/198"
+    "link":     "https://github.com/lutzroeder/netron/issues/903"
   },
   {
     "type":     "paddle",
@@ -4284,13 +4144,6 @@
     "source":   "https://github.com/lutzroeder/netron/files/7272515/squeezenet1.1.nb.zip[squeezenet1.1.nb]",
     "format":   "Paddle Lite v2.9.1",
     "link":     "https://github.com/lutzroeder/netron/issues/797"
-  },
-  {
-    "type":     "paddle",
-    "target":   "vgg_ilsvrc_16_fc_reduced.tar.gz",
-    "source":   "http://paddlemodels.bj.bcebos.com/vgg_ilsvrc_16_fc_reduced.tar.gz",
-    "format":   "PaddlePaddle",
-    "link":     "https://github.com/PaddlePaddle/models/tree/develop/PaddleCV/face_detection"
   },
   {
     "type":     "paddle",
@@ -4311,28 +4164,44 @@
     "target":   "batches.meta",
     "source":   "https://raw.githubusercontent.com/MadryLab/cifar10_challenge/master/cifar10_data/batches.meta",
     "format":   "Pickle",
-    "error":    "Unknown Pickle object in 'batches.meta'.",
+    "error":    "Unsupported Pickle object.",
     "link":     "https://github.com/MadryLab/cifar10_challenge"
   },
   {
     "type":     "pickle",
+    "target":   "model_final_checkpoint.model.pkl",
+    "source":   "https://github.com/lutzroeder/netron/files/11707359/model_final_checkpoint.model.pkl.zip[model_final_checkpoint.model.pkl]",
+    "format":   "Pickle",
+    "error":    "Unsupported Pickle type 'collections.OrderedDict'.",
+    "link":     "https://github.com/lutzroeder/netron/issues/901"
+  },
+  {
+    "type":     "pickle",
     "target":   "myModel.model",
-    "source":   "https://github.com/lutzroeder/netron/files/6047227/myModel.model.zip[myModel.model]",
+    "source":   "https://github.com/lutzroeder/netron/files/8506779/myModel.model.zip[myModel.model]",
     "format":   "cuML",
-    "link":     "https://github.com/lutzroeder/netron/issues/550"
+    "link":     "https://github.com/lutzroeder/netron/issues/901"
+  },
+  {
+    "type":     "pickle",
+    "target":   "net.pkl",
+    "source":   "https://github.com/lutzroeder/netron/files/8506780/net.pkl.zip[net.pkl]",
+    "format":   "Pickle",
+    "error":    "Unsupported Pickle type '__main__.LeNetConvPoolLayer'.",
+    "link":     "https://github.com/lutzroeder/netron/issues/901"
   },
   {
     "type":     "pickle",
     "target":   "robinhood-portfolio_data_user.pkl.pkl",
     "source":   "https://raw.githubusercontent.com/omdv/robinhood-portfolio/4622dc61e0556a85ce52c4de178d01a9838acbc5/data/user.pkl",
     "format":   "Pickle",
-    "error":    "Unknown Pickle object in 'robinhood-portfolio_data_user.pkl.pkl'.",
+    "error":    "Unsupported Pickle object.",
     "link":     "https://github.com/omdv/robinhood-portfolio/tree/4622dc61e0556a85ce52c4de178d01a9838acbc5"
   },
   {
     "type":     "pytorch",
-    "target":   "alexnet_traced.pt",
-    "source":   "https://github.com/lutzroeder/netron/files/6096602/alexnet_traced.pt.zip[alexnet_traced.pt]",
+    "target":   "alexnet_traced.pt.zip",
+    "source":   "https://github.com/lutzroeder/netron/files/6096602/alexnet_traced.pt.zip",
     "format":   "TorchScript v1.6",
     "link":     "https://github.com/lutzroeder/netron/issues/281"
   },
@@ -4373,8 +4242,8 @@
   },
   {
     "type":     "pytorch",
-    "target":   "blitz_neural_networks_tutorial_traced.pt",
-    "source":   "https://github.com/lutzroeder/netron/files/3748989/blitz_neural_networks_tutorial.zip[blitz_neural_networks_tutorial_traced.pt]",
+    "target":   "blitz_cifar10_tutorial.pt",
+    "source":   "https://github.com/lutzroeder/netron/files/3748500/blitz_cifar10_tutorial.zip[blitz_cifar10_tutorial.pt]",
     "format":   "TorchScript v1.3",
     "link":     "https://github.com/lutzroeder/netron/issues/281"
   },
@@ -4387,8 +4256,8 @@
   },
   {
     "type":     "pytorch",
-    "target":   "blitz_cifar10_tutorial.pt",
-    "source":   "https://github.com/lutzroeder/netron/files/3748500/blitz_cifar10_tutorial.zip[blitz_cifar10_tutorial.pt]",
+    "target":   "blitz_neural_networks_tutorial_traced.pt",
+    "source":   "https://github.com/lutzroeder/netron/files/3748989/blitz_neural_networks_tutorial.zip[blitz_neural_networks_tutorial_traced.pt]",
     "format":   "TorchScript v1.3",
     "link":     "https://github.com/lutzroeder/netron/issues/281"
   },
@@ -4425,6 +4294,7 @@
     "target":   "cruise_cutin_vehicle_model.pt",
     "source":   "https://raw.githubusercontent.com/ApolloAuto/apollo/master/modules/prediction/data/cruise_cutin_vehicle_model.pt",
     "format":   "TorchScript v1.0",
+    "producer": "pytorch v1.0",
     "link":     "https://github.com/ApolloAuto/apollo"
   },
   {
@@ -4433,6 +4303,21 @@
     "source":   "https://raw.githubusercontent.com/ApolloAuto/apollo/master/modules/prediction/data/cruise_go_vehicle_model.pt",
     "format":   "TorchScript v1.0",
     "link":     "https://github.com/ApolloAuto/apollo"
+  },
+  {
+    "type":     "pytorch",
+    "target":   "complex_tensor.pt",
+    "source":   "https://github.com/lutzroeder/netron/files/9108149/complex_tensor.pt.zip[complex_tensor.pt]",
+    "format":   "PyTorch v1.6",
+    "link":     "https://github.com/lutzroeder/netron/issues/720"
+  },
+  {
+    "type":     "pytorch",
+    "target":   "data.pkl",
+    "source":   "https://github.com/lutzroeder/netron/files/9795497/data.pkl.zip[data.pkl]",
+    "format":   "PyTorch Pickle",
+    "error":    "PyTorch data.pkl format not supported.",
+    "link":     "https://github.com/lutzroeder/netron/issues/720"
   },
   {
     "type":     "pytorch",
@@ -4447,6 +4332,20 @@
     "source":   "https://github.com/lutzroeder/netron/files/5604999/deeplabv3_scripted.pt.zip[deeplabv3_scripted.pt]",
     "format":   "TorchScript v1.6",
     "link":     "https://github.com/lutzroeder/netron/issues/630"
+  },
+  {
+    "type":     "pytorch",
+    "target":   "deeplabv3_scripted.ptl",
+    "source":   "https://github.com/lutzroeder/netron/files/9562007/deeplabv3_scripted.ptl.zip[deeplabv3_scripted.ptl]",
+    "format":   "TorchScript v1.6",
+    "link":     "https://github.com/lutzroeder/netron/issues/842"
+  },
+  {
+    "type":     "pytorch",
+    "target":   "DCGAN2.pt",
+    "source":   "https://github.com/lutzroeder/netron/files/9075628/DCGAN2.pt.zip[DCGAN2.pt]",
+    "format":   "PyTorch Package v1.9",
+    "link":     "https://github.com/lutzroeder/netron/issues/928"
   },
   {
     "type":     "pytorch",
@@ -4491,10 +4390,31 @@
   },
   {
     "type":     "pytorch",
+    "target":   "fairseq.lightweightconv.pt",
+    "source":   "https://github.com/lutzroeder/netron/files/9145928/fairseq.lightweightconv.pt.zip[fairseq.lightweightconv.pt]",
+    "format":   "TorchScript v1.6",
+    "link":     "https://github.com/lutzroeder/netron/issues/931"
+  },
+  {
+    "type":     "pytorch",
     "target":   "fasterrcnn_resnet50_fpn.pt",
     "source":   "https://github.com/lutzroeder/netron/files/7677467/fasterrcnn_resnet50_fpn.pt.zip[fasterrcnn_resnet50_fpn.pt]",
-    "error":    "Unknown torch.add expression type in 'fasterrcnn_resnet50_fpn.pt'.",
+    "error":    "Unsupported torch.add expression type.",
     "link":     "https://github.com/lutzroeder/netron/issues/689"
+  },
+  {
+    "type":     "pytorch",
+    "target":   "from_numpy.pth",
+    "source":   "https://github.com/lutzroeder/netron/files/9639598/from_numpy.pth.zip[from_numpy.pth]",
+    "format":   "PyTorch v1.6",
+    "link":     "https://github.com/lutzroeder/netron/issues/720"
+  },
+  {
+    "type":     "pytorch",
+    "target":   "fruit_veg_model.pkl",
+    "source":   "https://github.com/lutzroeder/netron/files/9265633/fruit_veg_model.pkl.zip[fruit_veg_model.pkl]",
+    "format":   "PyTorch v1.6",
+    "link":     "https://github.com/lutzroeder/netron/issues/720"
   },
   {
     "type":     "pytorch",
@@ -4502,6 +4422,13 @@
     "source":   "https://raw.githubusercontent.com/jiexiong2016/GCNv2_SLAM/master/GCN2/gcn2_tiny_320x240.pt",
     "format":   "TorchScript v1.0",
     "link":     "https://github.com/jiexiong2016/GCNv2_SLAM"
+  },
+  {
+    "type":     "pytorch",
+    "target":   "gpt2.pt",
+    "source":   "https://github.com/lutzroeder/netron/files/11585383/gpt2.pt.zip[gpt2.pt]",
+    "format":   "TorchScript v1.12",
+    "link":     "https://github.com/lutzroeder/netron/issues/842"
   },
   {
     "type":     "pytorch",
@@ -4572,10 +4499,25 @@
   },
   {
     "type":     "pytorch",
+    "target":   "mask_model.pt",
+    "source":   "https://github.com/lutzroeder/netron/files/10080302/mask_model.pt.zip[mask_model.pt]",
+    "format":   "TorchScript v1.7",
+    "error":    "Unsupported torch.add expression type.",
+    "link":     "https://github.com/lutzroeder/netron/issues/842"
+  },
+  {
+    "type":     "pytorch",
     "target":   "mask_r_cnn.pth",
     "source":   "https://raw.githubusercontent.com/facebookresearch/kill-the-bits/master/src/models/compressed/mask_r_cnn.pth",
     "format":   "PyTorch v0.1.10",
     "link":     "https://github.com/facebookresearch/kill-the-bits/tree/master/src/models/compressed"
+  },
+  {
+    "type":     "pytorch",
+    "target":   "mnist_bfloat16.pt",
+    "source":   "https://github.com/lutzroeder/netron/files/8556403/mnist_bfloat16.pt.zip[mnist_bfloat16.pt]",
+    "format":   "PyTorch v1.6",
+    "link":     "https://github.com/lutzroeder/netron/issues/720"
   },
   {
     "type":     "pytorch",
@@ -4621,13 +4563,6 @@
   },
   {
     "type":     "pytorch",
-    "target":   "Mobilenet_se_focal_121000.pb",
-    "source":   "https://download.01.org/openvinotoolkit/open_model_zoo/training_toolbox_pytorch/models/fr/Mobilenet_se_focal_121000.pt",
-    "format":   "PyTorch v0.1.10",
-    "link":     "https://github.com/grib0ed0v/face_recognition.pytorch"
-  },
-  {
-    "type":     "pytorch",
     "target":   "mobilenet_quantization_scripted_quantized_1.pth",
     "source":   "https://github.com/lutzroeder/netron/files/5394885/mobilenet_quantization_scripted_quantized.zip[mobilenet_quantization_scripted_quantized_1.pth]",
     "format":   "TorchScript v1.3",
@@ -4651,6 +4586,13 @@
     "target":   "mobilenet_v2_traced.pt",
     "source":   "https://github.com/lutzroeder/netron/files/6096623/mobilenet_v2_traced.pt.zip[mobilenet_v2_traced.pt]",
     "link":     "https://github.com/lutzroeder/netron/issues/281"
+  },
+  {
+    "type":     "pytorch",
+    "target":   "model.ptl",
+    "source":   "https://github.com/lutzroeder/netron/files/11149538/model.ptl.zip[model.ptl]",
+    "format":   "TorchScript v1.6",
+    "link":     "https://github.com/lutzroeder/netron/issues/1067"
   },
   {
     "type":     "pytorch",
@@ -4686,6 +4628,13 @@
     "source":   "https://github.com/lutzroeder/netron/files/7406443/mobilenetv2-quant_full.zip[mobilenetv2-quant_full/mobilenetv2-quant_full-cpu.pt]",
     "format":   "TorchScript v1.6",
     "link":     "https://github.com/lutzroeder/netron/issues/644"
+  },
+  {
+    "type":     "pytorch",
+    "target":   "module_000007.pt",
+    "source":   "https://github.com/lutzroeder/netron/files/9075631/module_000007.pt.zip[module_000007.pt]",
+    "error":    "ValueError: not enough values to unpack (expected 4, actual 0).",
+    "link":     "https://github.com/lutzroeder/netron/issues/842"
   },
   {
     "type":     "pytorch",
@@ -4754,7 +4703,7 @@
     "type":     "pytorch",
     "target":   "netron_issue_547_1.pt",
     "source":   "https://github.com/lutzroeder/netron/files/5137393/netron_issue_547_1.zip[netron_issue_547_1.pt]",
-    "error":    "Unknown torch.add expression type in 'netron_issue_547_1.pt'.",
+    "error":    "Unsupported torch.add expression type.",
     "link":     "https://github.com/lutzroeder/netron/issues/547"
   },
   {
@@ -4773,10 +4722,25 @@
   },
   {
     "type":     "pytorch",
+    "target":   "netron_issue_920.pt",
+    "source":   "https://github.com/lutzroeder/netron/files/8857486/netron_issue_920.pt.zip[netron_issue_920.pt]",
+    "format":   "TorchScript v1.6",
+    "link":     "https://github.com/lutzroeder/netron/issues/637"
+  },
+  {
+    "type":     "pytorch",
     "target":   "norm_inplace.pt.zip",
     "source":   "https://github.com/lutzroeder/netron/files/4516621/norm_inplace.pt.zip",
     "format":   "TorchScript v1.3",
     "link":     "https://github.com/lutzroeder/netron/issues/473"
+  },
+  {
+    "type":     "pytorch",
+    "target":   "opt_xx.pt",
+    "source":   "https://github.com/lutzroeder/netron/files/8747908/opt_xx.pt.zip[opt_xx.pt]",
+    "format":   "TorchScript v1.6",
+    "error":    "Slicing expected array",
+    "link":     "https://github.com/lutzroeder/netron/issues/913"
   },
   {
     "type":     "pytorch",
@@ -4815,9 +4779,16 @@
   },
   {
     "type":     "pytorch",
+    "target":   "pyg_model.pt",
+    "source":   "https://github.com/lutzroeder/netron/files/10369483/pyg_model.zip[pyg_model.pt]",
+    "error":    "Cannot read properties of undefined (reading 'length')",
+    "link":     "https://github.com/lutzroeder/netron/issues/546"
+  },
+  {
+    "type":     "pytorch",
     "target":   "pytorch_invalid_file.pth",
     "source":   "https://github.com/lutzroeder/netron/files/3269093/pytorch_invalid_file.zip[pytorch_invalid_file.pth]",
-    "error":    "Could not find end of line in 'pytorch_invalid_file.pth'.",
+    "error":    "Could not find end of line.",
     "link":     "https://github.com/lutzroeder/netron/issues/133"
   },
   {
@@ -4843,7 +4814,15 @@
     "type":     "pytorch",
     "target":   "r3d_18.zip.pth",
     "source":   "https://github.com/lutzroeder/netron/files/6096655/r3d_18.zip.pth.zip[r3d_18.zip.pth]",
+    "format":   "PyTorch v1.6",
     "link":     "https://github.com/lutzroeder/netron/issues/133"
+  },
+  {
+    "type":     "pytorch",
+    "target":   "rcnn.pt",
+    "source":   "https://github.com/lutzroeder/netron/files/9035740/rcnn.pt.zip[rcnn.pt]",
+    "error":    "AssertionError: expecting the last two dimensions of the Tensor to be H and W instead got []",
+    "link":     "https://github.com/lutzroeder/netron/issues/842"
   },
   {
     "type":     "pytorch",
@@ -4851,6 +4830,13 @@
     "source":   "https://github.com/lutzroeder/netron/files/6186158/refine_model.pt.zip[refine_model.pt]",
     "format":   "TorchScript v1.3",
     "link":     "https://github.com/lutzroeder/netron/issues/281"
+  },
+  {
+    "type":     "pytorch",
+    "target":   "resnet-18-at-export.pth",
+    "source":   "https://s3.amazonaws.com/modelzoo-networks/resnet-18-at-export.pth",
+    "format":   "PyTorch v0.1.10",
+    "link":     "https://github.com/szagoruyko/attention-transfer"
   },
   {
     "type":     "pytorch",
@@ -4882,10 +4868,10 @@
   },
   {
     "type":     "pytorch",
-    "target":   "resnet-18-at-export.pth",
-    "source":   "https://s3.amazonaws.com/modelzoo-networks/resnet-18-at-export.pth",
-    "format":   "PyTorch v0.1.10",
-    "link":     "https://github.com/szagoruyko/attention-transfer"
+    "target":   "resnet34.pt",
+    "source":   "https://github.com/lutzroeder/netron/files/9075629/resnet34.pt.zip",
+    "format":   "PyTorch Package v1.9",
+    "link":     "https://github.com/lutzroeder/netron/issues/928"
   },
   {
     "type":     "pytorch",
@@ -4900,6 +4886,13 @@
     "source":   "https://github.com/lutzroeder/netron/files/5212006/resnet50_pertensor.zip[resnet50_pertensor.pt]",
     "format":   "TorchScript v1.5",
     "link":     "https://github.com/lutzroeder/netron/issues/546"
+  },
+  {
+    "type":     "pytorch",
+    "target":   "resnext50_32x4d_fpn.pth",
+    "source":   "https://github.com/lutzroeder/netron/files/8985800/resnext50_32x4d_fpn.pth.zip[resnext50_32x4d_fpn.pth]",
+    "format":   "TorchScript v1.7",
+    "link":     "https://github.com/lutzroeder/netron/issues/842"
   },
   {
     "type":     "pytorch",
@@ -4973,6 +4966,13 @@
   },
   {
     "type":     "pytorch",
+    "target":   "scriptmodule.ff",
+    "source":   "https://github.com/lutzroeder/netron/files/10230651/scriptmodule.ff.zip[scriptmodule.ff]",
+    "format":   "PyTorch Mobile v1.11",
+    "link":     "https://github.com/lutzroeder/netron/issues/1023"
+  },
+  {
+    "type":     "pytorch",
     "target":   "segmentor.pt",
     "source":   "https://github.com/lutzroeder/netron/files/7663953/segmentor.pt.zip[segmentor.pt]",
     "format":   "TorchScript v1.6",
@@ -5021,6 +5021,13 @@
   },
   {
     "type":     "pytorch",
+    "target":   "squeezenet1_1_traced.ff",
+    "source":   "https://github.com/lutzroeder/netron/files/10230684/squeezenet1_1_traced.ff.zip[squeezenet1_1_traced.ff]",
+    "format":   "PyTorch Mobile v1.11",
+    "link":     "https://github.com/lutzroeder/netron/issues/1023"
+  },
+  {
+    "type":     "pytorch",
     "target":   "squeezenet1_1.pt",
     "source":   "https://github.com/lutzroeder/netron/files/6096662/squeezenet1_1.pt.zip[squeezenet1_1.pt]",
     "format":   "TorchScript v1.6",
@@ -5048,6 +5055,20 @@
   },
   {
     "type":     "pytorch",
+    "target":   "sparse_coo.pth",
+    "source":   "https://github.com/lutzroeder/netron/files/9541426/sparse_coo.pth.zip[sparse_coo.pth]",
+    "format":   "PyTorch v1.6",
+    "link":     "https://github.com/lutzroeder/netron/issues/720"
+  },
+  {
+    "type":     "pytorch",
+    "target":   "sparsified.pth",
+    "source":   "https://github.com/lutzroeder/netron/files/9433521/sparsified.pth.zip[sparsified.pth]",
+    "format":   "PyTorch v1.6",
+    "link":     "https://github.com/lutzroeder/netron/issues/720"
+  },
+  {
+    "type":     "pytorch",
     "target":   "superpoint_v1.pth",
     "source":   "https://raw.githubusercontent.com/MagicLeapResearch/SuperPointPretrainedNetwork/master/superpoint_v1.pth",
     "format":   "PyTorch v0.1.10",
@@ -5055,10 +5076,53 @@
   },
   {
     "type":     "pytorch",
+    "target":   "stable_diffusion_safety_checker.pt",
+    "source":   "https://github.com/lutzroeder/netron/files/10199037/stable_diffusion.zip[stable_diffusion_safety_checker.pt]",
+    "format":   "TorchScript v1.6",
+    "link":     "https://github.com/lutzroeder/netron/issues/842"
+  },
+  {
+    "type":     "pytorch",
+    "target":   "stable_diffusion_text_encoder.pt",
+    "source":   "https://github.com/lutzroeder/netron/files/10199037/stable_diffusion.zip[stable_diffusion_text_encoder.pt]",
+    "format":   "TorchScript v1.6",
+    "link":     "https://github.com/lutzroeder/netron/issues/842"
+  },
+  {
+    "type":     "pytorch",
+    "target":   "stable_diffusion_unet.pt",
+    "source":   "https://github.com/lutzroeder/netron/files/10199037/stable_diffusion.zip[stable_diffusion_unet.pt]",
+    "format":   "TorchScript v1.12",
+    "action":   "skip-render",
+    "link":     "https://github.com/lutzroeder/netron/issues/842"
+  },
+  {
+    "type":     "pytorch",
+    "target":   "stable_diffusion_vae_decoder.pt",
+    "source":   "https://github.com/lutzroeder/netron/files/10199037/stable_diffusion.zip[stable_diffusion_vae_decoder.pt]",
+    "format":   "TorchScript v1.6",
+    "link":     "https://github.com/lutzroeder/netron/issues/842"
+  },
+  {
+    "type":     "pytorch",
     "target":   "superpoint.pt",
     "source":   "https://raw.githubusercontent.com/KinglittleQ/SuperPoint_SLAM/master/superpoint.pt",
     "format":   "TorchScript v1.0",
     "link":     "https://github.com/KinglittleQ/SuperPoint_SLAM"
+  },
+  {
+    "type":     "pytorch",
+    "target":   "test.8bit.pth",
+    "source":   "https://github.com/lutzroeder/netron/files/5238524/test.8bit.pth.zip[test.8bit.pth]",
+    "format":   "TorchScript v1.6",
+    "link":     "https://github.com/lutzroeder/netron/issues/546"
+  },
+  {
+    "type":     "pytorch",
+    "target":   "TFModel_traced_eager_quant.pt",
+    "source":   "https://github.com/lutzroeder/netron/files/10867120/TFModel_traced_eager_quant.pt.zip[TFModel_traced_eager_quant.pt]",
+    "error":    "Unknown type name '__torch__.torch.classes.rnn.CellParamsBase'.",
+    "link":     "https://github.com/lutzroeder/netron/issues/969"
   },
   {
     "type":     "pytorch",
@@ -5090,10 +5154,25 @@
   },
   {
     "type":     "pytorch",
-    "target":   "test.8bit.pth",
-    "source":   "https://github.com/lutzroeder/netron/files/5238524/test.8bit.pth.zip[test.8bit.pth]",
+    "target":   "traced_scale_quant.pt",
+    "source":   "https://github.com/lutzroeder/netron/files/9387784/traced_scale_quant.pt.zip[traced_scale_quant.pt]",
     "format":   "TorchScript v1.6",
-    "link":     "https://github.com/lutzroeder/netron/issues/546"
+    "link":     "https://github.com/lutzroeder/netron/issues/947"
+  },
+  {
+    "type":     "pytorch",
+    "target":   "transformer.pt",
+    "source":   "https://github.com/lutzroeder/netron/files/10271969/transformer.pt.zip[transformer.pt]",
+    "format":   "TorchScript v1.6",
+    "error":    "AssertionError: was expecting embedding dimension of 512, but got ?",
+    "link":     "https://github.com/lutzroeder/netron/issues/842"
+  },
+  {
+    "type":     "pytorch",
+    "target":   "transformer_traced.pt",
+    "source":   "https://github.com/lutzroeder/netron/files/10271968/transformer_traced.pt.zip[transformer_traced.pt]",
+    "format":   "TorchScript v1.6",
+    "link":     "https://github.com/lutzroeder/netron/issues/842"
   },
   {
     "type":     "pytorch",
@@ -5108,7 +5187,7 @@
     "source":   "https://github.com/lutzroeder/netron/files/7688572/torchscript_resnet50_fp32.pth.zip[torchscript_resnet50_fp32.pth]",
     "format":   "TorchScript v1.6",
     "link":     "https://github.com/lutzroeder/netron/issues/842"
-  },  
+  },
   {
     "type":     "pytorch",
     "target":   "tutorial_bidirectional_recurrent_neural_network.pth",
@@ -5160,6 +5239,20 @@
   },
   {
     "type":     "pytorch",
+    "target":   "UNet.pt",
+    "source":   "https://github.com/lutzroeder/netron/files/5611259/UNet.pt.zip[UNet.pt]",
+    "format":   "TorchScript v1.6",
+    "link":     "https://github.com/lutzroeder/netron/issues/637"
+  },
+  {
+    "type":     "pytorch",
+    "target":   "v3_1_ru.pt",
+    "source":   "https://github.com/lutzroeder/netron/files/9075630/v3_1_ru.pt.zip[v3_1_ru.pt]",
+    "format":   "PyTorch Package v1.9",
+    "link":     "https://github.com/lutzroeder/netron/issues/928"
+  },
+  {
+    "type":     "pytorch",
     "target":   "valid-bert-base-uncased.pt",
     "source":   "https://github.com/lutzroeder/netron/files/4977150/valid-bert-base-uncased.zip[valid-bert-base-uncased.pt]",
     "format":   "PyTorch v0.1.10",
@@ -5202,11 +5295,33 @@
   },
   {
     "type":     "pytorch",
+    "target":   "WAV2VEC2_BASE_quant-none-cpu.pt",
+    "source":   "https://github.com/lutzroeder/netron/files/8820082/WAV2VEC2_BASE_quant-none-cpu.pt.zip[WAV2VEC2_BASE_quant-none-cpu.pt]",
+    "format":   "TorchScript v1.6",
+    "link":     "https://github.com/lutzroeder/netron/issues/918"
+  },
+  {
+    "type":     "pytorch",
     "target":   "yolov5n.torchscript",
     "source":   "https://github.com/lutzroeder/netron/files/8457287/yolov5n.torchscript.zip[yolov5n.torchscript]",
     "format":   "TorchScript v1.6",
-    "error":    "Offset is outside the bounds of the DataView",
+    "error":    "Invalid tensor data size.",
     "link":     "https://github.com/lutzroeder/netron/issues/882"
+  },
+  {
+    "type":     "pytorch",
+    "target":   "yolov5n-0.5.pt",
+    "source":   "https://github.com/lutzroeder/netron/files/10253005/yolov5n-0.5.pt.zip[yolov5n-0.5.pt]",
+    "format":   "PyTorch v1.6",
+    "link":     "https://github.com/lutzroeder/netron/issues/720"
+  },
+  {
+    "type":     "pytorch",
+    "target":   "yolov5n.tensor.pth",
+    "source":   "https://github.com/lutzroeder/netron/files/9543602/yolov5n.tensor.pth.zip[yolov5n.tensor.pth]",
+    "format":   "PyTorch v1.6",
+    "error":    "Invalid tensor data size.",
+    "link":     "https://github.com/lutzroeder/netron/issues/720"
   },
   {
     "type":     "pytorch",
@@ -5220,6 +5335,27 @@
     "target":   "autopilot.rknn",
     "source":   "https://github.com/lutzroeder/netron/files/5621074/autopilot.rknn.zip[autopilot.rknn]",
     "format":   "RKNN v1.3.0",
+    "link":     "https://github.com/lutzroeder/netron/issues/639"
+  },
+  {
+    "type":     "rknn",
+    "target":   "blazeface.rknn",
+    "source":   "https://github.com/lutzroeder/netron/files/8932892/blazeface.rknn.zip[blazeface.rknn]",
+    "format":   "RKNN v1.7.0",
+    "link":     "https://github.com/lutzroeder/netron/issues/639"
+  },
+  {
+    "type":     "rknn",
+    "target":   "ckpt_precompile_20.nb",
+    "source":   "https://github.com/lutzroeder/netron/files/8932893/ckpt_precompile_20.nb.zip[ckpt_precompile_20.nb]",
+    "format":   "RKNN OpenVX",
+    "link":     "https://github.com/lutzroeder/netron/issues/639"
+  },
+  {
+    "type":     "rknn",
+    "target":   "det_monitor.nb",
+    "source":   "https://github.com/lutzroeder/netron/files/8886768/det_monitor.nb.zip[det_monitor.nb]",
+    "format":   "RKNN OpenVX",
     "link":     "https://github.com/lutzroeder/netron/issues/639"
   },
   {
@@ -5238,6 +5374,34 @@
   },
   {
     "type":     "rknn",
+    "target":   "mobilenet_v1.rknn",
+    "source":   "https://github.com/lutzroeder/netron/files/8886811/mobilenet_v1.rknn.zip[mobilenet_v1.rknn]",
+    "format":   "RKNN Lite v1.2.6",
+    "link":     "https://github.com/lutzroeder/netron/issues/639"
+  },
+  {
+    "type":     "rknn",
+    "target":   "mobilenet_v1_rknnv4.rknn",
+    "source":   "https://github.com/lutzroeder/netron/files/11508437/mobilenet_v1_rknnv4.rknn.zip[mobilenet_v1_rknnv4.rknn]",
+    "format":   "RKNN v1.4.6",
+    "link":     "https://github.com/lutzroeder/netron/pull/1099"
+  },
+  {
+    "type":     "rknn",
+    "target":   "mobilenetv2.rknn",
+    "source":   "https://github.com/lutzroeder/netron/files/8886972/mobilenetv2.rknn.zip[mobilenetv2.rknn]",
+    "format":   "RKNN v1.2.0",
+    "link":     "https://github.com/lutzroeder/netron/issues/639"
+  },
+  {
+    "type":     "rknn",
+    "target":   "resize_area.rknn",
+    "source":   "https://github.com/lutzroeder/netron/files/8886403/resize_area.rknn.zip[resize_area.rknn]",
+    "format":   "RKNN v1.3.0",
+    "link":     "https://github.com/lutzroeder/netron/issues/639"
+  },
+  {
+    "type":     "rknn",
     "target":   "resnet_18.rknn",
     "source":   "https://github.com/lutzroeder/netron/files/5621078/resnet_18.rknn.zip[resnet_18.rknn]",
     "format":   "RKNN v1.3.2",
@@ -5245,10 +5409,24 @@
   },
   {
     "type":     "rknn",
-    "target":   "resnet18_for_rk356x.rknn",
-    "source":   "https://github.com/rockchip-linux/rknn-toolkit2/raw/master/rknn-toolkit-lite2-v1.2.0/examples/inference_with_lite/resnet18_for_rk356x.rknn",
-    "format":   "RKNN v1.2.0",
-    "link":     "https://github.com/rockchip-linux/rknn-toolkit2"
+    "target":   "ssd_inception_v2.rknn",
+    "source":   "https://raw.githubusercontent.com/radxa/rknpu2/00f555433f07936dde0e4442f65bc46354934130/examples/rknn_ssd_demo/model/RK356X/ssd_inception_v2.rknn",
+    "format":   "RKNN v1.0.0",
+    "link":     "https://github.com/radxa/rknpu2/tree/00f555433f07936dde0e4442f65bc46354934130/examples/rknn_ssd_demo/model/RK356X"
+  },
+  {
+    "type":     "rknn",
+    "target":   "yolov5s-640-640.rknn",
+    "source":   "https://github.com/lutzroeder/netron/files/8886404/yolov5s-640-640.rknn.zip[yolov5s-640-640.rknn]",
+    "format":   "RKNN v1.2.5",
+    "link":     "https://github.com/lutzroeder/netron/issues/639"
+  },
+  {
+    "type":     "safetensors",
+    "target":   "simple.safetensors",
+    "source":   "https://github.com/lutzroeder/netron/files/11858547/simple.safetensors.zip[simple.safetensors]",
+    "format":   "Safetensors",
+    "link":     "https://github.com/lutzroeder/netron/issues/1113"
   },
   {
     "type":     "sklearn",
@@ -5294,6 +5472,13 @@
   },
   {
     "type":     "sklearn",
+    "target":   "encoder.pkl",
+    "source":   "https://github.com/lutzroeder/netron/files/8506805/encoder.pkl.zip[encoder.pkl]",
+    "format":   "scikit-learn v0.22.2.post1",
+    "link":     "https://github.com/lutzroeder/netron/issues/182"
+  },
+  {
+    "type":     "sklearn",
     "target":   "forest_iris_ExtraTreesClassifier.pkl",
     "source":   "https://github.com/lutzroeder/netron/files/2592356/forest_iris_models.zip[forest_iris_ExtraTreesClassifier.pkl]",
     "format":   "scikit-learn v0.19.2",
@@ -5322,17 +5507,17 @@
   },
   {
     "type":     "sklearn",
-    "target":   "iris_svc.joblib.z",
-    "source":   "https://github.com/lutzroeder/netron/files/5728549/iris_svc.joblib.z.zip[iris_svc.joblib.z]",
-    "format":   "scikit-learn v0.24.0rc1",
+    "target":   "hmm.pkl",
+    "source":   "https://github.com/lutzroeder/netron/files/9035366/hmm.pkl.zip[hmm.pkl]",
+    "format":   "hmmlearn",
     "link":     "https://github.com/lutzroeder/netron/issues/182"
   },
   {
     "type":     "sklearn",
-    "target":   "LDA_model.pkl",
-    "source":   "https://raw.githubusercontent.com/rainer85ah/DCS/master/Output/LDA_model.pkl",
-    "format":   "scikit-learn",
-    "link":     "https://github.com/rainer85ah/DCS"
+    "target":   "iris_svc.joblib.z",
+    "source":   "https://github.com/lutzroeder/netron/files/5728549/iris_svc.joblib.z.zip[iris_svc.joblib.z]",
+    "format":   "scikit-learn v0.24.0rc1",
+    "link":     "https://github.com/lutzroeder/netron/issues/182"
   },
   {
     "type":     "sklearn",
@@ -5501,6 +5686,13 @@
   },
   {
     "type":     "tf",
+    "target":   "bfloat16.pbtxt",
+    "source":   "https://github.com/lutzroeder/netron/files/9540969/bfloat16.pbtxt.zip[bfloat16.pbtxt]",
+    "format":   "TensorFlow Graph",
+    "link":     "https://github.com/lutzroeder/netron/issues/187"
+  },
+  {
+    "type":     "tf",
     "target":   "char-rnn-tensorflow.pb",
     "source":   "https://github.com/lutzroeder/netron/files/2592462/char-rnn-tensorflow.pb.zip[char-rnn-tensorflow.pb]",
     "format":   "TensorFlow Graph",
@@ -5537,17 +5729,24 @@
   },
   {
     "type":     "tf",
-    "target":   "conv-layers.pb.zip",
-    "source":   "https://github.com/lutzroeder/netron/files/2592468/conv-layers.pb.zip",
+    "target":   "complex64.pb",
+    "source":   "https://github.com/lutzroeder/netron/files/9540970/complex.zip[complex64.pb]",
     "format":   "TensorFlow Graph",
     "link":     "https://github.com/lutzroeder/netron/issues/187"
   },
   {
     "type":     "tf",
-    "target":   "deepspeech-0.9.3-models.pbmm",
-    "source":   "https://github.com/mozilla/DeepSpeech/releases/download/v0.9.3/deepspeech-0.9.3-models.pbmm",
-    "format":   "TensorFlow GraphDef Memmapped",
-    "link":     "https://github.com/lutzroeder/netron/issues/836"
+    "target":   "complex128.pb",
+    "source":   "https://github.com/lutzroeder/netron/files/9540970/complex.zip[complex128.pb]",
+    "format":   "TensorFlow Graph",
+    "link":     "https://github.com/lutzroeder/netron/issues/187"
+  },
+  {
+    "type":     "tf",
+    "target":   "conv-layers.pb.zip",
+    "source":   "https://github.com/lutzroeder/netron/files/2592468/conv-layers.pb.zip",
+    "format":   "TensorFlow Graph",
+    "link":     "https://github.com/lutzroeder/netron/issues/187"
   },
   {
     "type":     "tf",
@@ -5558,11 +5757,18 @@
   },
   {
     "type":     "tf",
+    "target":   "drawmodel_attn.ckpt",
+    "source":   "https://github.com/lutzroeder/netron/files/8647412/drawmodel_attn.ckpt.zip[drawmodel_attn.ckpt]",
+    "format":   "TensorFlow Tensor Bundle v1",
+    "link":     "https://github.com/lutzroeder/netron/issues/405"
+  },
+  {
+    "type":     "tf",
     "target":   "events.out.tfevents.1606692323.b5c8f88cc7ee.58.2",
     "source":   "https://github.com/lutzroeder/netron/files/5613448/events.out.tfevents.1606692323.b5c8f88cc7ee.58.2.zip[events.out.tfevents.1606692323.b5c8f88cc7ee.58.2]",
     "format":   "TensorFlow Event File v2",
-    "assert":   [ "model.graphs[0].nodes[0].type.name=aten::_convolution" ],
     "producer": "PyTorch",
+    "assert":   [ "model.graphs[0].nodes[0].type.name=aten::_convolution" ],
     "link":     "https://github.com/lutzroeder/netron/issues/638"
   },
   {
@@ -5610,6 +5816,13 @@
     "source":   "http://download.tensorflow.org/models/object_detection/faster_rcnn_resnet50_lowproposals_coco_2017_11_08.tar.gz[faster_rcnn_resnet50_lowproposals_coco_2017_11_08/model.ckpt.meta]",
     "action":   "skip-render",
     "format":   "TensorFlow MetaGraph"
+  },
+  {
+    "type":     "tf",
+    "target":   "float16.txt",
+    "source":   "https://github.com/lutzroeder/netron/files/8547644/float16.txt.zip[float16.txt]",
+    "format":   "TensorFlow Graph",
+    "link":     "https://github.com/lutzroeder/netron/issues/187"
   },
   {
     "type":     "tf",
@@ -5662,18 +5875,6 @@
   },
   {
     "type":     "tf",
-    "target":   "inception_v3.pb",
-    "source":   "https://storage.googleapis.com/download.tensorflow.org/models/tflite/model_zoo/upload_20180427/inception_v3_2018_04_27.tgz[./inception_v3.pb]"
-  },
-  {
-    "type":     "tf",
-    "target":   "inception_v3_2016_08_28_frozen.pb",
-    "source":   "https://storage.googleapis.com/download.tensorflow.org/models/inception_v3_2016_08_28_frozen.pb.tar.gz[inception_v3_2016_08_28_frozen.pb]",
-    "format":   "TensorFlow Graph",
-    "link":     "https://github.com/onnx/tensorflow-onnx/blob/master/tests/run_pretrained_models.yaml"
-  },
-  {
-    "type":     "tf",
     "target":   "inception5h.pb",
     "source":   "https://storage.googleapis.com/download.tensorflow.org/models/inception5h.zip[tensorflow_inception_graph.pb]"
   },
@@ -5681,7 +5882,7 @@
     "type":     "tf",
     "target":   "invalid_graph.pbtxt",
     "source":   "https://github.com/lutzroeder/netron/files/6859459/invalid_graph.pbtxt.zip[invalid_graph.pbtxt]",
-    "error":    "File text format is not tensorflow.GraphDef (Unexpected end of input at 8:1) in 'invalid_graph.pbtxt'."
+    "error":    "File text format is not tensorflow.GraphDef (Unexpected end of input at 8:1)."
   },
   {
     "type":     "tf",
@@ -5769,6 +5970,13 @@
   },
   {
     "type":     "tf",
+    "target":   "myTag.pb",
+    "source":   "https://github.com/lutzroeder/netron/files/10167049/myTag.pb.zip[myTag.pb]",
+    "format":   "TensorFlow Saved Model v1",
+    "link":     "https://github.com/lutzroeder/netron/issues/1015"
+  },
+  {
+    "type":     "tf",
     "target":   "nasnet_mobile.pb",
     "source":   "https://storage.googleapis.com/download.tensorflow.org/models/tflite/model_zoo/upload_20180427/nasnet_mobile_2018_04_27.tgz[./nasnet_mobile.pb]",
     "format":   "TensorFlow Graph",
@@ -5847,6 +6055,13 @@
   },
   {
     "type":     "tf",
+    "target":   "output_graph.pbmm",
+    "source":   "https://github.com/lutzroeder/netron/files/8645971/output_graph.pbmm.zip[output_graph.pbmm]",
+    "format":   "TensorFlow GraphDef Memmapped",
+    "link":     "https://github.com/lutzroeder/netron/issues/836"
+  },
+  {
+    "type":     "tf",
     "target":   "pose_estimation_for_mobile.pb",
     "source":   "https://raw.githubusercontent.com/edvardHua/PoseEstimationForMobile/master/release/cpm_model/model.pb",
     "format":   "TensorFlow Graph",
@@ -5858,13 +6073,6 @@
     "source":   "https://github.com/lutzroeder/netron/files/2592463/readable_graph.meta.zip[readable_graph.meta]",
     "format":   "TensorFlow MetaGraph",
     "link":     "https://github.com/lutzroeder/netron/issues/187"
-  },
-  {
-    "type":     "tf",
-    "target":   "resnet_v1_50.ckpt",
-    "source":   "https://raw.githubusercontent.com/serre-lab/deeplabcut_mgh/master/deeplabcut/pose_estimation_tensorflow/models/pretrained/resnet_v1_50.ckpt",
-    "format":   "TensorFlow Tensor Bundle v1",
-    "link":     "https://github.com/lutzroeder/netron/issues/405"
   },
   {
     "type":     "tf",
@@ -5887,7 +6095,7 @@
     "target":   "saved_model_xxx.pb",
     "source":   "https://github.com/lutzroeder/netron/files/6965264/saved_model_xxx.pb.zip[saved_model_xxx.pb]",
     "format":   "TensorFlow Saved Model v1",
-    "link":     "https://github.com/lutzroeder/netron/issues/782"
+    "link":     "https://github.com/lutzroeder/netron/issues/1015"
   },
   {
     "type":     "tf",
@@ -6038,6 +6246,13 @@
   },
   {
     "type":     "tflite",
+    "target":   "complex64.tflite",
+    "source":   "https://github.com/lutzroeder/netron/files/9507072/complex64.tflite.zip[complex64.tflite]",
+    "format":   "TensorFlow Lite v3",
+    "link":     "https://github.com/lutzroeder/netron/issues/964"
+  },
+  {
+    "type":     "tflite",
     "target":   "deeplab_mobilenetv2_513.tflite",
     "source":   "https://raw.githubusercontent.com/pinzhenx/webml-demo/master/examples/deeplab/model/deeplab_mobilenetv2_513.tflite",
     "format":   "TensorFlow Lite v3",
@@ -6095,9 +6310,9 @@
   {
     "type":     "tflite",
     "target":   "hair_segmentation.tflite",
-    "source":   "https://raw.githubusercontent.com/google/mediapipe/master/mediapipe/models/hair_segmentation.tflite",
+    "source":   "https://storage.googleapis.com/mediapipe-assets/hair_segmentation.tflite",
     "format":   "TensorFlow Lite v3",
-    "link":     "https://github.com/google/mediapipe"
+    "link":     "https://google.github.io/mediapipe/solutions/models.html"
   },
   {
     "type":     "tflite",
@@ -6337,28 +6552,21 @@
   {
     "type":     "torch",
     "target":   "2ch_notredame.t7",
-    "source":   "https://s3.amazonaws.com/modelzoo-networks/cvpr2015matching_networks.tar.gz[2ch/2ch_notredame.t7]",
+    "source":   "https://github.com/lutzroeder/netron/files/11073797/2ch_notredame.t7.zip[2ch_notredame.t7]",
     "format":   "Torch v7",
     "link":     "https://github.com/szagoruyko/cvpr15deepcompare"
   },
   {
     "type":     "torch",
     "target":   "2ch2stream_liberty.t7",
-    "source":   "https://s3.amazonaws.com/modelzoo-networks/cvpr2015matching_networks.tar.gz[2ch2stream/2ch2stream_liberty.t7]",
-    "format":   "Torch v7",
-    "link":     "https://github.com/szagoruyko/cvpr15deepcompare"
-  },
-  {
-    "type":     "torch",
-    "target":   "2chdeep_yosemite.t7",
-    "source":   "https://s3.amazonaws.com/modelzoo-networks/cvpr2015matching_networks.tar.gz[2chdeep/2chdeep_yosemite.t7]",
+    "source":   "https://github.com/lutzroeder/netron/files/11073798/2ch2stream_liberty.t7.zip[2ch2stream_liberty.t7]",
     "format":   "Torch v7",
     "link":     "https://github.com/szagoruyko/cvpr15deepcompare"
   },
   {
     "type":     "torch",
     "target":   "apple2orange.t7",
-    "source":   "https://people.eecs.berkeley.edu/~taesung_park/CycleGAN/models/apple2orange.t7",
+    "source":   "https://github.com/lutzroeder/netron/files/11073799/apple2orange.t7.zip[apple2orange.t7]",
     "format":   "Torch v7",
     "link":     "https://github.com/junyanz/CycleGAN"
   },
@@ -6375,13 +6583,6 @@
     "source":   "https://github.com/soumith/lfs/raw/master/dcgan.torch/celebA_25_net_G.t7",
     "format":   "Torch v7",
     "link":     "https://github.com/soumith/dcgan.torch"
-  },
-  {
-    "type":     "torch",
-    "target":   "composition_vii.t7",
-    "source":   "https://cs.stanford.edu/people/jcjohns/fast-neural-style/models/eccv16/composition_vii.t7",
-    "format":   "Torch v7",
-    "link":     "https://github.com/jcjohnson/fast-neural-style"
   },
   {
     "type":     "torch",
@@ -6420,6 +6621,13 @@
   },
   {
     "type":     "torch",
+    "target":   "net_kitti2015_slow_-a_train_all.t7",
+    "source":   "https://github.com/lutzroeder/netron/files/9425494/net_kitti2015_slow_-a_train_all.t7.zip[net_kitti2015_slow_-a_train_all.t7]",
+    "format":   "Torch v7",
+    "link":     "https://github.com/lutzroeder/netron/issues/269"
+  },
+  {
+    "type":     "torch",
     "target":   "openface.nn4.small2.v1.t7",
     "source":   "https://raw.githubusercontent.com/pyannote/pyannote-data/master/openface.nn4.small2.v1.t7",
     "format":   "Torch v7",
@@ -6449,23 +6657,9 @@
   {
     "type":     "torch",
     "target":   "siam_liberty.t7",
-    "source":   "https://s3.amazonaws.com/modelzoo-networks/cvpr2015matching_networks.tar.gz[siam/siam_liberty.t7]",
+    "source":   "https://github.com/lutzroeder/netron/files/11073755/siam_liberty.t7.zip[siam_liberty.t7]",
     "format":   "Torch v7",
     "link":     "https://github.com/szagoruyko/cvpr15deepcompare"
-  },
-  {
-    "type":     "torch",
-    "target":   "siam2stream_notredame.t7",
-    "source":   "https://s3.amazonaws.com/modelzoo-networks/cvpr2015matching_networks.tar.gz[siam2stream/siam2stream_notredame.t7]",
-    "format":   "Torch v7",
-    "link":     "https://github.com/szagoruyko/cvpr15deepcompare"
-  },
-  {
-    "type":     "torch",
-    "target":   "soundnet5_final.t7",
-    "source":   "http://data.csail.mit.edu/soundnet/soundnet_models_public.zip[soundnet_models_public/soundnet5_final.t7]",
-    "format":   "Torch v7",
-    "link":     "https://github.com/afperezm/acoustic-images-distillation"
   },
   {
     "type":     "torch",
@@ -6499,7 +6693,7 @@
     "type":     "weka",
     "target":   "j48model.model",
     "source":   "https://raw.githubusercontent.com/PTaati/wekaTree2python/master/j48model.model",
-    "error":    "Unsupported type 'weka.classifiers.trees.J48' in 'j48model.model'."
+    "error":    "Unsupported type 'weka.classifiers.trees.J48'."
   },
   {
     "type":     "xmodel",

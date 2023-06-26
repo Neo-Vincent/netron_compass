@@ -68,6 +68,12 @@
     ]
   },
   {
+    "name": "AdamWeightDecay",
+    "attributes": [
+      { "name": "use_locking", "type": "boolean", "default": false }
+    ]
+  },
+  {
     "name": "Add",
     "attributes": [
       { "name": "ActivationType", "type": "ActivationType" }
@@ -263,7 +269,13 @@
     ]
   },
   {
-    "name": "Attention"
+    "name": "Attention",
+    "attributes": [
+      { "name": "head_num", "type": "int64", "default": 0 },
+      { "name": "head_size", "type": "int64", "default": 0 },
+      { "name": "cross", "type": "boolean", "default": false },
+      { "name": "scale", "type": "float32", "default": 0 }
+    ]
   },
   {
     "name": "AudioSpectrogram",
@@ -882,7 +894,8 @@
     "attributes": [
       { "name": "blockSize", "type": "int32", "default": 0 },
       { "name": "format", "type": "Format", "default": "NCHW" },
-      { "name": "block_size", "type": "int64", "default": 0 }
+      { "name": "block_size", "type": "int64", "default": 0 },
+      { "name": "mode", "type": "string", "default": null }
     ],
     "inputs": [
       { "name": "input" }
@@ -1010,7 +1023,10 @@
     "name": "DynamicQuant",
     "attributes": [
       { "name": "symmetric", "type": "boolean", "default": false },
-      { "name": "dst_type", "type": "int64", "default": 32 }
+      { "name": "dst_type", "type": "int64", "default": 32 },
+      { "name": "activation_channel", "type": "boolean", "default": false },
+      { "name": "prefer_axis", "type": "int64", "default": 0 },
+      { "name": "transpose", "type": "boolean", "default": false }
     ]
   },
   {
@@ -1164,6 +1180,9 @@
   },
   {
     "name": "Flatten",
+    "attributes": [
+      { "name": "axis", "type": "int64", "default": 0 }
+    ],
     "inputs": [
       { "name": "input" }
     ],
@@ -1201,6 +1220,13 @@
     ],
     "outputs": [
       { "name": "z" }
+    ]
+  },
+  {
+    "name": "FormatTranspose",
+    "attributes": [
+      { "name": "src_format", "type": "Format", "default": "NHWC" },
+      { "name": "dst_format", "type": "Format", "default": "NHWC" }
     ]
   },
   {
@@ -1262,6 +1288,9 @@
     "outputs": [
       { "name": "output" }
     ]
+  },
+  {
+    "name": "GatherD"
   },
   {
     "name": "GatherNd",
@@ -1366,6 +1395,14 @@
     ],
     "outputs": [
       { "name": "dx" }
+    ]
+  },
+  {
+    "name": "GroupNormFusion",
+    "attributes": [
+      { "name": "num_groups", "type": "int64", "default": 0 },
+      { "name": "epsilon", "type": "float32", "default": 0.00001 },
+      { "name": "affine", "type": "boolean", "default": true }
     ]
   },
   {
@@ -1536,6 +1573,9 @@
     "outputs": [
       { "name": "y" }
     ]
+  },
+  {
+    "name": "Log1p"
   },
   {
     "name": "LogGrad",
@@ -1758,6 +1798,13 @@
       { "name": "transpose_a", "type": "boolean", "default": false },
       { "name": "transpose_b", "type": "boolean", "default": false },
       { "name": "activation_type", "type": "ActivationType", "default": "NO_ACTIVATION" }
+    ],
+    "inputs": [
+      { "name": "A" },
+      { "name": "B" }
+    ],
+    "outputs": [
+      { "name": "C" }
     ]
   },
   {
@@ -2212,7 +2259,8 @@
       { "name": "srcT", "type": "int32", "default": 0 },
       { "name": "dstT", "type": "int32", "default": 0 },
       { "name": "src_t", "type": "int64", "default": 0 },
-      { "name": "dst_t", "type": "int64", "default": 0 }
+      { "name": "dst_t", "type": "int64", "default": 0 },
+      { "name": "axis", "type": "int64", "default": 0 }
     ],
     "inputs": [
       { "name": "input" }
@@ -2477,6 +2525,12 @@
     ]
   },
   {
+    "name": "ScatterElements",
+    "attributes": [
+      { "name": "axis", "type": "int64", "default": 0 }
+    ]
+  },
+  {
     "name": "ScatterNd"
   },
   {
@@ -2605,6 +2659,7 @@
   },
   {
     "name": "Softmax",
+    "category": "Activation",
     "attributes": [
       { "name": "axis", "type": "int64[]", "default": 0 }
     ]
@@ -2624,6 +2679,7 @@
   },
   {
     "name": "SoftmaxCrossEntropy",
+    "category": "Activation",
     "attributes": [
       { "name": "axis", "type": "int32[]" }
     ],
@@ -2637,7 +2693,8 @@
     ]
   },
   {
-    "name": "SoftmaxCrossEntropyWithLogits"
+    "name": "SoftmaxCrossEntropyWithLogits",
+    "category": "Activation"
   },
   {
     "name": "SpaceToBatch",
@@ -2674,6 +2731,15 @@
     "outputs": [
       { "name": "output" }
     ]
+  },
+  {
+    "name": "SparseFillEmptyRows"
+  },
+  {
+    "name": "SparseReshape"
+  },
+  {
+    "name": "SparseSegmentSum"
   },
   {
     "name": "SparseSoftmaxCrossEntropyWithLogits",
@@ -2926,6 +2992,9 @@
     ]
   },
   {
+    "name": "TensorScatterAdd"
+  },
+  {
     "name": "TfReduce",
     "attributes": [
       { "name": "type", "type": "ReduceType" }
@@ -2993,6 +3062,12 @@
     "outputs": [
       { "name": "output" }
     ]
+  },
+  {
+    "name": "Tril"
+  },
+  {
+    "name": "Triu"
   },
   {
     "name": "TupleGetItem",

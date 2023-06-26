@@ -1,6 +1,6 @@
 
-var xmodel = xmodel || {};
-var protobuf = protobuf || require('./protobuf');
+var xmodel = {};
+var protobuf = require('./protobuf');
 
 xmodel.ModelFactory = class {
 
@@ -12,21 +12,19 @@ xmodel.ModelFactory = class {
         return undefined;
     }
 
-    open(context) {
-        return context.require('./xmodel-proto').then(() => {
-            let graph = null;
-            try {
-                xmodel.proto = protobuf.get('xmodel').serial_v2;
-                const stream = context.stream;
-                const reader = protobuf.BinaryReader.open(stream);
-                graph = xmodel.proto.Graph.decode(reader);
-            }
-            catch (error) {
-                const message = error && error.message ? error.message : error.toString();
-                throw new xmodel.Error('File format is not serial_v2.Graph (' + message.replace(/\.$/, '') + ').');
-            }
-            return new xmodel.Model(graph);
-        });
+    async open(context) {
+        await context.require('./xmodel-proto');
+        let graph = null;
+        try {
+            xmodel.proto = protobuf.get('xmodel').serial_v2;
+            const stream = context.stream;
+            const reader = protobuf.BinaryReader.open(stream);
+            graph = xmodel.proto.Graph.decode(reader);
+        } catch (error) {
+            const message = error && error.message ? error.message : error.toString();
+            throw new xmodel.Error('File format is not serial_v2.Graph (' + message.replace(/\.$/, '') + ').');
+        }
+        return new xmodel.Model(graph);
     }
 };
 
@@ -73,7 +71,7 @@ xmodel.Graph = class {
         const args = new Map();
         const arg = (name, node, initializer) => {
             if (!args.has(name)) {
-                args.set(name, new xmodel.Argument(name, node, initializer));
+                args.set(name, new xmodel.Value(name, node, initializer));
             }
             return args.get(name);
         };
@@ -81,8 +79,8 @@ xmodel.Graph = class {
         for (const node of graph.op_node) {
             if (node.args.length === 0) {
                 if (node.op_type === 'data' || node.op_type === 'data-fix') {
-                    const argument = arg(node.op_name, node);
-                    this._inputs.push(new xmodel.Parameter(node.op_name, [ argument ]));
+                    const value = arg(node.op_name, node);
+                    this._inputs.push(new xmodel.Argument(node.op_name, [ value ]));
                     continue;
                 }
             }
@@ -111,31 +109,27 @@ xmodel.Graph = class {
     }
 };
 
-xmodel.Parameter = class {
+xmodel.Argument = class {
 
-    constructor(name, args) {
+    constructor(name, value) {
         this._name = name;
-        this._arguments = args;
+        this._value = value;
     }
 
     get name() {
         return this._name;
     }
 
-    get visible() {
-        return true;
-    }
-
-    get arguments() {
-        return this._arguments;
+    get value() {
+        return this._value;
     }
 };
 
-xmodel.Argument = class {
+xmodel.Value = class {
 
     constructor(name, node, initializer) {
         if (typeof name !== 'string') {
-            throw new xmodel.Error("Invalid argument identifier '" + JSON.stringify(name) + "'.");
+            throw new xmodel.Error("Invalid value identifier '" + JSON.stringify(name) + "'.");
         }
         this._name = name;
         if (node) {
@@ -143,8 +137,7 @@ xmodel.Argument = class {
             if (tensor && tensor.tensor_attr && tensor.data_type) {
                 if (initializer) {
                     this._initializer = new xmodel.Tensor(node);
-                }
-                else {
+                } else {
                     this._type = new xmodel.TensorType(tensor);
                 }
             }
@@ -179,9 +172,8 @@ xmodel.Node = class {
         if (op_node.op_attr) {
             for (const entry of Object.entries(op_node.op_attr)) {
                 const name = entry[0];
-                const value = entry[1];
                 if (name === 'device') {
-                    this._device = value.string_value;
+                    this._device = entry[1].string_value;
                     continue;
                 }
                 if (name === 'workload') {
@@ -190,22 +182,30 @@ xmodel.Node = class {
                 if (name.startsWith('quant_in_') || name.startsWith('quant_out_')) {
                     continue;
                 }
-                const attribute = xmodel.Utility.attribute(value);
-                if (name === 'nonlinear' && attribute.value && attribute.value !== 'NONE') {
-                    this._chain.push(new xmodel.Node(metadata, { op_type: attribute.value.toLowerCase() }, arg));
+                const value = xmodel.Utility.attribute(entry[1]);
+                if (name === 'nonlinear' && value.value && value.value !== 'NONE' && value.value !== 0) {
+                    let activation = value.value;
+                    if (typeof activation === 'string') {
+                        activation = activation.toLowerCase();
+                    } else if (Number.isInteger(activation) && activation < 5) {
+                        activation = [ 'none', 'relu', 'prelu', 'leakyrelu', 'relu6' ][activation];
+                    } else {
+                        activation = JSON.stringify(activation);
+                    }
+                    this._chain.push(new xmodel.Node(metadata, { op_type: activation }, arg));
                     continue;
                 }
-                this._attributes.push(new xmodel.Attribute(metadata.attribute(this._type, name), name, attribute));
+                this._attributes.push(new xmodel.Attribute(metadata.attribute(this._type, name), name, value));
             }
         }
         if (op_node.args) {
             for (const input of op_node.args) {
                 const args = input.arg_ops.map((arg_op) => arg(arg_op));
-                this._inputs.push(new xmodel.Parameter(input.arg_name, args));
+                this._inputs.push(new xmodel.Argument(input.arg_name, args));
             }
         }
         if (op_node.op_name) {
-            this._outputs.push(new xmodel.Parameter('output', [ arg(op_node.op_name) ]));
+            this._outputs.push(new xmodel.Argument('output', [ arg(op_node.op_name) ]));
         }
     }
 
@@ -349,50 +349,15 @@ xmodel.Tensor = class {
 
     constructor(node) {
         this._type = new xmodel.TensorType(node.output_tensor);
-        this._kind = node.op_type;
+        this._category = node.op_type;
     }
 
-    get kind() {
-        return this._kind;
+    get category() {
+        return this._category;
     }
 
     get type() {
         return this._type;
-    }
-
-    get state() {
-        return this._context().state || null;
-    }
-
-    get value() {
-        const context = this._context();
-        if (context.state) {
-            return null;
-        }
-        context.limit = Number.MAX_SAFE_INTEGER;
-        return this._decode(context, 0);
-    }
-
-    toString() {
-        const context = this._context();
-        if (context.state) {
-            return '';
-        }
-        context.limit = 10000;
-        const value = this._decode(context, 0);
-        return JSON.stringify(value, null, 4);
-    }
-
-    _context() {
-        const context = {};
-        context.index = 0;
-        context.count = 0;
-        context.state = 'Tensor data not implemented.';
-        return context;
-    }
-
-    _decode(/* context, dimension */) {
-        return [];
     }
 };
 
@@ -412,9 +377,11 @@ xmodel.Utility = class {
             case 'float_vec': return { type: 'float32[]', value: value.value };
             case 'double': return { type: 'float64', value: value };
             case 'string': return { type: 'string', value: value };
+            case 'string_vec':  return { type: 'string[]', value: value.value };
             case 'bytes': return { type: 'byte[]', value: value.value };
+            case 'map_string_2_int32': return { type: 'map<string,int32>', value: value.value };
+            default: throw new xmodel.Error("Unsupported attribute type '" + type + "'.");
         }
-        throw new xmodel.Error("Unknown attribute type '" + type + "'.");
     }
 };
 
@@ -440,12 +407,14 @@ xmodel.Metadata = class {
             [ 'float2fix', 'Quantization' ],
             [ 'gelu', 'Activation' ],
             [ 'hard-sigmoid', 'Activation' ],
+            [ 'hard-sigmoid-fix', 'Activation' ],
             [ 'hard-swish', 'Activation' ],
             [ 'hard-tanh', 'Activation' ],
             [ 'identity', 'Control' ],
             [ 'inner-product', 'Layer' ],
             [ 'l2_normalize', 'Normalization' ],
             [ 'leaky-relu', 'Activation' ],
+            [ 'leakyrelu', 'Activation' ],
             [ 'maxpool2d', 'Pool' ],
             [ 'pool-fix', 'Pool' ],
             [ 'relu', 'Activation' ],
@@ -465,7 +434,9 @@ xmodel.Metadata = class {
             [ 'threshold', 'Quantization' ],
             [ 'transpose', 'Tensor' ],
             [ 'transposed-conv2d', 'Layer' ],
+            [ 'transposed-conv2d-fix', 'Layer' ],
             [ 'transposed-depthwise-conv2d', 'Layer' ],
+            [ 'transposed-depthwise-conv2d-fix', 'Layer' ],
             [ 'upsample-fix', 'Data' ],
         ]);
         for (const op_def of op_defs) {
@@ -498,6 +469,13 @@ xmodel.Metadata = class {
                 metadata.category = categories.get(name);
             }
             this._types.set(name, metadata);
+        }
+        for (const entry of categories) {
+            const name = entry[0];
+            const category = entry[1];
+            if (!this._types.has(name)) {
+                this._types.set(name, { name: name, category: category });
+            }
         }
     }
 

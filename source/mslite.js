@@ -1,12 +1,12 @@
 
-var mslite = mslite || {};
-var flatbuffers = flatbuffers || require('./flatbuffers');
+var mslite = {};
+var flatbuffers = require('./flatbuffers');
 
 mslite.ModelFactory = class {
 
     match(context) {
         const stream = context.stream;
-        if (stream.length >= 8) {
+        if (stream && stream.length >= 8) {
             const buffer = stream.peek(8);
             const reader = flatbuffers.BinaryReader.open(buffer);
             if (reader.identifier === '' || reader.identifier === 'MSL1' || reader.identifier === 'MSL2') {
@@ -16,31 +16,32 @@ mslite.ModelFactory = class {
         return '';
     }
 
-    open(context) {
-        return context.require('./mslite-schema').then(() => {
-            const stream = context.stream;
-            const reader = flatbuffers.BinaryReader.open(stream);
-            switch (reader.identifier) {
-                case '':
-                    throw new mslite.Error('MSL0 format is deprecated.', false);
-                case 'MSL1':
-                    throw new mslite.Error('MSL1 format is deprecated.', false);
-                case 'MSL2':
-                    break;
+    async open(context) {
+        await context.require('./mslite-schema');
+        const stream = context.stream;
+        const reader = flatbuffers.BinaryReader.open(stream);
+        switch (reader.identifier) {
+            case '': {
+                throw new mslite.Error('MSL0 format is deprecated.');
             }
-            let model = null;
-            try {
-                mslite.schema = flatbuffers.get('mslite').mindspore.schema;
-                model = mslite.schema.MetaGraph.create(reader);
+            case 'MSL1': {
+                throw new mslite.Error('MSL1 format is deprecated.');
             }
-            catch (error) {
-                const message = error && error.message ? error.message : error.toString();
-                throw new mslite.Error('File format is not mslite.MetaGraph (' + message.replace(/\.$/, '') + ').');
-            }
-            return mslite.Metadata.open(context).then((metadata) => {
-                return new mslite.Model(metadata, model);
-            });
-        });
+            case 'MSL2':
+                break;
+            default:
+                throw new mslite.Error("Unsupported file identifier '" + reader.identifier + "'.");
+        }
+        let model = null;
+        try {
+            mslite.schema = flatbuffers.get('mslite').mindspore.schema;
+            model = mslite.schema.MetaGraph.create(reader);
+        } catch (error) {
+            const message = error && error.message ? error.message : error.toString();
+            throw new mslite.Error('File format is not mslite.MetaGraph (' + message.replace(/\.$/, '') + ').');
+        }
+        const metadata = await context.metadata('mslite-metadata.json');
+        return new mslite.Model(metadata, model);
     }
 };
 
@@ -48,20 +49,15 @@ mslite.Model = class {
 
     constructor(metadata, model) {
         this._name = model.name || '';
-        this._format = model.version || '';
         this._graphs = [];
-        const format = 'MindSpore Lite ';
-        if (this._format.startsWith(format)) {
-            const version = this._format.substring(format.length).replace(/^v/, '');
-            this._format = format + 'v' + version;
-        }
+        const version = model.version ? model.version.match(/^.*(\d\.\d\.\d)$/) : null;
+        this._format = 'MindSpore Lite' + (version ? ' v' + version[1] : '');
         const subgraphs = model.subGraph;
         if (Array.isArray(subgraphs)) {
             for (const subgraph of subgraphs) {
                 this._graphs.push(new mslite.Graph(metadata, subgraph, model));
             }
-        }
-        else {
+        } else {
             this._graphs.push(new mslite.Graph(metadata, model, model));
         }
     }
@@ -91,29 +87,28 @@ mslite.Graph = class {
             const data = tensor.data;
             const type = new mslite.TensorType(tensor.dataType, tensor.dims);
             const initializer = (data && data.length > 0) ? new mslite.Tensor(type, tensor.data) : null;
-            return new mslite.Argument(name, tensor, initializer);
+            return new mslite.Value(name, tensor, initializer);
         });
         if (subgraph === model) {
             for (let i = 0; i < subgraph.inputIndex.length; i++) {
                 const index = subgraph.inputIndex[i];
-                this._inputs.push(new mslite.Parameter(i.toString(), true, [ args[index] ]));
+                this._inputs.push(new mslite.Argument(i.toString(), [ args[index] ]));
             }
             for (let i = 0; i < subgraph.outputIndex.length; i++) {
                 const index = subgraph.outputIndex[i];
-                this._outputs.push(new mslite.Parameter(i.toString(), true, [ args[index] ]));
+                this._outputs.push(new mslite.Argument(i.toString(), [ args[index] ]));
             }
             for (let i = 0; i < subgraph.nodes.length; i++) {
                 this._nodes.push(new mslite.Node(metadata, subgraph.nodes[i], args));
             }
-        }
-        else {
+        } else {
             for (let i = 0; i < subgraph.inputIndices.length; i++) {
                 const index = subgraph.inputIndices[i];
-                this._inputs.push(new mslite.Parameter(i.toString(), true, [args[index]]));
+                this._inputs.push(new mslite.Argument(i.toString(), [args[index]]));
             }
             for (let i = 0; i < subgraph.outputIndices.length; i++) {
                 const index = subgraph.outputIndices[i];
-                this._outputs.push(new mslite.Parameter(i.toString(), true, [args[index]]));
+                this._outputs.push(new mslite.Argument(i.toString(), [args[index]]));
             }
             for (let i = 0; i < subgraph.nodeIndices.length; i++) {
                 const nodeId = subgraph.nodeIndices[i];
@@ -157,36 +152,36 @@ mslite.Node = class {
 
         const input_num = op.inputIndex.length;
         let i = 0;
-        if (this._type && this._type.inputs){
+        if (this._type && this._type.inputs) {
             for (const input of this._type.inputs) {
                 if (i >= input_num) {
                     break;
                 }
                 const index = op.inputIndex[i];
-                this._inputs.push(new mslite.Parameter(input.name, true, [ args[index] ]));
+                this._inputs.push(new mslite.Argument(input.name, [ args[index] ]));
                 i += 1;
             }
         }
         for (let j = i; j < input_num; j++) {
             const index = op.inputIndex[j];
-            this._inputs.push(new mslite.Parameter(j.toString(), true, [ args[index] ]));
+            this._inputs.push(new mslite.Argument(j.toString(), [ args[index] ]));
         }
 
         const output_num = op.outputIndex.length;
         i = 0;
-        if (this._type && this._type.outputs){
+        if (this._type && this._type.outputs) {
             for (const output of this._type.outputs) {
                 if (i >= output_num) {
                     break;
                 }
                 const index = op.outputIndex[i];
-                this._outputs.push(new mslite.Parameter(output.name, true, [ args[index] ]));
+                this._outputs.push(new mslite.Argument(output.name, [ args[index] ]));
                 i += 1;
             }
         }
         for (let j = i; j < output_num; j++) {
             const index = op.outputIndex[j];
-            this._outputs.push(new mslite.Parameter(j.toString(), true, [ args[index] ]));
+            this._outputs.push(new mslite.Argument(j.toString(), [ args[index] ]));
         }
     }
 
@@ -245,28 +240,23 @@ mslite.Attribute = class {
     }
 };
 
-mslite.Parameter = class {
+mslite.Argument = class {
 
-    constructor(name, visible, args) {
+    constructor(name, value) {
         this._name = name;
-        this._visible = visible;
-        this._arguments = args;
+        this._value = value;
     }
 
     get name() {
         return this._name;
     }
 
-    get visible() {
-        return this._visible;
-    }
-
-    get arguments() {
-        return this._arguments;
+    get value() {
+        return this._value;
     }
 };
 
-mslite.Argument = class {
+mslite.Value = class {
 
     constructor(name, tensor, initializer) {
         this._name = name;
@@ -278,7 +268,20 @@ mslite.Argument = class {
             for (let i = 0; i < tensor.quantParams.length; i++) {
                 const param = tensor.quantParams[i];
                 if (param.scale !== 0 || param.zeroPoint !== 0) {
-                    list.push((param.scale !== 1 ? param.scale.toString() + ' * ' : '') + 'q' + (param.zeroPoint !== 0 ? ' + ' + param.zeroPoint.toString() : ''));
+                    const scale = param.scale;
+                    const zeroPoint = param.zeroPoint;
+                    let quantization = '';
+                    if (scale !== 1) {
+                        quantization += scale.toString() + ' * ';
+                    }
+                    if (zeroPoint === 0) {
+                        quantization += 'q';
+                    } else if (zeroPoint < 0) {
+                        quantization += '(q + ' + -zeroPoint + ')';
+                    } else if (zeroPoint > 0) {
+                        quantization += '(q - ' + zeroPoint + ')';
+                    }
+                    list.push(quantization);
                 }
             }
             if (list.length > 0 && !list.every((value) => value === 'q')) {
@@ -318,138 +321,36 @@ mslite.Tensor = class {
         return this._type;
     }
 
-    get state() {
-        return this._context().state;
+    get layout() {
+        switch (this._type.dataType) {
+            case 'string': return '|';
+            default: return '<';
+        }
     }
 
-    get value() {
-        const context = this._context();
-        if (context.state) {
-            return null;
-        }
-        context.limit = Number.MAX_SAFE_INTEGER;
-        return this._decode(context, 0);
-    }
-
-    toString() {
-        const context = this._context();
-        if (context.state) {
-            return '';
-        }
-        context.limit = 10000;
-        const value = this._decode(context, 0);
-        return JSON.stringify(value, null, 4);
-    }
-
-    _context() {
-        const context = {};
-        context.state = null;
-        context.index = 0;
-        context.count = 0;
-
-        if (this._data == null || this._data.length === 0) {
-            context.state = 'Tensor data is empty.';
-            return context;
-        }
-
-        context.dataType = this._type.dataType;
-        context.shape = this._type.shape.dimensions;
-        context.data = new DataView(this._data.buffer, this._data.byteOffset, this._data.byteLength);
-
-        if (this._type.dataType === 'string') {
-            let offset = 0;
-            const count = context.data.getInt32(0, true);
-            offset += 4;
-            const offsetTable = [];
-            for (let j = 0; j < count; j++) {
-                offsetTable.push(context.data.getInt32(offset, true));
+    get values() {
+        switch (this._type.dataType) {
+            case 'string': {
+                let offset = 0;
+                const data = new DataView(this._data.buffer, this._data.byteOffset, this._data.byteLength);
+                const count = data.getInt32(0, true);
                 offset += 4;
-            }
-            offsetTable.push(this._data.length);
-            const stringTable = [];
-            const utf8Decoder = new TextDecoder('utf-8');
-            for (let k = 0; k < count; k++) {
-                const textArray = this._data.subarray(offsetTable[k], offsetTable[k + 1]);
-                stringTable.push(utf8Decoder.decode(textArray));
-            }
-            context.data = stringTable;
-        }
-        return context;
-    }
-
-    _decode(context, dimension) {
-        const shape = (context.shape.length === 0) ? [ 1 ] : context.shape;
-        const size = shape[dimension];
-        const results = [];
-        if (dimension === shape.length - 1) {
-            for (let i = 0; i < size; i++) {
-                if (context.count > context.limit) {
-                    results.push('...');
-                    return results;
+                const offsetTable = [];
+                for (let j = 0; j < count; j++) {
+                    offsetTable.push(data.getInt32(offset, true));
+                    offset += 4;
                 }
-                switch (context.dataType) {
-                    case 'uint8':
-                        results.push(context.data.getUint8(context.index));
-                        context.index += 1;
-                        context.count++;
-                        break;
-                    case 'int8':
-                        results.push(context.data.getInt8(context.index));
-                        context.index += 1;
-                        context.count++;
-                        break;
-                    case 'int16':
-                        results.push(context.data.getInt16(context.index));
-                        context.index += 2;
-                        context.count++;
-                        break;
-                    case 'int32':
-                        results.push(context.data.getInt32(context.index, true));
-                        context.index += 4;
-                        context.count++;
-                        break;
-                    case 'int64':
-                        results.push(context.data.getInt64(context.index, true));
-                        context.index += 8;
-                        context.count++;
-                        break;
-                    case 'float16':
-                        results.push(context.data.getFloat16(context.index, true));
-                        context.index += 2;
-                        context.count++;
-                        break;
-                    case 'float32':
-                        results.push(context.data.getFloat32(context.index, true));
-                        context.index += 4;
-                        context.count++;
-                        break;
-                    case 'float64':
-                        results.push(context.data.getFloat64(context.index, true));
-                        context.index += 8;
-                        context.count++;
-                        break;
-                    case 'string':
-                        results.push(context.data[context.index++]);
-                        context.count++;
-                        break;
-                    default:
-                        break;
+                offsetTable.push(this._data.length);
+                const stringTable = [];
+                const utf8Decoder = new TextDecoder('utf-8');
+                for (let k = 0; k < count; k++) {
+                    const textArray = this._data.subarray(offsetTable[k], offsetTable[k + 1]);
+                    stringTable.push(utf8Decoder.decode(textArray));
                 }
+                return stringTable;
             }
+            default: return this._data;
         }
-        else {
-            for (let j = 0; j < size; j++) {
-                if (context.count > context.limit) {
-                    results.push('...');
-                    return results;
-                }
-                results.push(this._decode(context, dimension + 1));
-            }
-        }
-        if (context.shape.length === 0) {
-            return results[0];
-        }
-        return results;
     }
 };
 
@@ -501,8 +402,7 @@ mslite.TensorType = class {
             case 43: this._dataType = "float32"; break;
             case 44: this._dataType = "float64"; break;
             case 45: this._dataType = "complex64"; break;
-            default:
-                throw new mslite.Error("Unknown data type '" + dataType.toString() + "'.");
+            default: throw new mslite.Error("Unsupported data type '" + dataType.toString() + "'.");
         }
         this._shape = new mslite.TensorShape(Array.from(dimensions));
     }
@@ -538,55 +438,6 @@ mslite.TensorShape = class {
     }
 };
 
-mslite.Metadata = class {
-
-    static open(context) {
-        if (mslite.Metadata._metadata) {
-            return Promise.resolve(mslite.Metadata._metadata);
-        }
-        return context.request('mslite-metadata.json', 'utf-8', null).then((data) => {
-            mslite.Metadata._metadata = new mslite.Metadata(data);
-            return mslite.Metadata._metadata;
-        }).catch(() => {
-            mslite.Metadata._metadata = new mslite.Metadata(null);
-            return mslite.Metadata._metadata;
-        });
-    }
-
-    constructor(data) {
-        this._map = new Map();
-        if (data) {
-            const metadata = JSON.parse(data);
-            this._map = new Map(metadata.map((item) => [ item.name, item ]));
-        }
-    }
-
-    type(name) {
-        return this._map.has(name) ? this._map.get(name) : null;
-    }
-
-    attribute(type, name) {
-        const schema = this.type(type);
-        if (schema) {
-            let attributeMap = schema.attributeMap;
-            if (!attributeMap) {
-                attributeMap = {};
-                if (schema.attributes) {
-                    for (const attribute of schema.attributes) {
-                        attributeMap[attribute.name] = attribute;
-                    }
-                }
-                schema.attributeMap = attributeMap;
-            }
-            const attributeSchema = attributeMap[name];
-            if (attributeSchema) {
-                return attributeSchema;
-            }
-        }
-        return null;
-    }
-};
-
 mslite.Utility = class {
 
     static enum(name, value) {
@@ -611,10 +462,9 @@ mslite.Utility = class {
 
 mslite.Error = class extends Error {
 
-    constructor(message, context) {
+    constructor(message) {
         super(message);
         this.name = 'Error loading MindSpore Lite model.';
-        this.context = context === false ? false : true;
     }
 };
 

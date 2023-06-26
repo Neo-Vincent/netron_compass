@@ -1,22 +1,28 @@
 
-// Experimental HDF5 JavaScript reader
+// Experimental HDF5 reader
 
-var hdf5 = hdf5 || {};
-var zip = zip || require('./zip');
+var hdf5 = {};
+var zip = require('./zip');
 
 hdf5.File = class {
 
     static open(data) {
-        const buffer = data instanceof Uint8Array ? data : data.peek();
-        const reader = new hdf5.Reader(buffer, 0);
-        if (reader.match('\x89HDF\r\n\x1A\n')) {
-            return new hdf5.File(reader);
+        if (data && data.length >= 8) {
+            const buffer = data instanceof Uint8Array ? data : data.peek(8);
+            const signature = [ 0x89, 0x48, 0x44, 0x46, 0x0D, 0x0A, 0x1A, 0x0A ]; // \x89HDF\r\n\x1A\n
+            if (signature.every((value, index) => value === buffer[index])) {
+                return new hdf5.File(data);
+            }
         }
         return null;
     }
 
-    constructor(reader) {
+    constructor(data) {
         // https://support.hdfgroup.org/HDF5/doc/H5.format.html
+        const reader = data instanceof Uint8Array ?
+            new hdf5.BinaryReader(data) :
+            (data.length < 0x10000000 ? new hdf5.BinaryReader(data.peek()) : new hdf5.StreamReader(data));
+        reader.skip(8);
         this._globalHeap = new hdf5.GlobalHeap(reader);
         const version = reader.byte();
         switch (version) {
@@ -33,7 +39,7 @@ hdf5.File = class {
                 reader.skip(4);
                 if (version > 0) {
                     this._indexedStorageInternalNodeK = reader.uint16();
-                    this.seek(2); // Reserved
+                    this.skip(2); // Reserved
                 }
                 this._baseAddress = reader.offset();
                 reader.offset(); // Address of File Free space Info
@@ -154,8 +160,7 @@ hdf5.Group = class {
                         }
                     }
                 }
-            }
-            else {
+            } else {
                 this._decodeDataObject();
                 for (const link of this._dataObjectHeader.links) {
                     if (Object.prototype.hasOwnProperty.call(link, 'objectHeaderAddress')) {
@@ -196,7 +201,7 @@ hdf5.Variable = class {
     get value() {
         const data = this.data;
         if (data) {
-            const reader = new hdf5.Reader(data);
+            const reader = data instanceof hdf5.BinaryReader ? data : new hdf5.BinaryReader(data);
             const array = this._dataspace.read(this._datatype, reader);
             return this._dataspace.decode(this._datatype, array, array, this._globalHeap);
         }
@@ -207,36 +212,75 @@ hdf5.Variable = class {
         switch (this._dataLayout.layoutClass) {
             case 1: // Contiguous
                 if (this._dataLayout.address) {
-                    return this._reader.at(this._dataLayout.address).read(this._dataLayout.size);
+                    return this._reader.at(this._dataLayout.address).stream(this._dataLayout.size);
                 }
                 break;
             case 2: { // Chunked
                 const dimensionality = this._dataLayout.dimensionality;
-                if (dimensionality === 2) {
-                    const tree = new hdf5.Tree(this._reader.at(this._dataLayout.address), dimensionality);
-                    const itemsize = this._dataLayout.datasetElementSize;
-                    const shape = this._dataspace.shape;
-                    const size = shape.reduce((a, b) => a * b, 1) * itemsize;
-                    const data = new Uint8Array(size);
-                    for (const node of tree.nodes) {
-                        if (node.filterMask !== 0) {
-                            return null;
+                const tree = new hdf5.Tree(this._reader.at(this._dataLayout.address), dimensionality);
+                const item_size = this._dataLayout.datasetElementSize;
+                const chunk_shape = this._dataLayout.dimensionSizes;
+                const data_shape = this._dataspace.shape;
+                const chunk_size = chunk_shape.reduce((a, b) => a * b, 1);
+                const data_size = data_shape.reduce((a, b) => a * b, 1);
+                const max_dim = data_shape.length - 1;
+                let data_stride = 1;
+                const data_strides = data_shape.slice().reverse().map((d2) => {
+                    const s = data_stride;
+                    data_stride *= d2;
+                    return s;
+                }).reverse();
+                const data = new Uint8Array(data_size * item_size);
+                for (const node of tree.nodes) {
+                    if (node.filterMask !== 0) {
+                        return null;
+                    }
+                    let chunk = node.data;
+                    if (this._filterPipeline) {
+                        for (const filter of this._filterPipeline.filters) {
+                            chunk = filter.decode(chunk);
                         }
-                        const start = node.fields.slice(0, 1).reduce((a, b) => a * b, 1) * itemsize;
-                        let chunk = node.data;
-                        if (this._filterPipeline) {
-                            for (const filter of this._filterPipeline.filters) {
-                                chunk = filter.decode(chunk);
+                    }
+                    const chunk_offset = node.fields;
+                    var data_pos = chunk_offset.slice();
+                    var chunk_pos = data_pos.map(() => 0);
+                    for (let chunk_index = 0; chunk_index < chunk_size; chunk_index++) {
+                        for (let i = max_dim; i >= 0; i--) {
+                            if (chunk_pos[i] >= chunk_shape[i]) {
+                                chunk_pos[i] = 0;
+                                data_pos[i] = chunk_offset[i];
+                                if (i > 0) {
+                                    chunk_pos[i - 1]++;
+                                    data_pos[i - 1]++;
+                                }
+                            } else {
+                                break;
                             }
                         }
-                        data.set(chunk, start);
+                        let index = 0;
+                        let inbounds = true;
+                        const length = data_pos.length - 1;
+                        for (let i = 0; i < length; i++) {
+                            const pos = data_pos[i];
+                            inbounds = inbounds && pos < data_shape[i];
+                            index += pos * data_strides[i];
+                        }
+                        if (inbounds) {
+                            let chunk_offset = chunk_index * item_size;
+                            let target_offset = index * item_size;
+                            const target_end = target_offset + item_size;
+                            while (target_offset < target_end) {
+                                data[target_offset++] = chunk[chunk_offset++];
+                            }
+                        }
+                        chunk_pos[max_dim]++;
+                        data_pos[max_dim]++;
                     }
-                    return data;
                 }
-                break;
+                return data;
             }
             default: {
-                throw new hdf5.Error("Unknown data layout class '" + this.layoutClass + "'.");
+                throw new hdf5.Error("Unsupported data layout class '" + this.layoutClass + "'.");
             }
         }
         return null;
@@ -245,13 +289,7 @@ hdf5.Variable = class {
 
 hdf5.Reader = class {
 
-    constructor(buffer) {
-        if (buffer) {
-            this._buffer = buffer;
-            this._dataView = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-            this._position = 0;
-            this._offset = 0;
-        }
+    constructor() {
     }
 
     initialize() {
@@ -259,140 +297,86 @@ hdf5.Reader = class {
         this._lengthSize = this.byte();
     }
 
-    skip(offset) {
-        this._offset += offset;
-        if (this._position + this._offset > this._buffer.length) {
-            throw new hdf5.Error('Expected ' + (this._position + this._offset - this._buffer.length) + ' more bytes. The file might be corrupted. Unexpected end of file.');
-        }
-    }
-
-    read(length) {
-        const offset = this._offset;
-        this.skip(length);
-        return this._buffer.subarray(this._position + offset, this._position + this._offset);
-    }
-
     int8() {
-        const offset = this._offset;
-        this.skip(1);
-        return this._dataView.getInt8(this._position + offset);
+        const position = this.take(1);
+        return this._view.getInt8(position);
     }
 
     byte() {
-        const offset = this._offset;
-        this.skip(1);
-        return this._dataView.getUint8(this._position + offset);
+        const position = this.take(1);
+        return this._view.getUint8(position);
     }
 
     int16() {
-        const offset = this._position + this._offset;
-        this.skip(2);
-        return this._dataView.getInt16(offset, true);
+        const position = this.take(2);
+        return this._view.getInt16(position, true);
     }
 
     uint16() {
-        const offset = this._position + this._offset;
-        this.skip(2);
-        return this._dataView.getUint16(offset, true);
+        const position = this.take(2);
+        return this._view.getUint16(position, true);
     }
 
     int32() {
-        const offset = this._position + this._offset;
-        this.skip(4);
-        return this._dataView.getInt32(offset, true);
+        const position = this.take(4);
+        return this._view.getInt32(position, true);
     }
 
     uint32() {
-        const offset = this._position + this._offset;
-        this.skip(4);
-        return this._dataView.getUint32(offset, true);
+        const position = this.take(4);
+        return this._view.getUint32(position, true);
     }
 
     int64() {
-        const offset = this._position + this._offset;
-        this.skip(8);
-        return this._dataView.getInt64(offset, true).toNumber();
+        const position = this.take(8);
+        return this._view.getInt64(position, true).toNumber();
     }
 
     uint64() {
-        const offset = this._position + this._offset;
-        this.skip(8);
-        return this._dataView.getUint64(offset, true).toNumber();
+        const position = this.take(8);
+        return this._view.getUint64(position, true).toNumber();
     }
 
-    uint(type) {
-        switch (type) {
+    uint(size) {
+        switch (size) {
             case 0: return this.byte();
             case 1: return this.uint16();
             case 2: return this.uint32();
             case 3: return this.uint64();
+            default: throw new hdf5.Error("Unsupported uint size '" + size + "'.");
         }
     }
 
     float16() {
-        const offset = this._offset;
-        this.skip(2);
-        const value = this._dataView.getUint16(this._position + offset, true);
+        const position = this.take(2);
+        const value = this._view.getUint16(position, true);
         // decode float16 value
         const s = (value & 0x8000) >> 15;
         const e = (value & 0x7C00) >> 10;
         const f = value & 0x03FF;
-        if(e == 0) {
+        if (e == 0) {
             return (s ? -1 : 1) * Math.pow(2, -14) * (f / Math.pow(2, 10));
-        }
-        else if (e == 0x1F) {
+        } else if (e == 0x1F) {
             return f ? NaN : ((s ? -1 : 1) * Infinity);
         }
         return (s ? -1 : 1) * Math.pow(2, e-15) * (1 + (f / Math.pow(2, 10)));
     }
 
     float32() {
-        const offset = this._position + this._offset;
-        this.skip(4);
-        return this._dataView.getFloat32(offset, true);
+        const position = this.take(4);
+        return this._view.getFloat32(position, true);
     }
 
     float64() {
-        const offset = this._position + this._offset;
-        this.skip(8);
-        return this._dataView.getFloat64(offset, true);
-    }
-
-    string(size, encoding) {
-        if (!size || size == -1) {
-            let position = this._position + this._offset;
-            while (this._buffer[position] != 0) {
-                position++;
-            }
-            size = position - this._position - this._offset + 1;
-        }
-        const data = this.read(size);
-        return hdf5.Reader.decode(data, encoding);
-    }
-
-    static decode(data, encoding) {
-        let content = '';
-        if (encoding == 'utf-8') {
-            if (!hdf5.Reader._utf8Decoder) {
-                hdf5.Reader._utf8Decoder = new TextDecoder('utf-8');
-            }
-            content = hdf5.Reader._utf8Decoder.decode(data);
-        }
-        else {
-            if (!hdf5.Reader._asciiDecoder) {
-                hdf5.Reader._asciiDecoder = new TextDecoder('ascii');
-            }
-            content = hdf5.Reader._asciiDecoder.decode(data);
-        }
-        return content.replace(/\0/g, '');
+        const position = this.take(8);
+        return this._view.getFloat64(position, true);
     }
 
     offset() {
         switch (this._offsetSize) {
             case 8: {
-                const position = this._position + this._offset;
-                this.skip(8);
-                const value = this._dataView.getUint64(position, true);
+                const position = this.take(8);
+                const value = this._view.getUint64(position, true);
                 if (value.low === -1 && value.high === -1) {
                     return undefined;
                 }
@@ -405,16 +389,17 @@ hdf5.Reader = class {
                 }
                 return value;
             }
+            default: {
+                throw new hdf5.Error('Unsupported offset size \'' + this._offsetSize + '\'.');
+            }
         }
-        throw new hdf5.Error('Unsupported offset size \'' + this._offsetSize + '\'.');
     }
 
     length() {
         switch (this._lengthSize) {
             case 8: {
-                const position = this._position + this._offset;
-                this.skip(8);
-                const value = this._dataView.getUint64(position, true);
+                const position = this.take(8);
+                const value = this._view.getUint64(position, true);
                 if (value.low === -1 && value.high === -1) {
                     return undefined;
                 }
@@ -427,59 +412,222 @@ hdf5.Reader = class {
                 }
                 return value;
             }
+            default: {
+                throw new hdf5.Error('Unsupported length size \'' + this._lengthSize + '\'.');
+            }
         }
-        throw new hdf5.Error('Unsupported length size \'' + this._lengthSize + '\'.');
     }
 
-    at(position) {
-        const reader = new hdf5.Reader(null);
-        reader._buffer = this._buffer;
-        reader._dataView = this._dataView;
-        reader._position = position;
-        reader._offset = 0;
-        reader._offsetSize = this._offsetSize;
-        reader._lengthSize = this._lengthSize;
-        return reader;
-    }
-
-    clone() {
-        const reader =  new hdf5.Reader(this._buffer, this._position);
-        reader._buffer = this._buffer;
-        reader._dataView = this._dataView;
-        reader._position = this._position;
-        reader._offset = this._offset;
-        reader._offsetSize = this._offsetSize;
-        reader._lengthSize = this._lengthSize;
-        return reader;
-    }
-
-    align(mod) {
-        if (this._offset % mod != 0) {
-            this._offset = (Math.floor(this._offset / mod) + 1) * mod;
+    string(size, encoding) {
+        if (!size || size == -1) {
+            size = this.size(0x00);
         }
+        const data = this.read(size);
+        if (encoding == 'utf-8') {
+            hdf5.Reader._utf8Decoder = hdf5.Reader._utf8Decoder || new TextDecoder('utf-8');
+            return hdf5.Reader._utf8Decoder.decode(data).replace(/\0/g, '');
+        }
+        hdf5.Reader._asciiDecoder = hdf5.Reader._asciiDecoder = new TextDecoder('ascii');
+        return hdf5.Reader._asciiDecoder.decode(data).replace(/\0/g, '');
     }
 
     match(text) {
-        if (this._position + this._offset + text.length > this._buffer.length) {
+        if (this.position + text.length > this._length) {
             return false;
         }
-        const offset = this._offset;
         const buffer = this.read(text.length);
         for (let i = 0; i < text.length; i++) {
             if (text.charCodeAt(i) != buffer[i]) {
-                this._offset = offset;
+                this.skip(-text.length);
                 return false;
             }
         }
         return true;
+    }
+};
+
+hdf5.BinaryReader = class extends hdf5.Reader {
+
+    constructor(buffer, view, offset, position, offsetSize, lengthSize) {
+        super();
+        this._buffer = buffer;
+        this._view = view || new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+        this._offset = offset || 0;
+        this._position = position || 0;
+        this._offsetSize = offsetSize;
+        this._lengthSize = lengthSize;
     }
 
     get position() {
         return this._position + this._offset;
     }
 
-    get size() {
-        return this._buffer.length;
+    take(offset) {
+        const position = this._offset + this._position;
+        this.skip(offset);
+        return position;
+    }
+
+    skip(offset) {
+        this._position += offset;
+        if (this._offset + this._position > this._buffer.length) {
+            throw new hdf5.Error('Expected ' + (this._offset + this._position - this._buffer.length) + ' more bytes. The file might be corrupted. Unexpected end of file.');
+        }
+    }
+
+    align(mod) {
+        if (this._position % mod != 0) {
+            this._position = (Math.floor(this._position / mod) + 1) * mod;
+        }
+    }
+
+    peek(length) {
+        const position = this._offset + this._position;
+        length = length !== undefined ? length : this._buffer.length - position;
+        this.take(length);
+        const buffer = this._buffer.subarray(position, position + length);
+        this._position = position - this._offset;
+        return buffer;
+    }
+
+    read(length) {
+        const position = this.take(length);
+        return this._buffer.subarray(position, position + length);
+    }
+
+    stream(length) {
+        const position = this.take(length);
+        const buffer = this._buffer.subarray(position, position + length);
+        return new hdf5.BinaryReader(buffer);
+    }
+
+    size(terminator) {
+        let position = this._offset + this._position;
+        while (this._buffer[position] !== terminator) {
+            position++;
+        }
+        return position - this._offset - this._position + 1;
+    }
+
+    at(offset) {
+        return new hdf5.BinaryReader(this._buffer, this._view, offset, 0, this._offsetSize, this._lengthSize);
+    }
+
+    clone() {
+        return new hdf5.BinaryReader(this._buffer, this._view, this._offset, this._position, this._offsetSize, this._lengthSize);
+    }
+};
+
+hdf5.StreamReader = class extends hdf5.Reader {
+
+    constructor(stream, view, window, offset, position, offsetSize, lengthSize) {
+        super();
+        this._stream = stream;
+        this._length = stream.length;
+        this._view = view;
+        this._window = window || 0;
+        this._offset = offset || 0;
+        this._position = position || 0;
+        this._offsetSize = offsetSize;
+        this._lengthSize = lengthSize;
+    }
+
+    get position() {
+        return this._offset + this._position;
+    }
+
+    skip(offset) {
+        this._position += offset;
+        if (this._position > this._length) {
+            throw new hdf5.Error('Expected ' + (this._position - this._length) + ' more bytes. The file might be corrupted. Unexpected end of file.');
+        }
+    }
+
+    align(mod) {
+        if (this._position % mod != 0) {
+            this._position = (Math.floor(this._position / mod) + 1) * mod;
+        }
+    }
+
+    read(length) {
+        this._stream.seek(this._offset + this._position);
+        this.skip(length);
+        return this._stream.read(length);
+    }
+
+    stream(length) {
+        this._stream.seek(this._offset + this._position);
+        this.skip(length);
+        return this._stream.stream(length);
+    }
+
+    byte() {
+        const position = this.take(1);
+        return this._view.getUint8(position);
+    }
+
+    uint16() {
+        const position = this.take(2);
+        return this._view.getUint16(position, true);
+    }
+
+    int32() {
+        const position = this.take(4);
+        return this._view.getInt32(position, true);
+    }
+
+    uint32() {
+        const position = this.take(4);
+        return this._view.getUint32(position, true);
+    }
+
+    int64() {
+        const position = this.take(8);
+        return this._view.getInt64(position, true).toNumber();
+    }
+
+    float32() {
+        const position = this.take(4);
+        return this._view.getFloat32(position, true);
+    }
+
+    float64() {
+        const position = this.take(8);
+        return this._view.getFloat64(position, true);
+    }
+
+    at(offset) {
+        return new hdf5.StreamReader(this._stream, this._view, this._window, offset, 0, this._offsetSize, this._lengthSize);
+    }
+
+    clone() {
+        return new hdf5.StreamReader(this._stream, this._view, this._window, this._offset, this._position, this._offsetSize, this._lengthSize);
+    }
+
+    size(terminator) {
+        const position = this._position;
+        let size = 0;
+        while (this.byte() != terminator) {
+            size++;
+        }
+        this._position = position;
+        return size;
+    }
+
+
+    take(length) {
+        const position = this.position;
+        if (position + length > this._length) {
+            throw new Error('Expected ' + (position + length - this._length) + ' more bytes. The file might be corrupted. Unexpected end of file.');
+        }
+        if (!this._buffer || position < this._window || position + length > this._window + this._buffer.length) {
+            this._window = position;
+            this._stream.seek(this._window);
+            this._buffer = this._stream.read(Math.min(0x1000, this._length - this._window));
+            this._view = new DataView(this._buffer.buffer, this._buffer.byteOffset, this._buffer.byteLength);
+        }
+        this._position += length;
+        return position - this._window;
     }
 };
 
@@ -498,8 +646,7 @@ hdf5.SymbolTableNode = class {
                 const entry = new hdf5.SymbolTableEntry(reader);
                 this.entries.push(entry);
             }
-        }
-        else {
+        } else {
             throw new hdf5.Error('Unsupported symbol table node version \'' + version + '\'.');
         }
     }
@@ -535,16 +682,17 @@ hdf5.DataObjectHeader = class {
         this.attributes = [];
         this.links = [];
         this.continuations = [];
-        const version = reader.match('OHDR') ? reader.byte() : reader.byte();
+        reader.match('OHDR');
+        const version = reader.byte();
         switch (version) {
             case 1: {
                 reader.skip(1);
-                const messageCount = reader.uint16();
+                const count = reader.uint16();
                 reader.uint32();
                 const objectHeaderSize = reader.uint32();
                 reader.align(8);
                 let end = reader.position + objectHeaderSize;
-                for (let i = 0; i < messageCount; i++) {
+                for (let i = 0; i < count; i++) {
                     const type = reader.uint16();
                     const size = reader.uint16();
                     const flags = reader.byte();
@@ -555,8 +703,7 @@ hdf5.DataObjectHeader = class {
                         const continuation = this.continuations.shift();
                         reader = reader.at(continuation.offset);
                         end = continuation.offset + continuation.length;
-                    }
-                    else {
+                    } else {
                         reader.align(8);
                     }
                 }
@@ -607,7 +754,7 @@ hdf5.DataObjectHeader = class {
     }
 
     _readMessage(reader, type, size, flags) {
-        switch(type) {
+        switch (type) {
             case 0x0000: // NIL
                 return false;
             case 0x0001: // Dataspace
@@ -737,8 +884,7 @@ hdf5.Dataspace = class {
             for (let i = 0; i < size; i++) {
                 array.push(datatype.read(reader));
             }
-        }
-        else {
+        } else {
             for (let j = 0; j < size; j++) {
                 array.push(this._readArray(datatype, reader, shape, dimension + 1));
             }
@@ -759,8 +905,7 @@ hdf5.Dataspace = class {
             for (let i = 0; i < size; i++) {
                 data[i] = datatype.decode(data[i], globalHeap);
             }
-        }
-        else {
+        } else {
             for (let j = 0; j < size; j++) {
                 data[j] = this._decodeArray(datatype, data[j], shape, dimension + 1);
             }
@@ -805,12 +950,12 @@ hdf5.Datatype = class {
                 this._flags = reader.byte() | reader.byte() << 8 | reader.byte() << 16;
                 this._size = reader.uint32();
                 switch (this._class) {
-                    case 0: {
+                    case 0: { // fixed-Point
                         this._bitOffset = reader.uint16();
                         this._bitPrecision = reader.uint16();
                         break;
                     }
-                    case 8: {
+                    case 8: { // enumerated
                         this._base = new hdf5.Datatype(reader);
                         this._names = [];
                         this._values = [];
@@ -825,11 +970,15 @@ hdf5.Datatype = class {
                         }
                         break;
                     }
+                    default: {
+                        break;
+                    }
                 }
                 break;
             }
-            default:
+            default: {
                 throw new hdf5.Error('Unsupported datatype version \'' + version + '\'.');
+            }
         }
     }
 
@@ -843,14 +992,15 @@ hdf5.Datatype = class {
                             case 2: return 'int16';
                             case 4: return 'int32';
                             case 8: return 'int64';
+                            default: throw new hdf5.Error("Unsupported int size '" + this._size + "'.");
                         }
-                    }
-                    else {
+                    } else {
                         switch (this._size) {
                             case 1: return 'uint8';
                             case 2: return 'uint16';
                             case 4: return 'uint32';
                             case 8: return 'uint64';
+                            default: throw new hdf5.Error("Unsupported uint size '" + this._size + "'.");
                         }
                     }
                 }
@@ -858,11 +1008,9 @@ hdf5.Datatype = class {
             case 1: // floating-point
                 if (this._size == 2 && this._flags == 0x0f20) {
                     return 'float16';
-                }
-                else if (this._size == 4 && this._flags == 0x1f20) {
+                } else if (this._size == 4 && this._flags == 0x1f20) {
                     return 'float32';
-                }
-                else if (this._size == 8 && this._flags == 0x3f20) {
+                } else if (this._size == 8 && this._flags == 0x3f20) {
                     return 'float64';
                 }
                 break;
@@ -870,6 +1018,8 @@ hdf5.Datatype = class {
                 return 'string';
             case 5: // opaque
                 return 'uint8[]';
+            case 6: // compound
+                return 'compound';
             case 8: // enumerated
                 if (this._base.type === 'int8' &&
                     this._names.length === 2 && this._names[0] === 'FALSE' && this._names[1] === 'TRUE' &&
@@ -882,8 +1032,10 @@ hdf5.Datatype = class {
                     return 'char[]';
                 }
                 break;
+            default:
+                break;
         }
-        throw new hdf5.Error('Unsupported datatype class \'' + this._class + '\'.');
+        throw new hdf5.Error("Unsupported datatype class '" + this._class + "'.");
     }
 
     get littleEndian() {
@@ -891,8 +1043,9 @@ hdf5.Datatype = class {
             case 0: // fixed-point
             case 1: // floating-point
                 return (this.flags & 0x01) == 0;
+            default:
+                return true;
         }
-        return true;
     }
 
     read(reader) {
@@ -900,36 +1053,32 @@ hdf5.Datatype = class {
             case 0: // fixed-point
                 if (this._size == 1) {
                     return ((this._flags & 0x8) != 0) ? reader.int8() : reader.byte();
-                }
-                else if (this._size == 2) {
+                } else if (this._size == 2) {
                     return ((this._flags & 0x8) != 0) ? reader.int16() : reader.uint16();
-                }
-                else if (this._size == 4) {
+                } else if (this._size == 4) {
                     return ((this._flags & 0x8) != 0) ? reader.int32() : reader.uint32();
-                }
-                else if (this._size == 8) {
+                } else if (this._size == 8) {
                     return ((this._flags & 0x8) != 0) ? reader.int64() : reader.uint64();
                 }
                 throw new hdf5.Error('Unsupported fixed-point datatype.');
             case 1: // floating-point
                 if (this._size == 2 && this._flags == 0x0f20) {
                     return reader.float16();
-                }
-                else if (this._size == 4 && this._flags == 0x1f20) {
+                } else if (this._size == 4 && this._flags == 0x1f20) {
                     return reader.float32();
-                }
-                else if (this._size == 8 && this._flags == 0x3f20) {
+                } else if (this._size == 8 && this._flags == 0x3f20) {
                     return reader.float64();
                 }
                 throw new hdf5.Error('Unsupported floating-point datatype.');
             case 3: // string
                 switch ((this._flags >> 8) & 0x0f) { // character set
                     case 0:
-                        return hdf5.Reader.decode(reader.read(this._size), 'ascii');
+                        return reader.string(this._size, 'ascii');
                     case 1:
-                        return hdf5.Reader.decode(reader.read(this._size), 'utf-8');
+                        return reader.string(this._size, 'utf-8');
+                    default:
+                        throw new hdf5.Error('Unsupported character encoding.');
                 }
-                throw new hdf5.Error('Unsupported character encoding.');
             case 5: // opaque
                 return reader.read(this._size);
             case 8: // enumerated
@@ -939,8 +1088,9 @@ hdf5.Datatype = class {
                     length: reader.uint32(),
                     globalHeapID: new hdf5.GlobalHeapID(reader)
                 };
+            default:
+                throw new hdf5.Error('Unsupported datatype class \'' + this._class + '\'.');
         }
-        throw new hdf5.Error('Unsupported datatype class \'' + this._class + '\'.');
     }
 
     decode(data, globalHeap) {
@@ -959,13 +1109,15 @@ hdf5.Datatype = class {
                 const globalHeapObject = globalHeap.get(data.globalHeapID);
                 if (globalHeapObject != null) {
                     const characterSet = (this._flags >> 8) & 0x0f;
+                    const reader = globalHeapObject.reader();
                     switch (characterSet) {
                         case 0:
-                            return hdf5.Reader.decode(globalHeapObject.data, 'ascii');
+                            return reader.string(reader.length(), 'ascii');
                         case 1:
-                            return hdf5.Reader.decode(globalHeapObject.data, 'utf-8');
+                            return reader.string(reader.length(), 'utf-8');
+                        default:
+                            throw new hdf5.Error('Unsupported character encoding.');
                     }
-                    throw new hdf5.Error('Unsupported character encoding.');
                 }
                 break;
             }
@@ -1038,6 +1190,8 @@ hdf5.Link = class {
                         break;
                     case 1: // soft link
                         break;
+                    default:
+                        throw new hdf5.Error('Unsupported link message type \'' + this.type + '\'.');
                 }
                 break;
             }
@@ -1105,8 +1259,9 @@ hdf5.DataLayout = class {
                 }
                 break;
             }
-            default:
+            default: {
                 throw new hdf5.Error('Unsupported data layout version \'' + version + '\'.');
+            }
         }
     }
 };
@@ -1174,8 +1329,9 @@ hdf5.Filter = class {
                 const archive = zip.Archive.open(data);
                 return archive.entries.get('').peek();
             }
-            default:
-                throw hdf5.Error("Unsupported filter '" + this.name + "'.");
+            default: {
+                throw new hdf5.Error("Unsupported filter '" + this.name + "'.");
+            }
         }
     }
 };
@@ -1271,6 +1427,9 @@ hdf5.ObjectModificationTime = class {
                 }
                 break;
             }
+            default: {
+                throw new hdf5.Error('Unsupported object modification time message type \'' + type + '\'.');
+            }
         }
     }
 };
@@ -1307,27 +1466,27 @@ hdf5.Tree = class {
         }
         this.type = reader.byte();
         this.level = reader.byte();
-        const entriesUsed = reader.uint16();
+        const entries = reader.uint16();
         reader.offset(); // address of left sibling
         reader.offset(); // address of right sibling
         this.nodes = [];
         switch (this.type) {
-            case 0: // Group nodes
-                for (let i = 0; i < entriesUsed; i++) {
+            case 0: { // Group nodes
+                for (let i = 0; i < entries; i++) {
                     reader.length();
                     const childPointer = reader.offset();
                     if (this.level == 0) {
                         const node = new hdf5.SymbolTableNode(reader.at(childPointer));
                         this.nodes.push(node);
-                    }
-                    else {
+                    } else {
                         const tree = new hdf5.Tree(reader.at(childPointer));
                         this.nodes.push(...tree.nodes);
                     }
                 }
                 break;
-            case 1: // Raw data chunk nodes
-                for (let i = 0; i < entriesUsed; i++) {
+            }
+            case 1: { // Raw data chunk nodes
+                for (let i = 0; i < entries; i++) {
                     const size = reader.int32();
                     const filterMask = reader.int32();
                     const fields = [];
@@ -1338,15 +1497,16 @@ hdf5.Tree = class {
                     if (this.level == 0) {
                         const data = reader.at(childPointer).read(size);
                         this.nodes.push({ data: data, fields: fields, filterMask: filterMask });
-                    }
-                    else {
+                    } else {
                         const tree = new hdf5.Tree(reader.at(childPointer), dimensionality);
                         this.nodes.push(...tree.nodes);
                     }
                 }
                 break;
-            default:
+            }
+            default: {
                 throw new hdf5.Error('Unsupported B-Tree node type \'' + this.type + '\'.');
+            }
         }
     }
 };
@@ -1438,8 +1598,14 @@ hdf5.GlobalHeapObject = class {
     constructor(reader) {
         reader.uint16();
         reader.skip(4);
+        this._position = reader.position;
+        this._reader = reader;
         const length = reader.length();
-        this.data = reader.read(length);
+        reader.skip(length);
+    }
+
+    reader() {
+        return this._reader.at(this._position);
     }
 };
 

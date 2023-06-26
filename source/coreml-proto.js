@@ -236,7 +236,7 @@ $root.CoreML.Specification.Model = class Model {
     }
 
     get Type() {
-        $root.CoreML.Specification.Model.TypeSet = $root.CoreML.Specification.Model.TypeSet || new Set([ "pipelineClassifier", "pipelineRegressor", "pipeline", "glmRegressor", "supportVectorRegressor", "treeEnsembleRegressor", "neuralNetworkRegressor", "bayesianProbitRegressor", "glmClassifier", "supportVectorClassifier", "treeEnsembleClassifier", "neuralNetworkClassifier", "kNearestNeighborsClassifier", "neuralNetwork", "itemSimilarityRecommender", "mlProgram", "customModel", "linkedModel", "oneHotEncoder", "imputer", "featureVectorizer", "dictVectorizer", "scaler", "categoricalMapping", "normalizer", "arrayFeatureExtractor", "nonMaximumSuppression", "identity", "textClassifier", "wordTagger", "visionFeaturePrint", "soundAnalysisPreprocessing", "gazetteer", "wordEmbedding", "audioFeaturePrint", "serializedModel"]);
+        $root.CoreML.Specification.Model.TypeSet = $root.CoreML.Specification.Model.TypeSet || new Set([ "pipelineClassifier", "pipelineRegressor", "pipeline", "glmRegressor", "supportVectorRegressor", "treeEnsembleRegressor", "neuralNetworkRegressor", "bayesianProbitRegressor", "glmClassifier", "supportVectorClassifier", "treeEnsembleClassifier", "neuralNetworkClassifier", "kNearestNeighborsClassifier", "neuralNetwork", "itemSimilarityRecommender", "mlProgram", "customModel", "linkedModel", "classConfidenceThresholding", "oneHotEncoder", "imputer", "featureVectorizer", "dictVectorizer", "scaler", "categoricalMapping", "normalizer", "arrayFeatureExtractor", "nonMaximumSuppression", "identity", "textClassifier", "wordTagger", "visionFeaturePrint", "soundAnalysisPreprocessing", "gazetteer", "wordEmbedding", "audioFeaturePrint", "serializedModel"]);
         return Object.keys(this).find((key) => $root.CoreML.Specification.Model.TypeSet.has(key) && this[key] != null);
     }
 
@@ -308,6 +308,9 @@ $root.CoreML.Specification.Model = class Model {
                     break;
                 case 556:
                     message.linkedModel = $root.CoreML.Specification.LinkedModel.decode(reader, reader.uint32());
+                    break;
+                case 560:
+                    message.classConfidenceThresholding = $root.CoreML.Specification.ClassConfidenceThresholding.decode(reader, reader.uint32());
                     break;
                 case 600:
                     message.oneHotEncoder = $root.CoreML.Specification.OneHotEncoder.decode(reader, reader.uint32());
@@ -436,7 +439,8 @@ $root.CoreML.Specification.CoreMLModels.VisionFeaturePrint.Scene.prototype.versi
 
 $root.CoreML.Specification.CoreMLModels.VisionFeaturePrint.Scene.SceneVersion = {
     "SCENE_VERSION_INVALID": 0,
-    "SCENE_VERSION_1": 1
+    "SCENE_VERSION_1": 1,
+    "SCENE_VERSION_2": 2
 };
 
 $root.CoreML.Specification.CoreMLModels.VisionFeaturePrint.Objects = class Objects {
@@ -1025,6 +1029,43 @@ $root.CoreML.Specification.DoubleRange = class DoubleRange {
 $root.CoreML.Specification.DoubleRange.prototype.minValue = 0;
 $root.CoreML.Specification.DoubleRange.prototype.maxValue = 0;
 
+$root.CoreML.Specification.PrecisionRecallCurve = class PrecisionRecallCurve {
+
+    constructor() {
+    }
+
+    static decode(reader, length) {
+        const message = new $root.CoreML.Specification.PrecisionRecallCurve();
+        const end = length !== undefined ? reader.position + length : reader.length;
+        while (reader.position < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 1:
+                    message.precisionValues = $root.CoreML.Specification.FloatVector.decode(reader, reader.uint32());
+                    break;
+                case 2:
+                    message.precisionConfidenceThresholds = $root.CoreML.Specification.FloatVector.decode(reader, reader.uint32());
+                    break;
+                case 3:
+                    message.recallValues = $root.CoreML.Specification.FloatVector.decode(reader, reader.uint32());
+                    break;
+                case 4:
+                    message.recallConfidenceThresholds = $root.CoreML.Specification.FloatVector.decode(reader, reader.uint32());
+                    break;
+                default:
+                    reader.skipType(tag & 7);
+                    break;
+            }
+        }
+        return message;
+    }
+};
+
+$root.CoreML.Specification.PrecisionRecallCurve.prototype.precisionValues = null;
+$root.CoreML.Specification.PrecisionRecallCurve.prototype.precisionConfidenceThresholds = null;
+$root.CoreML.Specification.PrecisionRecallCurve.prototype.recallValues = null;
+$root.CoreML.Specification.PrecisionRecallCurve.prototype.recallConfidenceThresholds = null;
+
 $root.CoreML.Specification.Int64FeatureType = class Int64FeatureType {
 
     constructor() {
@@ -1162,7 +1203,8 @@ $root.CoreML.Specification.ImageFeatureType.ColorSpace = {
     "INVALID_COLOR_SPACE": 0,
     "GRAYSCALE": 10,
     "RGB": 20,
-    "BGR": 30
+    "BGR": 30,
+    "GRAYSCALE_FLOAT16": 40
 };
 
 $root.CoreML.Specification.ImageFeatureType.ImageSize = class ImageSize {
@@ -1305,7 +1347,8 @@ $root.CoreML.Specification.ArrayFeatureType.ArrayDataType = {
     "INVALID_ARRAY_DATA_TYPE": 0,
     "FLOAT32": 65568,
     "DOUBLE": 65600,
-    "INT32": 131104
+    "INT32": 131104,
+    "FLOAT16": 65552
 };
 
 $root.CoreML.Specification.ArrayFeatureType.Shape = class Shape {
@@ -2716,6 +2759,7 @@ $root.CoreML.Specification.MILSpec.DataType = {
     "FLOAT16": 10,
     "FLOAT32": 11,
     "FLOAT64": 12,
+    "BFLOAT16": 13,
     "INT8": 21,
     "INT16": 22,
     "INT32": 23,
@@ -11092,3 +11136,27 @@ $root.CoreML.Specification.LinkedModelFile = class LinkedModelFile {
 
 $root.CoreML.Specification.LinkedModelFile.prototype.linkedModelFileName = null;
 $root.CoreML.Specification.LinkedModelFile.prototype.linkedModelSearchPath = null;
+
+$root.CoreML.Specification.ClassConfidenceThresholding = class ClassConfidenceThresholding {
+
+    constructor() {
+        this.precisionRecallCurves = [];
+    }
+
+    static decode(reader, length) {
+        const message = new $root.CoreML.Specification.ClassConfidenceThresholding();
+        const end = length !== undefined ? reader.position + length : reader.length;
+        while (reader.position < end) {
+            const tag = reader.uint32();
+            switch (tag >>> 3) {
+                case 100:
+                    message.precisionRecallCurves.push($root.CoreML.Specification.PrecisionRecallCurve.decode(reader, reader.uint32()));
+                    break;
+                default:
+                    reader.skipType(tag & 7);
+                    break;
+            }
+        }
+        return message;
+    }
+};

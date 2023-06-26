@@ -40,7 +40,7 @@ base.Int64 = class Int64 {
     }
 
     not() {
-        return new Int64(~this.low, ~this.high);
+        return new base.Int64(~this.low, ~this.high);
     }
 
     equals(other) {
@@ -98,17 +98,17 @@ base.Int64 = class Int64 {
     toString(radix) {
         const r = radix || 10;
         if (r < 2 || r > 16) {
-            throw RangeError('radix');
+            throw new RangeError('radix');
         }
         if (this.isZero) {
             return '0';
         }
         if (this.high < 0) {
             if (this.equals(base.Int64.min)) {
-                const r = new Int64(radix, 0);
-                const div = this.divide(r);
-                const remainder = div.multiply(r).subtract(this);
-                return div.toString(r) + (remainder.low >>> 0).toString(r);
+                const radix = new base.Int64(r, 0);
+                const div = this.divide(radix);
+                const remainder = div.multiply(radix).subtract(this);
+                return div.toString(radix) + (remainder.low >>> 0).toString(radix);
             }
             return '-' + this.negate().toString(r);
         }
@@ -122,6 +122,7 @@ base.Int64 = class Int64 {
 base.Int64.min = new base.Int64(0, -2147483648);
 base.Int64.zero = new base.Int64(0, 0);
 base.Int64.one = new base.Int64(1, 0);
+base.Int64.negativeOne = new base.Int64(-1, 0);
 base.Int64.power24 = new base.Int64(1 << 24, 0);
 base.Int64.max = new base.Int64(0, 2147483647);
 
@@ -216,7 +217,7 @@ base.Uint64 = class Uint64 {
     toString(radix) {
         const r = radix || 10;
         if (r < 2 || 36 < r) {
-            throw RangeError('radix');
+            throw new RangeError('radix');
         }
         if (this.isZero) {
             return '0';
@@ -272,18 +273,15 @@ base.Utility = class {
             return b.isOdd() ? base.Int64.min : base.Int64.zero;
         }
         if (b.equals(base.Int64.min)) {
-            return b.isOdd() ? base.Int64.min : base.Int64.zero;
+            return a.isOdd() ? base.Int64.min : base.Int64.zero;
         }
         if (a.isNegative) {
             if (b.isNegative) {
-                return this.negate().multiply(b.negate());
+                return a.negate().multiply(b.negate());
             }
-            else {
-                return this.negate().multiply(b).negate();
-            }
-        }
-        else if (b.isNegative) {
-            return this.multiply(b.negate()).negate();
+            return a.negate().multiply(b).negate();
+        } else if (b.isNegative) {
+            return a.multiply(b.negate()).negate();
         }
         if (a.compare(base.Int64.power24) < 0 && b.compare(base.Int64.power24) < 0) {
             return unsigned ? base.Uint64.create(a.toNumber() * b.toNumber()) : base.Int64.create(a.toNumber() * b.toNumber());
@@ -325,7 +323,7 @@ base.Utility = class {
 
     static divide(a, b, unsigned) {
         if (b.isZero) {
-            throw Error('Division by zero.');
+            throw new Error('Division by zero.');
         }
         if (a.isZero) {
             return unsigned ? base.Uint64.zero : base.Int64.zero;
@@ -337,39 +335,31 @@ base.Utility = class {
             if (a.equals(base.Int64.min)) {
                 if (b.equals(base.Int64.one) || b.equals(base.Int64.negativeOne)) {
                     return base.Int64.min;
-                }
-                else if (b.equals(base.Int64.min)) {
+                } else if (b.equals(base.Int64.min)) {
                     return base.Int64.one;
                 }
-                else {
-                    const half = base.Utility._shiftRight(a, unsigned, 1);
-                    const halfDivide = half.divide(b);
-                    approx = base.Utility._shiftLeft(halfDivide, halfDivide instanceof base.Uint64, 1);
-                    if (approx.eq(base.Int64.zero)) {
-                        return b.isNegative ? base.Int64.one : base.Int64.negativeOne;
-                    }
-                    else {
-                        remainder = a.subtract(b.multiply(approx));
-                        result = approx.add(remainder.divide(b));
-                        return result;
-                    }
+                const half = base.Utility._shiftRight(a, unsigned, 1);
+                const halfDivide = half.divide(b);
+                approx = base.Utility._shiftLeft(halfDivide, halfDivide instanceof base.Uint64, 1);
+                if (approx.equals(base.Int64.zero)) {
+                    return b.isNegative ? base.Int64.one : base.Int64.negativeOne;
                 }
-            }
-            else if (b.equals(base.Int64.min)) {
-                return unsigned ? base.Uint64.zero : base.Int64.zero;
+                remainder = a.subtract(b.multiply(approx));
+                result = approx.add(remainder.divide(b));
+                return result;
+            } else if (b.equals(base.Int64.min)) {
+                return base.Int64.zero;
             }
             if (a.isNegative) {
                 if (b.isNegative) {
                     return this.negate().divide(b.negate());
                 }
                 return a.negate().divide(b).negate();
-            }
-            else if (b.isNegative) {
+            } else if (b.isNegative) {
                 return a.divide(b.negate()).negate();
             }
             result = base.Int64.zero;
-        }
-        else {
+        } else {
             if (!(b instanceof base.Uint64)) {
                 b = new base.Uint64(b.low, b.high);
             }
@@ -438,6 +428,38 @@ base.Uint64.zero = new base.Uint64(0, 0);
 base.Uint64.one = new base.Uint64(1, 0);
 base.Uint64.max = new base.Uint64(-1, -1);
 
+base.Complex64 = class Complex {
+
+    constructor(real, imaginary) {
+        this.real = real;
+        this.imaginary = imaginary;
+    }
+
+    static create(real, imaginary) {
+        return new base.Complex64(real, imaginary);
+    }
+
+    toString(/* radix */) {
+        return this.real + ' + ' + this.imaginary + 'i';
+    }
+};
+
+base.Complex128 = class Complex {
+
+    constructor(real, imaginary) {
+        this.real = real;
+        this.imaginary = imaginary;
+    }
+
+    static create(real, imaginary) {
+        return new base.Complex128(real, imaginary);
+    }
+
+    toString(/* radix */) {
+        return this.real + ' + ' + this.imaginary + 'i';
+    }
+};
+
 if (!DataView.prototype.getFloat16) {
     DataView.prototype.getFloat16 = function(byteOffset, littleEndian) {
         const value = this.getUint16(byteOffset, littleEndian);
@@ -445,11 +467,9 @@ if (!DataView.prototype.getFloat16) {
         let f = value & 0x03FF;
         if (e == 0) {
             f = 0.00006103515625 * (f / 1024);
-        }
-        else if (e == 0x1F) {
+        } else if (e == 0x1F) {
             f = f ? NaN : Infinity;
-        }
-        else {
+        } else {
             f = DataView.__float16_pow[e] * (1 + (f / 1024));
         }
         return value & 0x8000 ? -f : f;
@@ -481,25 +501,128 @@ if (!DataView.prototype.setFloat16) {
         if (e < -27) {
             DataView.__float16_base[i] = 0x0000;
             DataView.__float16_shift[i] = 24;
-        }
-        else if (e < -14) {
+        } else if (e < -14) {
             DataView.__float16_base[i] = 0x0400 >> -e - 14;
             DataView.__float16_shift[i] = -e - 1;
-        }
-        else if (e <= 15) {
+        } else if (e <= 15) {
             DataView.__float16_base[i] = e + 15 << 10;
             DataView.__float16_shift[i] = 13;
-        }
-        else if (e < 128) {
+        } else if (e < 128) {
             DataView.__float16_base[i] = 0x7c00;
             DataView.__float16_shift[i] = 24;
-        }
-        else {
+        } else {
             DataView.__float16_base[i] = 0x7c00;
             DataView.__float16_shift[i] = 13;
         }
     }
 }
+
+if (!DataView.prototype.getBfloat16) {
+    DataView.prototype.getBfloat16 = function(byteOffset, littleEndian) {
+        if (littleEndian) {
+            DataView.__bfloat16_get_uint16_le[1] = this.getUint16(byteOffset, littleEndian);
+            return DataView.__bfloat16_get_float32_le[0];
+        }
+        DataView.__bfloat16_uint16_be[0] = this.getUint16(byteOffset, littleEndian);
+        return DataView.__bfloat16_get_float32_be[0];
+    };
+    DataView.__bfloat16_get_float32_le = new Float32Array(1);
+    DataView.__bfloat16_get_float32_be = new Float32Array(1);
+    DataView.__bfloat16_get_uint16_le = new Uint16Array(DataView.__bfloat16_get_float32_le.buffer, DataView.__bfloat16_get_float32_le.byteOffset, 2);
+    DataView.__bfloat16_get_uint16_be = new Uint16Array(DataView.__bfloat16_get_float32_be.buffer, DataView.__bfloat16_get_float32_be.byteOffset, 2);
+}
+
+DataView.__float8e4m3_float32 = new Float32Array(1);
+DataView.__float8e4m3_uint32 = new Uint32Array(DataView.__float8e4m3_float32.buffer, DataView.__float8e4m3_float32.byteOffset, 1);
+DataView.prototype.getFloat8e4m3 = function(byteOffset, fn, uz) {
+    const value = this.getUint8(byteOffset);
+    let exponent_bias = 7;
+    if (uz) {
+        exponent_bias = 8;
+        if (value == 0x80) {
+            return NaN;
+        }
+    } else if (value === 255) {
+        return -NaN;
+    } else if (value === 0x7f) {
+        return NaN;
+    }
+    let expo = (value & 0x78) >> 3;
+    let mant = value & 0x07;
+    const sign = value & 0x80;
+    let res = sign << 24;
+    if (expo == 0) {
+        if (mant > 0) {
+            expo = 0x7F - exponent_bias;
+            if (mant & 0x4 == 0) {
+                mant &= 0x3;
+                mant <<= 1;
+                expo -= 1;
+            }
+            if (mant & 0x4 == 0) {
+                mant &= 0x3;
+                mant <<= 1;
+                expo -= 1;
+            }
+            res |= (mant & 0x3) << 21;
+            res |= expo << 23;
+        }
+    } else {
+        res |= mant << 20;
+        expo += 0x7F - exponent_bias;
+        res |= expo << 23;
+    }
+    DataView.__float8e4m3_uint32[0] = res;
+    return DataView.__float8e4m3_float32[0];
+};
+
+DataView.__float8e5m2_float32 = new Float32Array(1);
+DataView.__float8e5m2_uint32 = new Uint32Array(DataView.__float8e5m2_float32.buffer, DataView.__float8e5m2_float32.byteOffset, 1);
+DataView.prototype.getFloat8e5m2 = function(byteOffset, fn, uz) {
+    const value = this.getUint8(byteOffset);
+    let exponent_bias = NaN;
+    if (fn && uz) {
+        if (value == 0x80) {
+            return NaN;
+        }
+        exponent_bias = 16;
+    } else if (!fn && !uz) {
+        if (value >= 253 && value <= 255) {
+            return -NaN;
+        }
+        if (value >= 126 && value <= 127) {
+            return NaN;
+        }
+        if (value === 252) {
+            return -Infinity;
+        }
+        if (value === 124) {
+            return Infinity;
+        }
+        exponent_bias = 15;
+    }
+    let expo = (value & 0x7C) >> 2;
+    let mant = value & 0x03;
+    let res = (value & 0x80) << 24;
+    if (expo == 0) {
+        if (mant > 0) {
+            expo = 0x7F - exponent_bias;
+            if (mant & 0x2 == 0) {
+                mant &= 0x1;
+                mant <<= 1;
+                expo -= 1;
+            }
+            res |= (mant & 0x1) << 22;
+            res |= expo << 23;
+        }
+    } else {
+        res |= mant << 21;
+        expo += 0x7F - exponent_bias;
+        res |= expo << 23;
+    }
+    DataView.__float8e5m2_uint32[0] = res;
+    return DataView.__float8e5m2_float32[0];
+};
 
 DataView.prototype.getInt64 = DataView.prototype.getInt64 || function(byteOffset, littleEndian) {
     return littleEndian ?
@@ -511,11 +634,29 @@ DataView.prototype.setInt64 = DataView.prototype.setInt64 || function(byteOffset
     if (littleEndian) {
         this.setUint32(byteOffset, value.low, true);
         this.setUint32(byteOffset + 4, value.high, true);
-    }
-    else {
+    } else {
         this.setUint32(byteOffset + 4, value.low, false);
         this.setUint32(byteOffset, value.high, false);
     }
+};
+
+DataView.prototype.getIntBits = DataView.prototype.getUintBits || function(offset, bits) {
+    offset = offset * bits;
+    const available = (this.byteLength << 3) - offset;
+    if (bits > available) {
+        throw new RangeError("Invalid bit size '" + bits + "'.");
+    }
+    let value = 0;
+    let index = 0;
+    while (index < bits) {
+        const remainder = offset & 7;
+        const size = Math.min(bits - index, 8 - remainder);
+        value <<= size;
+        value |= (this.getUint8(offset >> 3) >> (8 - size - remainder)) & ~(0xff << size);
+        offset += size;
+        index += size;
+    }
+    return (value < (2 << (bits - 1)) ? value : (2 << bits));
 };
 
 DataView.prototype.getUint64 = DataView.prototype.getUint64 || function(byteOffset, littleEndian) {
@@ -526,20 +667,19 @@ DataView.prototype.getUint64 = DataView.prototype.getUint64 || function(byteOffs
 
 DataView.prototype.setUint64 = DataView.prototype.setUint64 || function(byteOffset, value, littleEndian) {
     if (littleEndian) {
-        this.setUInt32(byteOffset, value.low, true);
-        this.setUInt32(byteOffset + 4, value.high, true);
-    }
-    else {
-        this.setUInt32(byteOffset + 4, value.low, false);
-        this.setUInt32(byteOffset, value.high, false);
+        this.setUint32(byteOffset, value.low, true);
+        this.setUint32(byteOffset + 4, value.high, true);
+    } else {
+        this.setUint32(byteOffset + 4, value.low, false);
+        this.setUint32(byteOffset, value.high, false);
     }
 };
 
-DataView.prototype.getBits = DataView.prototype.getBits || function(offset, bits /*, signed */) {
+DataView.prototype.getUintBits = DataView.prototype.getUintBits || function(offset, bits) {
     offset = offset * bits;
     const available = (this.byteLength << 3) - offset;
     if (bits > available) {
-        throw new RangeError();
+        throw new RangeError("Invalid bit size '" + bits + "'.");
     }
     let value = 0;
     let index = 0;
@@ -554,6 +694,101 @@ DataView.prototype.getBits = DataView.prototype.getBits || function(offset, bits
     return value;
 };
 
+DataView.prototype.getComplex64 = DataView.prototype.getComplex64 || function(byteOffset, littleEndian) {
+    const real = littleEndian ? this.getFloat32(byteOffset, littleEndian) : this.getFloat32(byteOffset + 4, littleEndian);
+    const imaginary = littleEndian ? this.getFloat32(byteOffset + 4, littleEndian) : this.getFloat32(byteOffset, littleEndian);
+    return base.Complex64.create(real, imaginary);
+};
+
+DataView.prototype.setComplex64 = DataView.prototype.setComplex64 || function(byteOffset, value, littleEndian) {
+    if (littleEndian) {
+        this.setFloat32(byteOffset, value.real, littleEndian);
+        this.setFloat32(byteOffset + 4, value.imaginary, littleEndian);
+    } else {
+        this.setFloat32(byteOffset + 4, value.real, littleEndian);
+        this.setFloat32(byteOffset, value.imaginary, littleEndian);
+    }
+};
+
+DataView.prototype.getComplex128 = DataView.prototype.getComplex128 || function(byteOffset, littleEndian) {
+    const real = littleEndian ? this.getFloat64(byteOffset, littleEndian) : this.getFloat64(byteOffset + 8, littleEndian);
+    const imaginary = littleEndian ? this.getFloat64(byteOffset + 8, littleEndian) : this.getFloat64(byteOffset, littleEndian);
+    return base.Complex128.create(real, imaginary);
+};
+
+DataView.prototype.setComplex128 = DataView.prototype.setComplex128 || function(byteOffset, value, littleEndian) {
+    if (littleEndian) {
+        this.setFloat64(byteOffset, value.real, littleEndian);
+        this.setFloat64(byteOffset + 8, value.imaginary, littleEndian);
+    } else {
+        this.setFloat64(byteOffset + 8, value.real, littleEndian);
+        this.setFloat64(byteOffset, value.imaginary, littleEndian);
+    }
+};
+
+base.BinaryStream = class {
+
+    constructor(buffer) {
+        this._buffer = buffer;
+        this._length = buffer.length;
+        this._position = 0;
+    }
+
+    get position() {
+        return this._position;
+    }
+
+    get length() {
+        return this._length;
+    }
+
+    stream(length) {
+        const buffer = this.read(length);
+        return new base.BinaryStream(buffer.slice(0));
+    }
+
+    seek(position) {
+        this._position = position >= 0 ? position : this._length + position;
+        if (this._position > this._buffer.length) {
+            throw new Error('Expected ' + (this._position - this._buffer.length) + ' more bytes. The file might be corrupted. Unexpected end of file.');
+        }
+    }
+
+    skip(offset) {
+        this._position += offset;
+        if (this._position > this._buffer.length) {
+            throw new Error('Expected ' + (this._position - this._buffer.length) + ' more bytes. The file might be corrupted. Unexpected end of file.');
+        }
+    }
+
+    peek(length) {
+        if (this._position === 0 && length === undefined) {
+            return this._buffer;
+        }
+        const position = this._position;
+        this.skip(length !== undefined ? length : this._length - this._position);
+        const end = this._position;
+        this.seek(position);
+        return this._buffer.subarray(position, end);
+    }
+
+    read(length) {
+        if (this._position === 0 && length === undefined) {
+            this._position = this._length;
+            return this._buffer;
+        }
+        const position = this._position;
+        this.skip(length !== undefined ? length : this._length - this._position);
+        return this._buffer.subarray(position, this._position);
+    }
+
+    byte() {
+        const position = this._position;
+        this.skip(1);
+        return this._buffer[position];
+    }
+};
+
 base.BinaryReader = class {
 
     constructor(data) {
@@ -561,7 +796,6 @@ base.BinaryReader = class {
         this._position = 0;
         this._length = this._buffer.length;
         this._view = new DataView(this._buffer.buffer, this._buffer.byteOffset, this._buffer.byteLength);
-        this._utf8 = new TextDecoder('utf-8');
     }
 
     get length() {
@@ -584,6 +818,23 @@ base.BinaryReader = class {
         if (this._position > this._length) {
             throw new Error('Expected ' + (this._position - this._length) + ' more bytes. The file might be corrupted. Unexpected end of file.');
         }
+    }
+
+    align(mod) {
+        if (this._position % mod != 0) {
+            this.skip(mod - (this._position % mod));
+        }
+    }
+
+    peek(length) {
+        if (this._position === 0 && length === undefined) {
+            return this._buffer;
+        }
+        const position = this._position;
+        this.skip(length !== undefined ? length : this._length - this._position);
+        const end = this._position;
+        this._position = position;
+        return this._buffer.slice(position, end);
     }
 
     read(length) {
@@ -641,7 +892,16 @@ base.BinaryReader = class {
     uint64() {
         const position = this._position;
         this.skip(8);
-        return this._view.getUint64(position, true).toNumber();
+        const low = this._view.getUint32(position, true);
+        const high = this._view.getUint32(position + 4, true);
+        if (high === 0) {
+            return low;
+        }
+        const value = (high * 4294967296) + low;
+        if (Number.isSafeInteger(value)) {
+            return value;
+        }
+        throw new Error("Unsigned 64-bit value exceeds safe integer.");
     }
 
     float32() {
@@ -661,7 +921,181 @@ base.BinaryReader = class {
         const position = this._position;
         this.skip(length);
         const data = this._buffer.subarray(position, this._position);
-        return this._utf8.decode(data);
+        this._decoder = this._decoder || new TextDecoder('utf-8');
+        return this._decoder.decode(data);
+    }
+
+    boolean() {
+        return this.byte() !== 0 ? true : false;
+    }
+};
+
+base.Telemetry = class {
+
+    constructor(window) {
+        this._window = window;
+        this._navigator = window.navigator;
+        this._config = new Map();
+        this._metadata = {};
+        this._schema = new Map([
+            [ 'protocol_version', 'v' ],
+            [ 'tracking_id', 'tid' ],
+            [ 'hash_info', 'gtm' ],
+            [ '_page_id', '_p'],
+            [ 'client_id', 'cid' ],
+            [ 'language', 'ul' ],
+            [ 'screen_resolution', 'sr' ],
+            [ '_user_agent_architecture', 'uaa' ],
+            [ '_user_agent_bitness', 'uab' ],
+            [ '_user_agent_full_version_list', 'uafvl' ],
+            [ '_user_agent_mobile', 'uamb' ],
+            [ '_user_agent_model', 'uam' ],
+            [ '_user_agent_platform', 'uap' ],
+            [ '_user_agent_platform_version', 'uapv' ],
+            [ '_user_agent_wow64', 'uaw' ],
+            [ 'hit_count', '_s' ],
+            [ 'session_id', 'sid' ],
+            [ 'session_number', 'sct' ],
+            [ 'session_engaged', 'seg' ],
+            [ 'engagement_time_msec', '_et' ],
+            [ 'page_location', 'dl' ],
+            [ 'page_title', 'dt' ],
+            [ 'page_referrer', 'dr' ],
+            [ 'is_first_visit', '_fv' ],
+            [ 'is_external_event', '_ee' ],
+            [ 'is_new_to_site', '_nsi' ],
+            [ 'is_session_start', '_ss' ],
+            [ 'event_name', 'en' ]
+        ]);
+    }
+
+    async start(measurement_id, client_id, session) {
+        this._session = session && typeof session === 'string' ? session.replace(/^GS1\.1\./, '').split('.') : null;
+        this._session = Array.isArray(this._session) && this._session.length >= 7 ? this._session : [ '0', '0', '0', '0', '0', '0', '0' ];
+        this._session[0] = Date.now();
+        this._session[1] = parseInt(this._session[1], 10) + 1;
+        this._engagement_time_msec = 0;
+        if (this._config.size > 0) {
+            throw new Error('Invalid session state.');
+        }
+        this.set('protocol_version', 2);
+        this.set('tracking_id', measurement_id);
+        this.set('hash_info', '2oebu0');
+        this.set('_page_id', Math.floor(Math.random() * 2147483648));
+        client_id = client_id ? client_id.replace(/^(GA1\.\d\.)*/, '') : null;
+        if (client_id && client_id.indexOf('.') !== 1) {
+            this.set('client_id', client_id);
+        } else {
+            const random = String(Math.round(0x7FFFFFFF * Math.random()));
+            const time = Date.now();
+            const value = [ random, Math.round(time / 1e3) ].join('.');
+            this.set('client_id', value);
+            this._metadata.is_first_visit = 1;
+            this._metadata.is_new_to_site = 1;
+        }
+        this.set('language', ((this._navigator && (this._navigator.language || this._navigator.browserLanguage)) || '').toLowerCase());
+        this.set('screen_resolution', (window.screen ? window.screen.width : 0) + 'x' + (window.screen ? window.screen.height : 0));
+        if (this._navigator && this._navigator.userAgentData && this._navigator.userAgentData.getHighEntropyValues) {
+            const values = await this._navigator.userAgentData.getHighEntropyValues([ 'platform', 'platformVersion', 'architecture', 'model', 'uaFullVersion', 'bitness', 'fullVersionList', 'wow64' ]);
+            if (values) {
+                this.set('_user_agent_architecture', values.architecture);
+                this.set('_user_agent_bitness', values.bitness);
+                this.set('_user_agent_full_version_list', Array.isArray(values.fullVersionList) ? values.fullVersionList.map((h) => encodeURIComponent(h.brand || '') + ';' + encodeURIComponent(h.version || '')).join('|') : '');
+                this.set('_user_agent_mobile', values.mobile ? 1 : 0);
+                this.set('_user_agent_model', values.model);
+                this.set('_user_agent_platform', values.platform);
+                this.set('_user_agent_platform_version', values.platformVersion);
+                this.set('_user_agent_wow64', values.wow64 ? 1 : 0);
+            }
+        }
+        this.set('hit_count', 1);
+        this.set('session_id', this._session[0]);
+        this.set('session_number', this._session[1]);
+        this.set('session_engaged', 0);
+        this._metadata.is_session_start = 1;
+        this._metadata.is_external_event = 1;
+        window.addEventListener('focus', () => this._update(true, undefined, undefined));
+        window.addEventListener('blur', () => this._update(false, undefined, undefined));
+        window.addEventListener('pageshow', () => this._update(undefined, true, undefined));
+        window.addEventListener('pagehide', () => this._update(undefined, false, undefined));
+        window.addEventListener('visibilitychange', () => this._update(undefined, undefined, window.document.visibilityState !== 'hidden'));
+        window.addEventListener('beforeunload', () => this._update() && this.send('user_engagement', {}));
+    }
+
+    get session() {
+        return this._session ? this._session.join('.') : null;
+    }
+
+    set(name, value) {
+        const key = this._schema.get(name);
+        if (value !== undefined && value !== null) {
+            this._config.set(key, value);
+        } else if (this._config.has(key)) {
+            this._config.delete(key);
+        }
+        this._cache = null;
+    }
+
+    get(name) {
+        const key = this._schema.get(name);
+        return this._config.get(key);
+    }
+
+    send(name, params) {
+        if (this._session) {
+            try {
+                params = Object.assign({ event_name: name }, this._metadata, /* { debug_mode: true },*/ params);
+                this._metadata = {};
+                this._update() && (params.engagement_time_msec = this._engagement_time_msec) && (this._engagement_time_msec = 0);
+                const build = (entires) => entires.map((entry) => entry[0] + '=' + encodeURIComponent(entry[1])).join('&');
+                this._cache = this._cache || build(Array.from(this._config));
+                const key = (name, value) => this._schema.get(name) || ('number' === typeof value && !isNaN(value) ? 'epn.' : 'ep.') + name;
+                const body = build(Object.entries(params).map((entry) => [ key(entry[0], entry[1]), entry[1] ]));
+                const url = 'https://analytics.google.com/g/collect?' + this._cache;
+                this._navigator.sendBeacon(url, body);
+                this._session[2] = this.get('session_engaged') || '0';
+                this.set('hit_count', this.get('hit_count') + 1);
+            } catch (e) {
+                // continue regardless of error
+            }
+        }
+    }
+
+    _update(focused, page, visible) {
+        this._focused = focused === true || focused === false ? focused : this._focused;
+        this._page = page === true || page === false ? page : this._page;
+        this._visible = visible === true || visible === false ? visible : this._visible;
+        const time = Date.now();
+        if (this._start_time) {
+            this._engagement_time_msec += (time - this._start_time);
+            this._start_time = 0;
+        }
+        if (this._focused !== false && this._page !== false && this._visible !== false) {
+            this._start_time = time;
+        }
+        return this._engagement_time_msec > 20;
+    }
+};
+
+base.Metadata = class {
+
+    get extensions() {
+        return [
+            'onnx', 'tflite', 'pb', 'pt', 'pth', 'h5', 'pbtxt', 'prototxt', 'caffemodel', 'mlmodel', 'mlpackage',
+            'model', 'json', 'xml', 'cfg',
+            'ort',
+            'dnn', 'cmf',
+            'hd5', 'hdf5', 'keras',
+            'tfl', 'circle', 'lite',
+            'mlnet', 'mar',  'meta', 'nn', 'ngf', 'hn', 'har',
+            'param', 'params',
+            'paddle', 'pdiparams', 'pdmodel', 'pdopt', 'pdparams', 'nb',
+            'pkl', 'joblib', 'safetensors',
+            'ptl', 't7',
+            'dlc', 'uff', 'armnn',
+            'mnn', 'ms', 'ncnn', 'om', 'tm', 'mge', 'tmfile', 'tnnproto', 'xmodel', 'kmodel', 'rknn',
+            'tar', 'zip'
+        ];
     }
 };
 
@@ -674,5 +1108,10 @@ if (typeof window !== 'undefined' && typeof window.Long != 'undefined') {
 if (typeof module !== 'undefined' && typeof module.exports === 'object') {
     module.exports.Int64 = base.Int64;
     module.exports.Uint64 = base.Uint64;
+    module.exports.Complex64 = base.Complex64;
+    module.exports.Complex128 = base.Complex128;
+    module.exports.BinaryStream = base.BinaryStream;
     module.exports.BinaryReader = base.BinaryReader;
+    module.exports.Telemetry = base.Telemetry;
+    module.exports.Metadata = base.Metadata;
 }

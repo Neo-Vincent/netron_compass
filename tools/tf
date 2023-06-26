@@ -30,15 +30,11 @@ sync() {
     [ -d "./third_party/source/tensorflow" ] || git clone --quiet https://github.com/tensorflow/tensorflow.git "./third_party/source/tensorflow"
     git -C "./third_party/source/tensorflow" pull --quiet --prune
     mkdir -p "./third_party/source/tflite-support/tensorflow_lite_support/metadata"
-    curl --silent --location --output "./third_party/source/tflite-support/tensorflow_lite_support/metadata/metadata_schema.fbs" "https://github.com/tensorflow/tflite-support/blob/master/tensorflow_lite_support/metadata/metadata_schema.fbs?raw=true"
+    curl --silent --location --output "./third_party/source/tflite-support/tensorflow_lite_support/metadata/metadata_schema.fbs" "https://github.com/tensorflow/tflite-support/raw/master/tensorflow_lite_support/metadata/metadata_schema.fbs"
 }
 
 install() {
     echo "tf install"
-    if [ "$(uname -sm)" = "Darwin arm64" ]; then
-        echo "- arm64 [skip]"
-        return
-    fi
     venv
     ${python} -m pip install --quiet --upgrade wheel
     ${python} -m pip install --quiet --upgrade tf-nightly
@@ -68,20 +64,17 @@ schema() {
 
 metadata() {
     echo "tflite metadata"
+    export TF_CPP_MIN_LOG_LEVEL=2
     if [[ $(grep -U $'\x0D' ./source/tflite-metadata.json) ]]; then crlf=1; else crlf=; fi
-    node ./tools/tflite-script.js
+    node ./tools/tflite_metadata.js
     if [[ -n ${crlf} ]]; then
         unix2dos --quiet --newfile ./source/tflite-metadata.json ./source/tflite-metadata.json
     fi
     echo "tf metadata"
-    if [ "$(uname -sm)" = "Darwin arm64" ]; then
-        echo "- arm64 [skip]"
-        return
-    fi
     venv
     if [[ $(grep -U $'\x0D' ./source/tf-metadata.json) ]]; then crlf=1; else crlf=; fi
     export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
-    ${python} ./tools/tf-script.py metadata
+    ${python} ./tools/tf_metadata.py
     if [[ -n ${crlf} ]]; then
         unix2dos --quiet --newfile ./source/tf-metadata.json ./source/tf-metadata.json
     fi
@@ -89,7 +82,7 @@ metadata() {
     echo "keras metadata"
     venv
     if [[ $(grep -U $'\x0D' ./source/keras-metadata.json) ]]; then crlf=1; else crlf=; fi
-    ${python} ./tools/keras-script.py metadata
+    ${python} ./tools/keras_metadata.py
     if [[ -n ${crlf} ]]; then
         unix2dos --quiet --newfile ./source/keras-metadata.json ./source/keras-metadata.json
     fi
