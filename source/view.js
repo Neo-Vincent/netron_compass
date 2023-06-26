@@ -4915,7 +4915,6 @@ view.ModelFactoryService = class {
         this.register('./rknn', [ '.rknn', '.nb', '.onnx' ]);
         this.register('./dlc', [ '.dlc', 'model', '.params' ]);
         this.register('./armnn', [ '.armnn', '.json' ]);
-        this.register('./compass', ['.def', '.txt']);
         this.register('./mnn', ['.mnn']);
         this.register('./ncnn', [ '.param', '.bin', '.cfg.ncnn', '.weights.ncnn', '.ncnnmodel' ]);
         this.register('./tnn', [ '.tnnproto', '.tnnmodel' ]);
@@ -4941,6 +4940,7 @@ view.ModelFactoryService = class {
         this.register('./mlir', [ '.mlir']);
         this.register('./hailo', [ '.hn', '.har' ]);
         this.register('./safetensors', [ '.safetensors' ]);
+        this.register('./compass', [ '.def', '.txt', '.bin']);
     }
 
     register(id, factories, containers) {
@@ -5279,6 +5279,18 @@ view.ModelFactoryService = class {
                         matches.some((context) => context.identifier.toLowerCase().endsWith('.bin')) &&
                         matches.some((context) => context.identifier.toLowerCase().endsWith('.param.bin'))) {
                         matches = matches.filter((context) => context.identifier.toLowerCase().endsWith('.param.bin'));
+                    }
+                    //Compass
+                    if (matches.length > 0 &&
+                        matches.some((context) => context.identifier.toLowerCase().endsWith('.bin')) &&
+                        matches.some((context) => context.identifier.toLowerCase().endsWith('.def'))) {
+                        matches = matches.filter((context) => context.identifier.toLowerCase().endsWith('.def'));
+                    }
+                    //Compass
+                    if (matches.length > 0 &&
+                        matches.some((context) => context.identifier.toLowerCase().endsWith('.bin')) &&
+                        matches.some((context) => context.identifier.toLowerCase().endsWith('.txt'))) {
+                        matches = matches.filter((context) => context.identifier.toLowerCase().endsWith('.txt'));
                     }
                     // NNEF
                     if (matches.length > 0 &&

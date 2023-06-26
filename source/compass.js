@@ -161,8 +161,11 @@ compass.Node = class {
         }
         // initializers = layer.layer.blobs.map((blob) => new compass.Tensor(blob));
 
-        this._inputs = layer.inputs.map((t) => new compass.Parameter(t.name,
-            [new compass.Argument(t.name, new compass.TensorType(t.type, t.shape, t.scale, t.zp), null)]));
+        this._inputs = layer.inputs.map((t) => new compass.Parameter(t.name, [
+            new compass.Argument(t.name, new compass.TensorType(t.type, t.shape, t.scale, t.zp), null),
+            
+            
+            ]));
         this._weights = layer.weights.map((t) => new compass.Parameter(t.name, [new compass.Argument(t.name,
             new compass.Tensor(new compass.TensorType(t.type, t.shape), t.data, "Weight")
             , null)]));
