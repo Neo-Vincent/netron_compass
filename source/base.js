@@ -396,7 +396,7 @@ base.Utility = class {
         const power = unsigned ? base.Uint64.create(Math.pow(radix, 6)) : base.Int64.create(Math.pow(radix, 6));
         let remainder = value;
         let result = '';
-        for (;;) {
+        for (; ;) {
             const remainderDiv = remainder.divide(power);
             const intval = remainder.subtract(remainderDiv.multiply(power)).toInteger() >>> 0;
             let digits = intval.toString(radix);
@@ -461,7 +461,7 @@ base.Complex128 = class Complex {
 };
 
 if (!DataView.prototype.getFloat16) {
-    DataView.prototype.getFloat16 = function(byteOffset, littleEndian) {
+    DataView.prototype.getFloat16 = function (byteOffset, littleEndian) {
         const value = this.getUint16(byteOffset, littleEndian);
         const e = (value & 0x7C00) >> 10;
         let f = value & 0x03FF;
@@ -475,15 +475,15 @@ if (!DataView.prototype.getFloat16) {
         return value & 0x8000 ? -f : f;
     };
     DataView.__float16_pow = {
-        1: 1/16384, 2: 1/8192, 3: 1/4096, 4: 1/2048, 5: 1/1024, 6: 1/512, 7: 1/256, 8: 1/128,
-        9: 1/64, 10: 1/32, 11: 1/16, 12: 1/8, 13: 1/4, 14: 1/2, 15: 1, 16: 2,
+        1: 1 / 16384, 2: 1 / 8192, 3: 1 / 4096, 4: 1 / 2048, 5: 1 / 1024, 6: 1 / 512, 7: 1 / 256, 8: 1 / 128,
+        9: 1 / 64, 10: 1 / 32, 11: 1 / 16, 12: 1 / 8, 13: 1 / 4, 14: 1 / 2, 15: 1, 16: 2,
         17: 4, 18: 8, 19: 16, 20: 32, 21: 64, 22: 128, 23: 256, 24: 512,
         25: 1024, 26: 2048, 27: 4096, 28: 8192, 29: 16384, 30: 32768, 31: 65536
     };
 }
 
 if (!DataView.prototype.setFloat16) {
-    DataView.prototype.setFloat16 = function(byteOffset, value, littleEndian) {
+    DataView.prototype.setFloat16 = function (byteOffset, value, littleEndian) {
         DataView.__float16_float[0] = value;
         value = DataView.__float16_int[0];
         const s = (value >>> 16) & 0x8000;
@@ -518,7 +518,7 @@ if (!DataView.prototype.setFloat16) {
 }
 
 if (!DataView.prototype.getBfloat16) {
-    DataView.prototype.getBfloat16 = function(byteOffset, littleEndian) {
+    DataView.prototype.getBfloat16 = function (byteOffset, littleEndian) {
         if (littleEndian) {
             DataView.__bfloat16_get_uint16_le[1] = this.getUint16(byteOffset, littleEndian);
             return DataView.__bfloat16_get_float32_le[0];
@@ -534,7 +534,7 @@ if (!DataView.prototype.getBfloat16) {
 
 DataView.__float8e4m3_float32 = new Float32Array(1);
 DataView.__float8e4m3_uint32 = new Uint32Array(DataView.__float8e4m3_float32.buffer, DataView.__float8e4m3_float32.byteOffset, 1);
-DataView.prototype.getFloat8e4m3 = function(byteOffset, fn, uz) {
+DataView.prototype.getFloat8e4m3 = function (byteOffset, fn, uz) {
     const value = this.getUint8(byteOffset);
     let exponent_bias = 7;
     if (uz) {
@@ -578,7 +578,7 @@ DataView.prototype.getFloat8e4m3 = function(byteOffset, fn, uz) {
 
 DataView.__float8e5m2_float32 = new Float32Array(1);
 DataView.__float8e5m2_uint32 = new Uint32Array(DataView.__float8e5m2_float32.buffer, DataView.__float8e5m2_float32.byteOffset, 1);
-DataView.prototype.getFloat8e5m2 = function(byteOffset, fn, uz) {
+DataView.prototype.getFloat8e5m2 = function (byteOffset, fn, uz) {
     const value = this.getUint8(byteOffset);
     let exponent_bias = NaN;
     if (fn && uz) {
@@ -624,13 +624,13 @@ DataView.prototype.getFloat8e5m2 = function(byteOffset, fn, uz) {
     return DataView.__float8e5m2_float32[0];
 };
 
-DataView.prototype.getInt64 = DataView.prototype.getInt64 || function(byteOffset, littleEndian) {
+DataView.prototype.getInt64 = DataView.prototype.getInt64 || function (byteOffset, littleEndian) {
     return littleEndian ?
         new base.Int64(this.getUint32(byteOffset, true), this.getUint32(byteOffset + 4, true)) :
         new base.Int64(this.getUint32(byteOffset + 4, true), this.getUint32(byteOffset, true));
 };
 
-DataView.prototype.setInt64 = DataView.prototype.setInt64 || function(byteOffset, value, littleEndian) {
+DataView.prototype.setInt64 = DataView.prototype.setInt64 || function (byteOffset, value, littleEndian) {
     if (littleEndian) {
         this.setUint32(byteOffset, value.low, true);
         this.setUint32(byteOffset + 4, value.high, true);
@@ -640,7 +640,7 @@ DataView.prototype.setInt64 = DataView.prototype.setInt64 || function(byteOffset
     }
 };
 
-DataView.prototype.getIntBits = DataView.prototype.getUintBits || function(offset, bits) {
+DataView.prototype.getIntBits = DataView.prototype.getUintBits || function (offset, bits) {
     offset = offset * bits;
     const available = (this.byteLength << 3) - offset;
     if (bits > available) {
@@ -659,13 +659,13 @@ DataView.prototype.getIntBits = DataView.prototype.getUintBits || function(offse
     return (value < (2 << (bits - 1)) ? value : (2 << bits));
 };
 
-DataView.prototype.getUint64 = DataView.prototype.getUint64 || function(byteOffset, littleEndian) {
+DataView.prototype.getUint64 = DataView.prototype.getUint64 || function (byteOffset, littleEndian) {
     return littleEndian ?
         new base.Uint64(this.getUint32(byteOffset, true), this.getUint32(byteOffset + 4, true)) :
         new base.Uint64(this.getUint32(byteOffset + 4, true), this.getUint32(byteOffset, true));
 };
 
-DataView.prototype.setUint64 = DataView.prototype.setUint64 || function(byteOffset, value, littleEndian) {
+DataView.prototype.setUint64 = DataView.prototype.setUint64 || function (byteOffset, value, littleEndian) {
     if (littleEndian) {
         this.setUint32(byteOffset, value.low, true);
         this.setUint32(byteOffset + 4, value.high, true);
@@ -675,7 +675,7 @@ DataView.prototype.setUint64 = DataView.prototype.setUint64 || function(byteOffs
     }
 };
 
-DataView.prototype.getUintBits = DataView.prototype.getUintBits || function(offset, bits) {
+DataView.prototype.getUintBits = DataView.prototype.getUintBits || function (offset, bits) {
     offset = offset * bits;
     const available = (this.byteLength << 3) - offset;
     if (bits > available) {
@@ -694,13 +694,13 @@ DataView.prototype.getUintBits = DataView.prototype.getUintBits || function(offs
     return value;
 };
 
-DataView.prototype.getComplex64 = DataView.prototype.getComplex64 || function(byteOffset, littleEndian) {
+DataView.prototype.getComplex64 = DataView.prototype.getComplex64 || function (byteOffset, littleEndian) {
     const real = littleEndian ? this.getFloat32(byteOffset, littleEndian) : this.getFloat32(byteOffset + 4, littleEndian);
     const imaginary = littleEndian ? this.getFloat32(byteOffset + 4, littleEndian) : this.getFloat32(byteOffset, littleEndian);
     return base.Complex64.create(real, imaginary);
 };
 
-DataView.prototype.setComplex64 = DataView.prototype.setComplex64 || function(byteOffset, value, littleEndian) {
+DataView.prototype.setComplex64 = DataView.prototype.setComplex64 || function (byteOffset, value, littleEndian) {
     if (littleEndian) {
         this.setFloat32(byteOffset, value.real, littleEndian);
         this.setFloat32(byteOffset + 4, value.imaginary, littleEndian);
@@ -710,13 +710,13 @@ DataView.prototype.setComplex64 = DataView.prototype.setComplex64 || function(by
     }
 };
 
-DataView.prototype.getComplex128 = DataView.prototype.getComplex128 || function(byteOffset, littleEndian) {
+DataView.prototype.getComplex128 = DataView.prototype.getComplex128 || function (byteOffset, littleEndian) {
     const real = littleEndian ? this.getFloat64(byteOffset, littleEndian) : this.getFloat64(byteOffset + 8, littleEndian);
     const imaginary = littleEndian ? this.getFloat64(byteOffset + 8, littleEndian) : this.getFloat64(byteOffset, littleEndian);
     return base.Complex128.create(real, imaginary);
 };
 
-DataView.prototype.setComplex128 = DataView.prototype.setComplex128 || function(byteOffset, value, littleEndian) {
+DataView.prototype.setComplex128 = DataView.prototype.setComplex128 || function (byteOffset, value, littleEndian) {
     if (littleEndian) {
         this.setFloat64(byteOffset, value.real, littleEndian);
         this.setFloat64(byteOffset + 8, value.imaginary, littleEndian);
@@ -938,40 +938,40 @@ base.Telemetry = class {
         this._config = new Map();
         this._metadata = {};
         this._schema = new Map([
-            [ 'protocol_version', 'v' ],
-            [ 'tracking_id', 'tid' ],
-            [ 'hash_info', 'gtm' ],
-            [ '_page_id', '_p'],
-            [ 'client_id', 'cid' ],
-            [ 'language', 'ul' ],
-            [ 'screen_resolution', 'sr' ],
-            [ '_user_agent_architecture', 'uaa' ],
-            [ '_user_agent_bitness', 'uab' ],
-            [ '_user_agent_full_version_list', 'uafvl' ],
-            [ '_user_agent_mobile', 'uamb' ],
-            [ '_user_agent_model', 'uam' ],
-            [ '_user_agent_platform', 'uap' ],
-            [ '_user_agent_platform_version', 'uapv' ],
-            [ '_user_agent_wow64', 'uaw' ],
-            [ 'hit_count', '_s' ],
-            [ 'session_id', 'sid' ],
-            [ 'session_number', 'sct' ],
-            [ 'session_engaged', 'seg' ],
-            [ 'engagement_time_msec', '_et' ],
-            [ 'page_location', 'dl' ],
-            [ 'page_title', 'dt' ],
-            [ 'page_referrer', 'dr' ],
-            [ 'is_first_visit', '_fv' ],
-            [ 'is_external_event', '_ee' ],
-            [ 'is_new_to_site', '_nsi' ],
-            [ 'is_session_start', '_ss' ],
-            [ 'event_name', 'en' ]
+            ['protocol_version', 'v'],
+            ['tracking_id', 'tid'],
+            ['hash_info', 'gtm'],
+            ['_page_id', '_p'],
+            ['client_id', 'cid'],
+            ['language', 'ul'],
+            ['screen_resolution', 'sr'],
+            ['_user_agent_architecture', 'uaa'],
+            ['_user_agent_bitness', 'uab'],
+            ['_user_agent_full_version_list', 'uafvl'],
+            ['_user_agent_mobile', 'uamb'],
+            ['_user_agent_model', 'uam'],
+            ['_user_agent_platform', 'uap'],
+            ['_user_agent_platform_version', 'uapv'],
+            ['_user_agent_wow64', 'uaw'],
+            ['hit_count', '_s'],
+            ['session_id', 'sid'],
+            ['session_number', 'sct'],
+            ['session_engaged', 'seg'],
+            ['engagement_time_msec', '_et'],
+            ['page_location', 'dl'],
+            ['page_title', 'dt'],
+            ['page_referrer', 'dr'],
+            ['is_first_visit', '_fv'],
+            ['is_external_event', '_ee'],
+            ['is_new_to_site', '_nsi'],
+            ['is_session_start', '_ss'],
+            ['event_name', 'en']
         ]);
     }
 
     async start(measurement_id, client_id, session) {
         this._session = session && typeof session === 'string' ? session.replace(/^GS1\.1\./, '').split('.') : null;
-        this._session = Array.isArray(this._session) && this._session.length >= 7 ? this._session : [ '0', '0', '0', '0', '0', '0', '0' ];
+        this._session = Array.isArray(this._session) && this._session.length >= 7 ? this._session : ['0', '0', '0', '0', '0', '0', '0'];
         this._session[0] = Date.now();
         this._session[1] = parseInt(this._session[1], 10) + 1;
         this._engagement_time_msec = 0;
@@ -988,7 +988,7 @@ base.Telemetry = class {
         } else {
             const random = String(Math.round(0x7FFFFFFF * Math.random()));
             const time = Date.now();
-            const value = [ random, Math.round(time / 1e3) ].join('.');
+            const value = [random, Math.round(time / 1e3)].join('.');
             this.set('client_id', value);
             this._metadata.is_first_visit = 1;
             this._metadata.is_new_to_site = 1;
@@ -996,7 +996,7 @@ base.Telemetry = class {
         this.set('language', ((this._navigator && (this._navigator.language || this._navigator.browserLanguage)) || '').toLowerCase());
         this.set('screen_resolution', (window.screen ? window.screen.width : 0) + 'x' + (window.screen ? window.screen.height : 0));
         if (this._navigator && this._navigator.userAgentData && this._navigator.userAgentData.getHighEntropyValues) {
-            const values = await this._navigator.userAgentData.getHighEntropyValues([ 'platform', 'platformVersion', 'architecture', 'model', 'uaFullVersion', 'bitness', 'fullVersionList', 'wow64' ]);
+            const values = await this._navigator.userAgentData.getHighEntropyValues(['platform', 'platformVersion', 'architecture', 'model', 'uaFullVersion', 'bitness', 'fullVersionList', 'wow64']);
             if (values) {
                 this.set('_user_agent_architecture', values.architecture);
                 this.set('_user_agent_bitness', values.bitness);
@@ -1050,7 +1050,7 @@ base.Telemetry = class {
                 const build = (entires) => entires.map((entry) => entry[0] + '=' + encodeURIComponent(entry[1])).join('&');
                 this._cache = this._cache || build(Array.from(this._config));
                 const key = (name, value) => this._schema.get(name) || ('number' === typeof value && !isNaN(value) ? 'epn.' : 'ep.') + name;
-                const body = build(Object.entries(params).map((entry) => [ key(entry[0], entry[1]), entry[1] ]));
+                const body = build(Object.entries(params).map((entry) => [key(entry[0], entry[1]), entry[1]]));
                 const url = 'https://analytics.google.com/g/collect?' + this._cache;
                 this._navigator.sendBeacon(url, body);
                 this._session[2] = this.get('session_engaged') || '0';
@@ -1087,7 +1087,7 @@ base.Metadata = class {
             'dnn', 'cmf',
             'hd5', 'hdf5', 'keras',
             'tfl', 'circle', 'lite',
-            'mlnet', 'mar',  'meta', 'nn', 'ngf', 'hn', 'har',
+            'mlnet', 'mar', 'meta', 'nn', 'ngf', 'hn', 'har',
             'param', 'params',
             'paddle', 'pdiparams', 'pdmodel', 'pdopt', 'pdparams', 'nb',
             'pkl', 'joblib', 'safetensors',
@@ -1095,7 +1095,7 @@ base.Metadata = class {
             'dlc', 'uff', 'armnn',
             'mnn', 'ms', 'ncnn', 'om', 'tm', 'mge', 'tmfile', 'tnnproto', 'xmodel', 'kmodel', 'rknn',
             'tar', 'zip',
-            'txt','def',
+            'txt', 'def', "bin",
         ];
     }
 };

@@ -10,6 +10,9 @@ compass.ModelFactory = class {
         if (extension == 'def' || extension == 'txt') {
             return 'compass.def';
         }
+        if (extension == 'bin' || extension == 'cbin') {
+            return 'compass.bin';
+        }
         return undefined;
     }
 
@@ -21,16 +24,40 @@ compass.ModelFactory = class {
                 return new compass.Model(metadata, reader.net);
             };
             let bin = null;
+            let cbin = null;
             switch (match) {
                 case 'compass.def': {
                     if (identifier.endsWith('.def') || identifier.endsWith('.txt')) {
-                        bin = context.identifier.substring(0, context.identifier.length - 3) + 'cbin';
+                        cbin = context.identifier.substring(0, context.identifier.length - 3) + 'cbin';
+                        bin = context.identifier.substring(0, context.identifier.length - 3) + 'bin';
                     }
-                    return context.request(bin, null).then((stream) => {
+                    return context.request(cbin, null).then((stream) => {
                         const buffer = stream.read();
                         return openText(context.stream.peek(), buffer);
                     }).catch(() => {
-                        return openText(context.stream.peek(), null);
+                        context.request(bin, null).then((stream) => {
+                            const buffer = stream.read();
+                            return openText(context.stream.peek(), buffer);
+                        }).catch(() => {
+                            return openText(context.stream.peek(), null);
+                        });
+                    });
+                }
+                case 'compass.bin': {
+                    if (identifier.endsWith('.bin')) {
+                        bin = context.identifier.substring(0, context.identifier.length - 3);
+                    }
+                    if (identifier.endsWith('.cbin')) {
+                        bin = context.identifier.substring(0, context.identifier.length - 4);
+                    }
+                    return context.request(bin + "def", null).then((stream) => {
+                        const buffer = stream.read();
+                        return openText(buffer, context.stream.peek());
+                    }).catch(() => {
+                        context.request(bin + "txt", null).then((stream) => {
+                            const buffer = stream.read();
+                            return openText(buffer, context.stream.peek());
+                        });
                     });
                 }
             }
@@ -116,7 +143,13 @@ compass.Parameter = class {
     get arguments() {
         return this._arguments;
     }
+
+    get value() {
+        return this._arguments;
+
+    }
 };
+
 
 compass.Argument = class {
 
@@ -138,6 +171,9 @@ compass.Argument = class {
     }
 
     get initializer() {
+        return this._initializer;
+    }
+    get value() {
         return this._initializer;
     }
 };
@@ -163,9 +199,9 @@ compass.Node = class {
 
         this._inputs = layer.inputs.map((t) => new compass.Parameter(t.name, [
             new compass.Argument(t.name, new compass.TensorType(t.type, t.shape, t.scale, t.zp), null),
-            
-            
-            ]));
+
+
+        ]));
         this._weights = layer.weights.map((t) => new compass.Parameter(t.name, [new compass.Argument(t.name,
             new compass.Tensor(new compass.TensorType(t.type, t.shape), t.data, "Weight")
             , null)]));

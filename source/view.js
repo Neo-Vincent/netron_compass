@@ -4926,6 +4926,7 @@ view.ModelFactoryService = class {
         this.register('./kmodel', [ '.kmodel' ]);
         this.register('./flux', [ '.bson' ]);
         this.register('./dl4j', [ '.json', '.bin' ]);
+        this.register('./compass', [ '.def', '.txt', '.bin']);
         this.register('./openvino', [ '.xml', '.bin' ]);
         this.register('./mlnet', [ '.zip', '.mlnet' ]);
         this.register('./acuity', [ '.json' ]);
@@ -4940,7 +4941,6 @@ view.ModelFactoryService = class {
         this.register('./mlir', [ '.mlir']);
         this.register('./hailo', [ '.hn', '.har' ]);
         this.register('./safetensors', [ '.safetensors' ]);
-        this.register('./compass', [ '.def', '.txt', '.bin']);
     }
 
     register(id, factories, containers) {
