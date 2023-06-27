@@ -16,52 +16,52 @@ compass.ModelFactory = class {
         return undefined;
     }
 
-    open(context, match) {
-        return compass.Metadata.open(context).then((metadata) => {
-            const identifier = context.identifier.toLowerCase();
-            const openText = (param, bin) => {
-                const reader = new compass.TextParamReader(metadata, param, bin);
-                return new compass.Model(metadata, reader.net);
-            };
-            let bin = null;
-            let cbin = null;
-            switch (match) {
-                case 'compass.def': {
-                    if (identifier.endsWith('.def') || identifier.endsWith('.txt')) {
-                        cbin = context.identifier.substring(0, context.identifier.length - 3) + 'cbin';
-                        bin = context.identifier.substring(0, context.identifier.length - 3) + 'bin';
-                    }
-                    return context.request(cbin, null).then((stream) => {
-                        const buffer = stream.read();
-                        return openText(context.stream.peek(), buffer);
-                    }).catch(() => {
-                        context.request(bin, null).then((stream) => {
-                            const buffer = stream.read();
-                            return openText(context.stream.peek(), buffer);
-                        }).catch(() => {
-                            return openText(context.stream.peek(), null);
-                        });
-                    });
+    async open(context, match) {
+        const metadata = await compass.Metadata.open(context);
+        const identifier = context.identifier.toLowerCase();
+        const openText = (param, bin) => {
+            const reader = new compass.TextParamReader(metadata, param, bin);
+            return new compass.Model(metadata, reader.net);
+        };
+        let bin = null;
+        switch (match) {
+            case 'compass.def': {
+                if (identifier.endsWith('.def') || identifier.endsWith('.txt')) {
+                    bin = context.identifier.substring(0, context.identifier.length - 3) + 'bin';
                 }
-                case 'compass.bin': {
-                    if (identifier.endsWith('.bin')) {
-                        bin = context.identifier.substring(0, context.identifier.length - 3);
-                    }
-                    if (identifier.endsWith('.cbin')) {
-                        bin = context.identifier.substring(0, context.identifier.length - 4);
-                    }
-                    return context.request(bin + "def", null).then((stream) => {
+                return context.request(bin, null).then((stream) => {
+                    const buffer = stream.read();
+                    return openText(context.stream.peek(), buffer);
+                }).catch(() => {
+                    return openText(context.stream.peek(), null);
+                });
+            }
+            case 'compass.bin': {
+                if (identifier.endsWith('.bin')) {
+                    bin = context.identifier.substring(0, context.identifier.length - 3);
+                }
+                if (identifier.endsWith('.cbin')) {
+                    bin = context.identifier.substring(0, context.identifier.length - 4);
+                }
+                try {
+                    const stream = await context.request(bin + "def", null);
+                    const buffer = stream.read();
+                    return openText(buffer, context.stream.peek());
+
+                } catch (error) {
+                    try {
+                        const stream = await context.request(bin + "txt", null);
                         const buffer = stream.read();
                         return openText(buffer, context.stream.peek());
-                    }).catch(() => {
-                        context.request(bin + "txt", null).then((stream) => {
-                            const buffer = stream.read();
-                            return openText(buffer, context.stream.peek());
-                        });
-                    });
+
+                    } catch (error) {
+                        return openText(null, context.stream.peek());
+
+                    }
                 }
+
             }
-        });
+        }
     }
 
 };
