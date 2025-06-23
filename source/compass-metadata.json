@@ -622,11 +622,6 @@
         "category": "Custom"
     },
     {
-        "name": "Loop",
-        "operator": 4099,
-        "category": "Custom"
-    },
-    {
         "name": "MVN",
         "operator": 130,
         "category": "Custom"
