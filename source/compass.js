@@ -69,9 +69,29 @@ compass.ModelFactory = class {
 compass.Model = class {
 
     constructor(metadata, param) {
+        this._subgraphs = param.subgraphs.map(graph => new compass.Graph(metadata, graph));
         this._graphs = [
-            new compass.Graph(metadata, param)
+            new compass.Graph(metadata, param), ...this._subgraphs
         ];
+        this.process_subgraph(metadata);
+    }
+
+    process_subgraph(metadata) {
+        let sgmap = {};
+        for (let i = 0; i < this._subgraphs.length; i++) {
+            sgmap[this._subgraphs[i].name] = this._subgraphs[i];
+        }
+        for (let i = 0; i < this._graphs.length; i++) {
+            for (let node of this._graphs[i]._nodes) {
+                for (let j = 0; j < node._attributes.length; j++) {
+                    if (node._attributes[j].type === 'graph') {
+                        let attr=node._attributes[j];
+                        node._attributes[j]._value = sgmap[attr.value];
+                    }
+                }
+            }
+        };
+
     }
 
     get format() {
@@ -89,6 +109,9 @@ compass.Graph = class {
         this._inputs = [];
         this._outputs = [];
         this._nodes = [];
+        this.name = net["name"];
+        if ("subgraph_name" in net)
+            this.name = net["subgraph_name"];
         for (const layer of net.layers) {
             if (layer.type == 'Input') {
                 const input = new compass.Parameter(layer.name,
@@ -596,10 +619,39 @@ compass.TextParamReader = class {
             net[k] = this.parse_param(net[k]);
         }
         net.layers = [];
-        for (const i of sections) {
-            net.layers.push(this.parse_layer(i, weights));
-        }
+        net.subgraphs = [];
+        this.parse_sections(net, sections, weights, net["layer_number"]);
         this._net = net;
+    }
+
+    parse_sections(root, sections, weights, layer_number) {
+        let stack = [];
+        let layer_numbers = [];
+        let net = root;
+        for (let i = 0; i < sections.length; i++) {
+            let section = sections[i];
+            if ("subgraph_name" in section) {
+                if (!("layer_number" in section)) {
+                    throw new compass.Error("Missing required field '" + JSON.stringify(layer_number) + "' of subgraph header.");
+                }
+                layer_numbers.push(layer_number);
+                stack.push(net);
+                layer_number = parseInt(section["layer_number"]);
+                const sg = sections[i];
+                sg.layers = [];
+                sg.subgraphs = [];
+                root.subgraphs.push(sg);
+                net=sg;
+                continue;
+            }
+            net.layers.push(this.parse_layer(section, weights));
+            if (net.layers.length == layer_number) {
+                net=stack.pop();
+                layer_number=layer_numbers.pop();
+            }
+        }
+        return net;
+
     }
 
     parse_param(s) {

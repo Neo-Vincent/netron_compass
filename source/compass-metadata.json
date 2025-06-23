@@ -1,5 +1,42 @@
 [
     {
+        "name": "Loop",
+        "category": "Layer",
+        "description": "Repeats a sequence of layers for a specified number of iterations.",
+        "attributes": [
+            {
+                "name": "body",
+                "type": "graph"
+            }
+        ]
+    },
+    {
+        "name": "If",
+        "category": "Layer",
+        "description": "Repeats a sequence of layers for a specified number of iterations.",
+        "attributes": [
+            {
+                "name": "then_branch",
+                "type": "graph"
+            },
+            {
+                "name": "else_branch",
+                "type": "graph"
+            }
+        ]
+    },
+    {
+        "name": "Call",
+        "category": "Layer",
+        "description": "Repeats a sequence of layers for a specified number of iterations.",
+        "attributes": [
+            {
+                "name": "subgraph",
+                "type": "graph"
+            } 
+        ]
+    },
+    {
         "name": "header",
         "optional": [
             "model_bin",
