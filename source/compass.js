@@ -85,7 +85,7 @@ compass.Model = class {
             for (let node of this._graphs[i]._nodes) {
                 for (let j = 0; j < node._attributes.length; j++) {
                     if (node._attributes[j].type === 'graph') {
-                        let attr=node._attributes[j];
+                        let attr = node._attributes[j];
                         node._attributes[j]._value = sgmap[attr.value];
                     }
                 }
@@ -373,12 +373,20 @@ compass.Tensor = class {
         switch (this._type.dataType) {
             case 'int8':
             case 'uint8':
-            case 'float16':
-            case 'float32':
-            case 'int32':
-            case 'uint32':
             case 'int16':
             case 'uint16':
+            case 'int32':
+            case 'uint32':
+            case 'int64':
+            case 'uint64':
+            case 'float16':
+            case 'bfloat16':
+            case 'float32':
+            case 'float64':
+            case 'aligned_int4':
+            case 'aligned_uint4':
+            case 'aligned_int12':
+            case 'aligned_uint12':
                 context.data = new DataView(this._data.buffer, this._data.byteOffset, this._data.byteLength);
                 break;
             default:
@@ -402,6 +410,11 @@ compass.Tensor = class {
                     return results;
                 }
                 switch (this._type.dataType) {
+                    case 'float64':
+                        results.push(context.data.getFloat64(context.index, true));
+                        context.index += 8;
+                        context.count++;
+                        break;
                     case 'float32':
                         results.push(context.data.getFloat32(context.index, true));
                         context.index += 4;
@@ -413,11 +426,13 @@ compass.Tensor = class {
                         context.count++;
                         break;
                     case 'int8':
+                    case 'aligned_int4':
                         results.push(context.data.getInt8(context.index, true));
                         context.index += 1;
                         context.count++;
                         break;
                     case 'uint8':
+                    case 'aligned_uint4':
                         results.push(context.data.getUint8(context.index, true));
                         context.index += 1;
                         context.count++;
@@ -433,11 +448,13 @@ compass.Tensor = class {
                         context.count++;
                         break;
                     case 'int16':
+                    case 'aligned_int12':
                         results.push(context.data.getInt16(context.index, true));
                         context.index += 2;
                         context.count++;
                         break;
                     case 'uint16':
+                    case 'aligned_uint12':
                         results.push(context.data.getUint16(context.index, true));
                         context.index += 2;
                         context.count++;
@@ -641,13 +658,13 @@ compass.TextParamReader = class {
                 sg.layers = [];
                 sg.subgraphs = [];
                 root.subgraphs.push(sg);
-                net=sg;
+                net = sg;
                 continue;
             }
             net.layers.push(this.parse_layer(section, weights));
             if (net.layers.length == layer_number) {
-                net=stack.pop();
-                layer_number=layer_numbers.pop();
+                net = stack.pop();
+                layer_number = layer_numbers.pop();
             }
         }
         return net;
