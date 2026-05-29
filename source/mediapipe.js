@@ -1,29 +1,29 @@
 
-var mediapipe = {};
-var protobuf = require('./protobuf');
+import * as protobuf from './protobuf.js';
+
+const mediapipe = {};
 
 mediapipe.ModelFactory = class {
 
-    match(context) {
-        const tags = context.tags('pbtxt');
-        if (tags.has('node') && ['input_stream', 'output_stream', 'input_side_packet', 'output_side_packet'].some((key) => tags.has(key) || tags.has('node.' + key))) {
-            return 'mediapipe.pbtxt';
+    async match(context) {
+        const tags = await context.tags('pbtxt');
+        if (tags.has('node') && ['input_stream', 'output_stream', 'input_side_packet', 'output_side_packet'].some((key) => tags.has(key) || tags.has(`node.${key}`))) {
+            return context.set('mediapipe.pbtxt');
         }
         return null;
     }
 
     async open(context) {
-        // await context.require('./mediapipe-proto');
-        mediapipe.proto = protobuf.get('mediapipe');
+        // mediapipe.proto = await context.require('./mediapipe-proto');
+        mediapipe.proto = {};
         let config = null;
         try {
-            const stream = context.stream;
-            const reader = protobuf.TextReader.open(stream);
+            const reader = await context.read('protobuf.text');
             // const config = mediapipe.proto.mediapipe.CalculatorGraphConfig.decodeText(reader);
             config = new mediapipe.Object(reader);
         } catch (error) {
             const message = error && error.message ? error.message : error.toString();
-            throw new mediapipe.Error('File text format is not mediapipe.CalculatorGraphConfig (' + message.replace(/\.$/, '') + ').');
+            throw new mediapipe.Error(`File text format is not mediapipe.CalculatorGraphConfig (${message.replace(/\.$/, '')}).`);
         }
         return new mediapipe.Model(config);
     }
@@ -31,145 +31,111 @@ mediapipe.ModelFactory = class {
 
 mediapipe.Model = class {
 
-    constructor(root) {
-        this._graphs = [ new mediapipe.Graph(root) ];
-    }
-
-    get format() {
-        return 'MediaPipe';
-    }
-
-    get graphs() {
-        return this._graphs;
+    constructor(config) {
+        this.format = 'MediaPipe';
+        this.modules = [new mediapipe.Graph(config)];
     }
 };
 
 mediapipe.Graph = class {
 
-    constructor(root) {
-        this._inputs = [];
-        this._outputs = [];
-        this._nodes = [];
-
-        if (root) {
-            if (root.input_stream) {
-                const inputs = Array.isArray(root.input_stream) ? root.input_stream : [ root.input_stream ];
-                for (const input of inputs) {
-                    const parts = input.split(':');
-                    const type = (parts.length > 1) ? parts.shift() : '';
-                    const name = parts.shift();
-                    this._inputs.push(new mediapipe.Argument(name, [
-                        new mediapipe.Value(name, type, null)
-                    ]));
-                }
+    constructor(config) {
+        config = config || {};
+        this.inputs = [];
+        this.outputs = [];
+        this.nodes = [];
+        const types = new Map();
+        const type = (list) => {
+            if (!Array.isArray(list)) {
+                list = list ? [list] : [];
             }
-            if (root.output_stream) {
-                const outputs = Array.isArray(root.output_stream) ? root.output_stream : [ root.output_stream ];
-                for (const output of outputs) {
-                    const parts = output.split(':');
-                    const type = (parts.length > 1) ? parts.shift() : '';
-                    const name = parts.shift();
-                    this._outputs.push(new mediapipe.Argument(name, [
-                        new mediapipe.Value(name, type, null)
-                    ]));
+            return list.map((item) => {
+                const parts = item.split(':');
+                const name = parts.pop();
+                const type = parts.join(':');
+                if (!types.has(name)) {
+                    const value = new Set();
+                    if (type) {
+                        value.add(type);
+                    }
+                    types.set(name, value);
+                } else if (type && !types.get(name).has(type)) {
+                    types.get(name).add(type);
                 }
-            }
-            if (root.input_side_packet) {
-                const inputs = Array.isArray(root.input_side_packet) ? root.input_side_packet : [ root.input_side_packet ];
-                for (const input of inputs) {
-                    const parts = input.split(':');
-                    const type = (parts.length > 1) ? parts.shift() : '';
-                    const name = parts.shift();
-                    this._inputs.push(new mediapipe.Argument(name, [
-                        new mediapipe.Value(name, type, null)
-                    ]));
-                }
-            }
-            if (root.output_side_packet) {
-                const outputs = Array.isArray(root.output_side_packet) ? root.output_side_packet : [ root.output_side_packet ];
-                for (const output of outputs) {
-                    const parts = output.split(':');
-                    const type = (parts.length > 1) ? parts.shift() : '';
-                    const name = parts.shift();
-                    this._outputs.push(new mediapipe.Argument(output, [
-                        new mediapipe.Value(name, type, null)
-                    ]));
-                }
-            }
-            if (root.node) {
-                const nodes = Array.isArray(root.node) ? root.node : [ root.node ];
-                for (const node of nodes) {
-                    this._nodes.push(new mediapipe.Node(node));
-                }
-            }
+                return name;
+            });
+        };
+        config.input_stream = type(config.input_stream);
+        config.output_stream = type(config.output_stream);
+        config.input_side_packet = type(config.input_side_packet);
+        config.output_side_packet = type(config.output_side_packet);
+        if (!Array.isArray(config.node)) {
+            config.node = config.node ? [config.node] : [];
         }
-    }
-
-    get inputs() {
-        return this._inputs;
-    }
-
-    get outputs() {
-        return this._outputs;
-    }
-
-    get nodes() {
-        return this._nodes;
+        for (const node of config.node) {
+            node.input_stream = type(node.input_stream);
+            node.output_stream = type(node.output_stream);
+            node.input_side_packet = type(node.input_side_packet);
+            node.output_side_packet = type(node.output_side_packet);
+        }
+        const values = new Map();
+        for (const [name, value] of types) {
+            const type = Array.from(value).join(',');
+            values.set(name, new mediapipe.Value(name, type || null));
+        }
+        const value = (name) => {
+            return values.get(name);
+        };
+        for (const name of config.input_stream) {
+            const argument = new mediapipe.Argument(name, [value(name)]);
+            this.inputs.push(argument);
+        }
+        for (const name of config.output_stream) {
+            const argument = new mediapipe.Argument(name, [value(name)]);
+            this.outputs.push(argument);
+        }
+        for (const name of config.input_side_packet) {
+            const argument = new mediapipe.Argument(name, [value(name, type)]);
+            this.inputs.push(argument);
+        }
+        for (const output of config.output_side_packet) {
+            const parts = output.split(':');
+            const type = (parts.length > 1) ? parts.shift() : '';
+            const name = parts.shift();
+            const argument = new mediapipe.Argument(name, [value(name, type)]);
+            this.outputs.push(argument);
+        }
+        for (const node of config.node) {
+            this.nodes.push(new mediapipe.Node(node, value));
+        }
     }
 };
 
 mediapipe.Node = class {
 
-    constructor(node) {
+    constructor(node, value) {
         const type = node.calculator || '?';
-        this._type = { name: type.replace(/Calculator$/, '') };
-        this._inputs = [];
-        this._outputs = [];
-        this._attributes = [];
-
+        this.name = '';
+        this.type = { name: type.replace(/Calculator$/, '') };
+        this.inputs = [];
+        this.outputs = [];
+        this.attributes = [];
         if (node.input_stream) {
-            const args = [];
-            const inputs = Array.isArray(node.input_stream) ? node.input_stream : [ node.input_stream ];
-            for (const input of inputs) {
-                const parts = input.split(':');
-                const type = (parts.length > 1) ? parts.shift() : '';
-                const name = parts.shift();
-                args.push(new mediapipe.Value(name, type, null));
-            }
-            this._inputs.push(new mediapipe.Argument('input_stream', args));
+            const values = node.input_stream.map((name) => value(name));
+            const argument = new mediapipe.Argument('input_stream', values);
+            this.inputs.push(argument);
         }
         if (node.output_stream) {
-            const args = [];
-            const outputs = Array.isArray(node.output_stream) ? node.output_stream : [ node.output_stream ];
-            for (const output of outputs) {
-                const parts = output.split(':');
-                const type = (parts.length > 1) ? parts.shift() : '';
-                const name = parts.shift();
-                args.push(new mediapipe.Value(name, type, null));
-            }
-            this._outputs.push(new mediapipe.Argument('output_stream', args));
+            const values = node.output_stream.map((name) => value(name));
+            this.outputs.push(new mediapipe.Argument('output_stream', values));
         }
         if (node.input_side_packet) {
-            const args = [];
-            const inputs = Array.isArray(node.input_side_packet) ? node.input_side_packet : [ node.input_side_packet ];
-            for (const input of inputs) {
-                const parts = input.split(':');
-                const type = (parts.length > 1) ? parts.shift() : '';
-                const name = parts.shift();
-                args.push(new mediapipe.Value(name, type, null));
-            }
-            this._inputs.push(new mediapipe.Argument('input_side_packet', args));
+            const values = node.input_side_packet.map((name) => value(name));
+            this.inputs.push(new mediapipe.Argument('output_stream', values));
         }
         if (node.output_side_packet) {
-            const args = [];
-            const outputs = Array.isArray(node.output_side_packet) ? node.output_side_packet : [ node.output_side_packet ];
-            for (const output of outputs) {
-                const parts = output.split(':');
-                const type = (parts.length > 1) ? parts.shift() : '';
-                const name = parts.shift();
-                args.push(new mediapipe.Value(name, type, null));
-            }
-            this._outputs.push(new mediapipe.Argument('output_side_packet', args));
+            const values = node.output_side_packet.map((name) => value(name));
+            this.outputs.push(new mediapipe.Argument('output_side_packet', values));
         }
         const options = new Map();
         if (node.options) {
@@ -177,7 +143,10 @@ mediapipe.Node = class {
                 options.set(key, node.options[key]);
             }
         }
-        const node_options = node.node_options ? Array.isArray(node.node_options) ? node.node_options : [ node.node_options ] : [];
+        let node_options = node.node_options;
+        if (!Array.isArray(node_options)) {
+            node_options = node_options ? [node_options] : [];
+        }
         if (mediapipe.proto.google && node_options.every((options) => options instanceof mediapipe.proto.google.protobuf.Any)) {
             for (const entry of node_options) {
                 const value = new RegExp(/^\{(.*)\}\s*$/, 's').exec(entry.value);
@@ -194,111 +163,44 @@ mediapipe.Node = class {
                     }
                 }
                 const message = new mediapipe.Object(reader);
-                for (const key of Object.keys(message)) {
-                    options.set(key, message[key]);
+                for (const [name, value] of Object.entries(message)) {
+                    options.set(name, value);
                 }
             }
         } else {
-            for (const entry of node_options) {
-                for (const key of Object.keys(entry)) {
-                    if (key !== '__type__') {
-                        options.set(key, entry[key]);
+            for (const option of node_options) {
+                for (const [name, value] of Object.entries(option)) {
+                    if (name !== '__type__') {
+                        options.set(name, value);
                     }
                 }
             }
         }
-        for (const pair of options) {
-            this._attributes.push(new mediapipe.Attribute(pair[0], pair[1]));
+        for (const [name, value] of options) {
+            const attribute = new mediapipe.Argument(name, value);
+            this.attributes.push(attribute);
         }
-    }
-
-    get name() {
-        return '';
-    }
-
-    get type() {
-        return this._type;
-    }
-
-    get inputs() {
-        return this._inputs;
-    }
-
-    get outputs() {
-        return this._outputs;
-    }
-
-    get attributes() {
-        return this._attributes;
-    }
-};
-
-mediapipe.Attribute = class {
-
-    constructor(name, value) {
-        this._name = name;
-        this._value = value;
-    }
-
-    get name() {
-        return this._name;
-    }
-
-    get value() {
-        return this._value;
     }
 };
 
 mediapipe.Argument = class {
 
     constructor(name, value) {
-        this._name = name;
-        this._value = value;
-    }
-
-    get name() {
-        return this._name;
-    }
-
-    get visible() {
-        return true;
-    }
-
-    get value() {
-        return this._value;
+        this.name = name;
+        this.value = value;
     }
 };
 
 mediapipe.Value = class {
 
-    constructor(name, type, initializer) {
+    constructor(name, type = null) {
         if (typeof name !== 'string') {
-            throw new mediapipe.Error("Invalid value identifier '" + JSON.stringify(name) + "'.");
+            throw new mediapipe.Error(`Invalid value identifier '${JSON.stringify(name)}'.`);
         }
-        this._name = name;
-        this._type = type || null;
-        this._initializer = initializer || null;
-    }
-
-    get name() {
-        return this._name;
-    }
-
-    get type() {
-        if (this._type) {
-            return this._type;
-        }
-        if (this._initializer) {
-            return this._initializer.type;
-        }
-        return null;
-    }
-
-    get initializer() {
-        return this._initializer;
+        this.name = name;
+        this.type = type;
     }
 };
-
 
 mediapipe.Object = class {
 
@@ -324,7 +226,7 @@ mediapipe.Object = class {
                 if (obj.__type__) {
                     while (!reader.end()) {
                         if (!Array.isArray(obj)) {
-                            obj = [ obj ];
+                            obj = [obj];
                         }
                         const token = reader.token();
                         if (token.startsWith('[') && token.endsWith(']')) {
@@ -349,15 +251,15 @@ mediapipe.Object = class {
                         obj.push(parseFloat(data));
                     }
                 }
-            } else if (!isNaN(next)) {
-                obj = parseFloat(next);
+            } else if (isNaN(next)) {
+                obj = next;
                 reader.next();
             } else {
-                obj = next;
+                obj = parseFloat(next);
                 reader.next();
             }
             if (this[tag] && (!Array.isArray(this[tag]) || arrayTags.has(tag))) {
-                this[tag] = [ this[tag] ];
+                this[tag] = [this[tag]];
                 arrayTags.delete(tag);
             }
             if (this[tag]) {
@@ -381,6 +283,4 @@ mediapipe.Error = class extends Error {
     }
 };
 
-if (typeof module !== 'undefined' && typeof module.exports === 'object') {
-    module.exports.ModelFactory = mediapipe.ModelFactory;
-}
+export const ModelFactory = mediapipe.ModelFactory;

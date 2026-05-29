@@ -1,7 +1,8 @@
 
+import * as fs from 'fs/promises';
+import * as path from 'path';
+
 const protoc = {};
-const fs = require('fs');
-const path = require('path');
 
 protoc.Object = class {
 
@@ -12,10 +13,12 @@ protoc.Object = class {
     }
 
     get fullName() {
-        const path = [ this.name ];
+        const path = [this.name];
         let context = this.parent;
         while (context) {
-            path.unshift(context.name);
+            if (context.name) {
+                path.unshift(context.name);
+            }
             context = context.parent;
         }
         return path.join('.');
@@ -29,7 +32,7 @@ protoc.Namespace = class extends protoc.Object {
         this.children = new Map();
         if (!(this instanceof protoc.Root || this instanceof protoc.PrimitiveType)) {
             if (parent.get(this.name)) {
-                throw new protoc.Error("Duplicate name '" + this.name + "' in '" + parent.name + "'.");
+                throw new protoc.Error(`Duplicate name '${this.name}' in '${parent.name}'.`);
             }
             parent.children.set(this.name, this);
         }
@@ -40,19 +43,21 @@ protoc.Namespace = class extends protoc.Object {
         if (path && path.length > 0 && path[0] === '') {
             throw new protoc.Error('Invalid path.');
         }
-        let parent = this;
+        /* eslint-disable consistent-this */
+        let current = this;
+        /* eslint-enable consistent-this */
         while (path.length > 0) {
             const part = path.shift();
-            if (parent.children && parent.children.get(part)) {
-                parent = parent.children.get(part);
-                if (!(parent instanceof protoc.Namespace)) {
+            if (current.children && current.children.get(part)) {
+                current = current.children.get(part);
+                if (current instanceof protoc.Namespace === false) {
                     throw new protoc.Error('Invalid path.');
                 }
             } else {
-                parent = new protoc.Namespace(parent, part);
+                current = new protoc.Namespace(current, part);
             }
         }
-        return parent;
+        return current;
     }
 
     defineType(name) {
@@ -106,7 +111,7 @@ protoc.Namespace = class extends protoc.Object {
     findType(path) {
         const type = this.find(path.split('.'), protoc.Type);
         if (!type) {
-            throw new protoc.Error("Type or enum '" + path + "' not found in '" + this.name + "'.");
+            throw new protoc.Error(`Type or enum '${path}' not found in '${this.name}'.`);
         }
         return type;
     }
@@ -136,72 +141,78 @@ protoc.Namespace = class extends protoc.Object {
 
 protoc.Root = class extends protoc.Namespace {
 
-    constructor(alias, paths, files) {
+    constructor(alias) {
         super(null, '');
         this.alias = alias;
         this._files = new Set();
         this._library = new Map();
         this._library.set('google/protobuf/any.proto', () => {
             const type = this.defineType('google.protobuf.Any');
-            new protoc.Field(type, 'type_url', 1, 'string');
-            new protoc.Field(type, 'value', 2, 'bytes');
+            type.defineField('type_url', 1, 'string');
+            type.defineField('value', 2, 'bytes');
         });
         this._library.set('google/protobuf/wrappers.proto', () => {
-            new protoc.Field(this.defineType('google.protobuf.BoolValue'), 'value', 1, 'bool');
+            const type = this.defineType('google.protobuf.BoolValue');
+            type.defineField('value', 1, 'bool');
         });
-        this.load(paths, files);
     }
 
-    load(paths, files) {
+    async load(paths, files) {
         for (const file of files) {
-            const resolved = this._resolve(file, '', paths);
+            // eslint-disable-next-line no-await-in-loop
+            const resolved = await this._resolve(file, '', paths);
             if (resolved) {
-                this._loadFile(paths, resolved);
+                // eslint-disable-next-line no-await-in-loop
+                await this._loadFile(paths, resolved);
             } else {
-                throw new protoc.Error("File '" + file + "' not found.");
+                throw new protoc.Error(`File '${file}' not found.`);
             }
         }
         return this;
     }
 
-    _loadFile(paths, file, weak) {
+    async _loadFile(paths, file, weak) {
         if (!this._files.has(file)) {
             this._files.add(file);
-            if (!this._library.has(file)) {
-                try {
-                    this._parseFile(paths, file);
-                } catch (err) {
-                    if (!weak) {
-                        throw err;
-                    }
-                }
-            } else {
+            if (this._library.has(file)) {
                 const callback = this._library.get(file);
                 callback();
+            } else {
+                try {
+                    await this._parseFile(paths, file);
+                } catch (error) {
+                    if (!weak) {
+                        throw error;
+                    }
+                }
             }
         }
     }
 
-    _parseFile(paths, file) {
-        const source = fs.readFileSync(file, 'utf-8');
+    async _parseFile(paths, file) {
+        const source = await fs.readFile(file, 'utf-8');
         const parser = new protoc.Parser(source, file, this);
         const parsed = parser.parse();
         for (const item of parsed.imports) {
-            const resolved = this._resolve(item, file, paths);
+            // eslint-disable-next-line no-await-in-loop
+            const resolved = await this._resolve(item, file, paths);
             if (!resolved) {
-                throw new protoc.Error("File '" + item + "' not found.");
+                throw new protoc.Error(`File '${item}' not found.`);
             }
-            this._loadFile(paths, resolved);
+            // eslint-disable-next-line no-await-in-loop
+            await this._loadFile(paths, resolved);
         }
         for (const item of parsed.weakImports) {
-            const resolved = this._resolve(item, file, paths);
+            // eslint-disable-next-line no-await-in-loop
+            const resolved = await this._resolve(item, file, paths);
             if (resolved) {
-                this._loadFile(paths, resolved);
+                // eslint-disable-next-line no-await-in-loop
+                await this._loadFile(paths, resolved);
             }
         }
     }
 
-    _resolve(target, source, paths) {
+    async _resolve(target, source, paths) {
         const file = path.resolve(source, target);
         const posix = file.split(path.sep).join(path.posix.sep);
         const index = posix.lastIndexOf('google/protobuf/');
@@ -211,12 +222,23 @@ protoc.Root = class extends protoc.Namespace {
                 return name;
             }
         }
-        if (fs.existsSync(file)) {
+        const access = async (path) => {
+            try {
+                await fs.access(path);
+                return true;
+            } catch {
+                return false;
+            }
+        };
+        const exists = await access(file);
+        if (exists) {
             return file;
         }
         for (const dir of paths) {
             const file = path.resolve(dir, target);
-            if (fs.existsSync(file)) {
+            // eslint-disable-next-line no-await-in-loop
+            const exists = await access(file);
+            if (exists) {
                 return file;
             }
         }
@@ -237,13 +259,17 @@ protoc.Type = class extends protoc.Namespace {
     get(name) {
         return this.fields.get(name) || this.oneofs.get(name) || this.children.get(name) || null;
     }
+
+    defineField(name, id, type, rule, extend) {
+        return new protoc.Field(this, name, id, type, rule, extend);
+    }
 };
 
 protoc.Enum = class extends protoc.Type {
 
     constructor(parent, name) {
         super(parent, name);
-        this.valuesById = {};
+        this.valuesById = new Map();
         this.values = {};
         this.reserved = [];
     }
@@ -253,20 +279,20 @@ protoc.Enum = class extends protoc.Type {
             throw new protoc.Error('Identifier must be an integer.');
         }
         if (this.values[name] !== undefined) {
-            throw new protoc.Error("Duplicate name '" + name + "' in '" + this.name + "'.");
+            throw new protoc.Error(`Duplicate name '${name}' in '${this.name}'.`);
         }
         if (protoc.Namespace.isReservedId(this.reserved, id)) {
-            throw new protoc.Error("Identifier '" + id + "' is reserved in '" + this.name + "'.");
+            throw new protoc.Error(`Identifier '${id}' is reserved in '${this.name}'.`);
         }
         if (protoc.Namespace.isReservedName(this.reserved, name)) {
-            throw new protoc.Error("Name '" + name + "' is reserved in '" + this.name + "'.");
+            throw new protoc.Error(`Name '${name}' is reserved in '${this.name}'.`);
         }
-        if (this.valuesById[id] !== undefined) {
+        if (this.valuesById.has(id)) {
             if (!this.options.has('allow_alias')) {
-                throw new protoc.Error("Duplicate identifier '" + id + "' in '" + this.name + "'.");
+                throw new protoc.Error(`Duplicate identifier '${id}' in '${this.name}'.`);
             }
         } else {
-            this.valuesById[id] = name;
+            this.valuesById.set(id, name);
         }
         this.values[name] = id;
     }
@@ -328,13 +354,13 @@ protoc.Field = class extends protoc.Object {
             parent = parent.parent;
         }
         if (parent.get(this.name)) {
-            throw new protoc.Error("Duplicate name '" + this.name + "' in '" + parent.name + "'.");
+            throw new protoc.Error(`Duplicate name '${this.name}' in '${parent.name}'.`);
         }
         if (protoc.Namespace.isReservedId(parent.reserved, this.id)) {
-            throw new protoc.Error("Identifier '" + this.id + "' is reserved in '" + parent.name + "'.");
+            throw new protoc.Error(`Identifier '${this.id}' is reserved in '${parent.name}'.`);
         }
         if (protoc.Namespace.isReservedName(parent.reserved, this.name)) {
-            throw new protoc.Error("Name '" + this.name + "' is reserved in '" + parent.name + "'.");
+            throw new protoc.Error(`Name '${this.name}' is reserved in '${parent.name}'.`);
         }
         parent.fields.set(this.name, this);
     }
@@ -373,7 +399,7 @@ protoc.OneOf = class extends protoc.Object {
         super(parent, name);
         this.oneof = new Map();
         if (parent.get(this.name)) {
-            throw new protoc.Error("Duplicate name '" + this.name + "' in '" + parent.name + "'.");
+            throw new protoc.Error(`Duplicate name '${this.name}' in '${parent.name}'.`);
         }
         parent.oneofs.set(this.name, this);
     }
@@ -398,7 +424,7 @@ protoc.Parser = class {
     }
 
     parse() {
-        let token;
+        let token = '';
         while ((token = this._tokenizer.next()) !== null) {
             switch (token) {
                 case 'package':
@@ -515,7 +541,7 @@ protoc.Parser = class {
                 this._parseExtend(parent, token);
                 return true;
             case 'service':
-                throw new protoc.Error("Keyword '" + token + "' is not supported" + this._tokenizer.location());
+                throw new protoc.Error(`Keyword '${token}' is not supported ${this._tokenizer.location()}`);
             default:
                 return false;
         }
@@ -525,12 +551,12 @@ protoc.Parser = class {
         if (obj) {
             obj.file = this._file;
         }
-        if (this._tokenizer.eat("{")) {
-            let token;
+        if (this._tokenizer.accept("{")) {
+            let token = '';
             while ((token = this._tokenizer.next()) !== "}") {
                 ifCallback(token);
             }
-            this._tokenizer.eat(";");
+            this._tokenizer.accept(";");
         } else {
             if (elseCallback) {
                 elseCallback();
@@ -567,7 +593,6 @@ protoc.Parser = class {
                 case 'extensions':
                     this._readRanges(type.extensions);
                     break;
-                    // throw new protoc.Error("Keyword 'extensions' is not supported" + self._tokenizer.location());
                 default:
                     if (this._syntax !== 'proto3' || !protoc.Parser._isTypeReference(token)) {
                         throw this._parseError(token);
@@ -758,7 +783,7 @@ protoc.Parser = class {
     }
 
     _parseOption(parent, token) {
-        const custom = this._tokenizer.eat("(");
+        const custom = this._tokenizer.accept("(");
         token = this._tokenizer.next();
         if (!protoc.Parser._isTypeReference(token)) {
             throw this._parseError(token, 'name');
@@ -766,7 +791,7 @@ protoc.Parser = class {
         let name = token;
         if (custom) {
             this._tokenizer.expect(")");
-            name = "(" + name + ")";
+            name = `(${name})`;
             token = this._tokenizer.peek();
             if (/^(?:\.[a-zA-Z_][a-zA-Z_0-9]*)+$/.test(token)) {
                 name += token;
@@ -778,23 +803,23 @@ protoc.Parser = class {
     }
 
     _parseOptionValue(parent, name) {
-        if (this._tokenizer.eat('{')) {
-            while (!this._tokenizer.eat('}')) {
+        if (this._tokenizer.accept('{')) {
+            while (!this._tokenizer.accept('}')) {
                 const token = this._tokenizer.next();
                 if (!protoc.Parser._isName(token)) {
                     throw this._parseError(token, 'name');
                 }
                 if (this._tokenizer.peek() === '{') {
-                    this._parseOptionValue(parent, name + '.' + token);
+                    this._parseOptionValue(parent, `${name}.${token}`);
                 } else {
                     this._tokenizer.expect(':');
                     if (this._tokenizer.peek() === '{') {
-                        this._parseOptionValue(parent, name + '.' + token);
+                        this._parseOptionValue(parent, `${name}.${token}`);
                     } else {
-                        parent.options.set(name + '.' + token, this._readValue());
+                        parent.options.set(`${name}.${token}`, this._readValue());
                     }
                 }
-                this._tokenizer.eat(',');
+                this._tokenizer.accept(',');
             }
         } else {
             parent.options.set(name, this._readValue());
@@ -802,11 +827,11 @@ protoc.Parser = class {
     }
 
     _parseInlineOptions(parent) {
-        if (this._tokenizer.eat('[')) {
+        if (this._tokenizer.accept('[')) {
             do {
                 this._parseOption(parent, 'option');
             }
-            while (this._tokenizer.eat(','));
+            while (this._tokenizer.accept(','));
             this._tokenizer.expect(']');
         }
         return parent;
@@ -814,7 +839,7 @@ protoc.Parser = class {
 
     _readString() {
         const values = [];
-        let token;
+        let token = '';
         do {
             if ((token = this._tokenizer.next()) !== '"' && token !== "'") {
                 throw this._parseError(token);
@@ -855,16 +880,16 @@ protoc.Parser = class {
 
     _readRanges(target, acceptStrings) {
         do {
-            let token;
+            let token = '';
             if (acceptStrings && ((token = this._tokenizer.peek()) === '"' || token === "'")) {
                 target.push(this._readString());
             } else {
                 const start = this._parseId(this._tokenizer.next());
-                const end = this._tokenizer.eat('to') ? this._parseId(this._tokenizer.next()) : start;
-                target.push([ start, end ]);
+                const end = this._tokenizer.accept('to') ? this._parseId(this._tokenizer.next()) : start;
+                target.push([start, end]);
             }
         }
-        while (this._tokenizer.eat(','));
+        while (this._tokenizer.accept(','));
         this._tokenizer.expect(';');
     }
 
@@ -918,7 +943,7 @@ protoc.Parser = class {
     _parseError(token, name) {
         name = name || 'token';
         const location = this._tokenizer.location();
-        return new protoc.Error("Invalid " + name + " '" + token + "'" + location + ".");
+        return new protoc.Error(`Invalid ${name} '${token}' ${location}.`);
     }
 };
 
@@ -950,9 +975,9 @@ protoc.Tokenizer = class {
             return this._readString();
         }
 
-        let repeat;
-        let prev;
-        let curr;
+        let repeat = false;
+        let prev = '';
+        let curr = '';
         do {
             if (this._position === this._length) {
                 return null;
@@ -967,7 +992,6 @@ protoc.Tokenizer = class {
                     return null;
                 }
             }
-
             if (this._get(this._position) === '/') {
                 this._position++;
                 if (this._position === this._length) {
@@ -1039,12 +1063,12 @@ protoc.Tokenizer = class {
     expect(value) {
         const token = this.peek();
         if (token !== value) {
-            throw this._readError("Unexpected '" + token + "' instead of '" + value + "'");
+            throw this._readError(`Unexpected '${token}' instead of '${value}'`);
         }
         this.next();
     }
 
-    eat(value) {
+    accept(value) {
         const token = this.peek();
         if (token === value) {
             this.next();
@@ -1058,7 +1082,7 @@ protoc.Tokenizer = class {
     }
 
     static _unescape(str) {
-        return str.replace(/\\(.?)/g, function($0, $1) {
+        return str.replace(/\\(.?)/g, ($0, $1) => {
             switch ($1) {
                 case '\\':
                 case '':
@@ -1091,22 +1115,27 @@ protoc.Tokenizer = class {
     }
 
     _readError(message) {
-        const location = ' at ' + this._file + ':' + this._line.toString();
-        return new protoc.Error(message + location + '.');
+        const location = `at ${this._file}:${this._line}.`;
+        return new protoc.Error(`${message} ${location}`);
     }
 
     location() {
-        return ' at ' + this.file + ':' + this.line;
+        return `at ${this.file}:${this.line}.`;
     }
 };
 
 protoc.Generator = class {
 
-    constructor(root, text) {
+    constructor(root, options) {
         this._root = root;
-        this._text = text;
+        this._options = options;
         this._builder = new protoc.Generator.StringBuilder();
-        this._builder.add("var $root = protobuf.get('" + this._root.alias + "');");
+        const scopes = Array.from(this._root.children.values()).map((child) => child.fullName);
+        const exports = new Set(scopes.map((scope) => scope.split('.')[0]));
+        this._builder.add('');
+        for (const value of exports) {
+            this._builder.add(`export const ${value} = {};`);
+        }
         this._buildContent(this._root);
         this._content = this._builder.toString();
     }
@@ -1117,33 +1146,35 @@ protoc.Generator = class {
 
     _buildContent(namespace) {
         for (const child of namespace.children.values()) {
-            this._builder.add('');
             if (child instanceof protoc.Enum) {
+                this._builder.add('');
                 this._buildEnum(child);
             } else if (child instanceof protoc.Type) {
+                this._builder.add('');
                 this._buildType(child);
+            } else if (child instanceof protoc.Namespace) {
+                const name = child.fullName.split('.').map((name) => protoc.Generator._escapeName(name)).join('.');
+                if (name.indexOf('.') !== -1) {
+                    this._builder.add('');
+                    this._builder.add(`${name} = {};`);
+                }
+                this._buildContent(child);
             } else {
-                this._buildNamespace(child);
+                throw new protoc.Error('Unsupportd namespace child.');
             }
         }
-    }
-
-    _buildNamespace(namespace) {
-        const name = namespace.fullName.split('.').map((name) => protoc.Generator._escapeName(name)).join('.');
-        this._builder.add(name + ' = {};');
-        this._buildContent(namespace);
     }
 
     _buildEnum(type) {
         /* eslint-disable indent */
         const name = type.fullName.split('.').map((name) => protoc.Generator._escapeName(name)).join('.');
-        this._builder.add(name + ' = {');
+        this._builder.add(`${name} = {`);
         this._builder.indent();
             const keys = Object.keys(type.values);
             for (let i = 0; i < keys.length; i++) {
                 const key = keys[i];
                 const value = type.values[key];
-                this._builder.add(JSON.stringify(key) + ': ' + value + ((i === keys.length - 1) ? '' : ','));
+                this._builder.add(`${JSON.stringify(key)}: ${value}${(i === keys.length - 1) ? '' : ','}`);
             }
         this._builder.outdent();
         this._builder.add("};");
@@ -1153,8 +1184,7 @@ protoc.Generator = class {
     _buildType(type) {
 
         const name = type.fullName.split('.').map((name) => protoc.Generator._escapeName(name)).join('.');
-        this._builder.add(name + ' = class ' + protoc.Generator._escapeName(type.name) + ' {');
-        this._builder.add('');
+        this._builder.add(`${name} = class ${protoc.Generator._escapeName(type.name)} {`);
         this._builder.indent();
 
         this._buildConstructor(type);
@@ -1162,21 +1192,28 @@ protoc.Generator = class {
         for (const oneof of type.oneofs.values()) {
             /* eslint-disable indent */
             this._builder.add('');
-            this._builder.add('get ' + oneof.name + '() {');
+            this._builder.add(`get ${oneof.name}() {`);
             this._builder.indent();
-                this._builder.add(name + '.' + oneof.name + 'Set = ' + name + '.' + oneof.name + 'Set || new Set([ ' + Array.from(oneof.oneof.keys()).map(JSON.stringify).join(', ') + ']);');
-                this._builder.add('return Object.keys(this).find((key) => ' + name + '.' + oneof.name + 'Set.has(key) && this[key] != null);');
+                this._builder.add(`${name}.${oneof.name}Set = ${name}.${oneof.name}Set || new Set([${Array.from(oneof.oneof.keys()).map(JSON.stringify).join(', ')}]);`);
+                this._builder.add(`return Object.keys(this).find((key) => ${name}.${oneof.name}Set.has(key) && this[key] !== null);`);
             this._builder.outdent();
             this._builder.add('}');
             /* eslint-enable indent */
         }
 
-        this._builder.add('');
-        this._buildDecodeFunction(type);
+        if (this._options.binary) {
+            this._builder.add('');
+            this._buildDecodeFunction(type);
+        }
 
-        if (this._text) {
+        if (this._options.text) {
             this._builder.add('');
             this._buildDecodeTextFunction(type);
+        }
+
+        if (this._options.json) {
+            this._builder.add('');
+            this._buildDecodeJsonFunction(type);
         }
 
         this._builder.outdent();
@@ -1193,14 +1230,14 @@ protoc.Generator = class {
             }
             if (field.type.long) {
                 if (field.type.name === 'uint64' || field.type.name === 'fixed64') {
-                    this._builder.add(name + '.prototype' + protoc.Generator._propertyReference(field.name) + ' = protobuf.Uint64.create(' + field.defaultValue + ');');
+                    this._builder.add(`${name}.prototype${protoc.Generator._propertyReference(field.name)} = ${field.defaultValue}n;`);
                 } else {
-                    this._builder.add(name + '.prototype' + protoc.Generator._propertyReference(field.name) + ' = protobuf.Int64.create(' + field.defaultValue + ');');
+                    this._builder.add(`${name}.prototype${protoc.Generator._propertyReference(field.name)} = ${field.defaultValue}n;`);
                 }
             } else if (field.type.name === 'bytes') {
-                this._builder.add(name + '.prototype' + protoc.Generator._propertyReference(field.name) + ' = new Uint8Array(' + JSON.stringify(Array.prototype.slice.call(field.defaultValue)) + ");");
+                this._builder.add(`${name}.prototype${protoc.Generator._propertyReference(field.name)} = new Uint8Array(${JSON.stringify(Array.prototype.slice.call(field.defaultValue))});`);
             } else {
-                this._builder.add(name + '.prototype' + protoc.Generator._propertyReference(field.name) + ' = ' + JSON.stringify(field.defaultValue) + ';');
+                this._builder.add(`${name}.prototype${protoc.Generator._propertyReference(field.name)} = ${JSON.stringify(field.defaultValue)};`);
             }
         }
 
@@ -1208,14 +1245,20 @@ protoc.Generator = class {
     }
 
     _buildConstructor(type) {
+        const filter = (field) => field instanceof protoc.MapField || field.repeated;
+        const fields = Array.from(type.fields.values()).filter(filter);
+        if (fields.length === 0) {
+            return;
+        }
         /* eslint-disable indent */
+        this._builder.add('');
         this._builder.add('constructor() {');
         this._builder.indent();
-            for (const field of type.fields.values()) {
+            for (const field of fields) {
                 if (field instanceof protoc.MapField) {
-                    this._builder.add('this' + protoc.Generator._propertyReference(field.name) + ' = {};');
+                    this._builder.add(`this${protoc.Generator._propertyReference(field.name)} = {};`);
                 } else if (field.repeated) {
-                    this._builder.add('this' + protoc.Generator._propertyReference(field.name) + ' = [];');
+                    this._builder.add(`this${protoc.Generator._propertyReference(field.name)} = [];`);
                 }
             }
         this._builder.outdent();
@@ -1225,11 +1268,11 @@ protoc.Generator = class {
 
     _buildDecodeFunction(type) {
         /* eslint-disable indent */
-        const fieldTypeName = (field) => "$root" + field.type.fullName;
+        const fieldTypeName = (field) => `${field.type.fullName}`;
         this._builder.add('static decode(reader, length) {');
         this._builder.indent();
-            this._builder.add('const message = new $root' + type.fullName + '();');
-            this._builder.add('const end = length !== undefined ? reader.position + length : reader.length;');
+            this._builder.add(`const message = new ${type.fullName}();`);
+            this._builder.add('const end = length === undefined ? reader.length : reader.position + length;');
             this._builder.add("while (reader.position < end) {");
             this._builder.indent();
                 this._builder.add("const tag = reader.uint32();");
@@ -1242,36 +1285,36 @@ protoc.Generator = class {
                 this._builder.add("switch (tag >>> 3) {");
                 this._builder.indent();
                     for (const field of type.fields.values()) {
-                        const variable = "message" + protoc.Generator._propertyReference(field.name);
-                        this._builder.add('case ' + field.id + ':');
+                        const variable = `message${protoc.Generator._propertyReference(field.name)}`;
+                        this._builder.add(`case ${field.id}:`);
                         this._builder.indent();
                             if (field instanceof protoc.MapField) {
                                 const value = field.type instanceof protoc.PrimitiveType ?
-                                    'reader.' + field.type.name + '()' :
-                                    fieldTypeName(field) + '.decode(reader, reader.uint32())';
-                                this._builder.add('reader.entry(' + variable + ', () => reader.' + field.keyType.name + '(), () => ' + value + ');');
+                                    `reader.${field.type.name}()` :
+                                    `${fieldTypeName(field)}.decode(reader, reader.uint32())`;
+                                this._builder.add(`reader.entry(${variable}, () => reader.${field.keyType.name}(), () => ${value});`);
                             } else if (field.repeated) {
                                 if (field.type.name === 'float' || field.type.name === 'double') {
-                                    this._builder.add(variable + ' = reader.' + field.type.name + 's(' + variable + ', tag);');
+                                    this._builder.add(`${variable} = reader.${field.type.name}s(${variable}, tag);`);
                                 } else if (field.type instanceof protoc.Enum) {
-                                    this._builder.add(variable + ' = reader.array(' + variable + ', () => reader.int32(), tag);');
+                                    this._builder.add(`${variable} = reader.array(${variable}, () => reader.int32(), tag);`);
                                 } else if (field.type instanceof protoc.PrimitiveType && field.type.packed) {
-                                    this._builder.add(variable + ' = reader.array(' + variable + ', () => reader.' + field.type.name + '(), tag);');
+                                    this._builder.add(`${variable} = reader.array(${variable}, () => reader.${field.type.name}(), tag);`);
                                 } else if (field.type instanceof protoc.PrimitiveType) {
-                                    this._builder.add(variable + '.push(reader.' + field.type.name + '());');
+                                    this._builder.add(`${variable}.push(reader.${field.type.name}());`);
                                 } else if (field.type.group) {
-                                    this._builder.add(variable + '.push(' + fieldTypeName(field) + '.decode(reader));');
+                                    this._builder.add(`${variable}.push(${fieldTypeName(field)}.decode(reader));`);
                                 } else {
-                                    this._builder.add(variable + '.push(' + fieldTypeName(field) + '.decode(reader, reader.uint32()));');
+                                    this._builder.add(`${variable}.push(${fieldTypeName(field)}.decode(reader, reader.uint32()));`);
                                 }
                             } else if (field.type instanceof protoc.Enum) {
-                                this._builder.add(variable + ' = reader.int32();');
+                                this._builder.add(`${variable} = reader.int32();`);
                             } else if (field.type instanceof protoc.PrimitiveType) {
-                                this._builder.add(variable + ' = reader.' + field.type.name + '();');
+                                this._builder.add(`${variable} = reader.${field.type.name}();`);
                             } else if (field.type.group) {
-                                this._builder.add(variable + ' = ' + fieldTypeName(field) + '.decode(reader);');
+                                this._builder.add(`${variable} = ${fieldTypeName(field)}.decode(reader);`);
                             } else {
-                                this._builder.add(variable + ' = ' + fieldTypeName(field) + '.decode(reader, reader.uint32());');
+                                this._builder.add(`${variable} = ${fieldTypeName(field)}.decode(reader, reader.uint32());`);
                             }
                             this._builder.add('break;');
                         this._builder.outdent();
@@ -1288,9 +1331,9 @@ protoc.Generator = class {
             this._builder.add('}');
 
             for (const field of Array.from(type.fields.values()).filter((field) => field.required)) {
-                this._builder.add("if (!Object.prototype.hasOwnProperty.call(message, '" + field.name + "')) {");
+                this._builder.add(`if (!Object.prototype.hasOwnProperty.call(message, '${field.name}')) {`);
                 this._builder.indent();
-                    this._builder.add('throw new protobuf.Error("Excepted \'' + field.name + '\'.");');
+                    this._builder.add(`throw new Error("Expected '${field.name}'.");`);
                 this._builder.outdent();
                 this._builder.add('}');
             }
@@ -1303,13 +1346,12 @@ protoc.Generator = class {
 
     _buildDecodeTextFunction(type) {
         /* eslint-disable indent */
-        const typeName = (type) => "$root" + type.fullName;
         this._builder.add('static decodeText(reader) {');
         this._builder.indent();
-            if (type.fullName === '.google.protobuf.Any') {
-                this._builder.add('return reader.any(() => new ' + typeName(type) + '());');
+            if (type.fullName === 'google.protobuf.Any') {
+                this._builder.add(`return reader.any(() => new ${type.fullName}());`);
             } else {
-                this._builder.add('const message = new ' + typeName(type) + '();');
+                this._builder.add(`const message = new ${type.fullName}();`);
                 this._builder.add('reader.start();');
                 this._builder.add('while (!reader.end()) {');
                 this._builder.indent();
@@ -1317,37 +1359,36 @@ protoc.Generator = class {
                     this._builder.add('switch (tag) {');
                     this._builder.indent();
                         for (const field of type.fields.values()) {
-                            const variable = "message" + protoc.Generator._propertyReference(field.name);
-                            this._builder.add('case "' + field.name + '":');
+                            const variable = `message${protoc.Generator._propertyReference(field.name)}`;
+                            this._builder.add(`case "${field.name}":`);
                             this._builder.indent();
                                 // Map fields
                                 if (field instanceof protoc.MapField) {
                                     const value = field.type instanceof protoc.PrimitiveType ?
-                                        'reader.' + field.type.name + '()' :
-                                        typeName(field.type) + '.decodeText(reader)';
-                                    this._builder.add('reader.entry(' + variable + ', () => reader.' + field.keyType.name + '(), () => ' + value + ');');
+                                        `reader.${field.type.name}()` :
+                                        `${field.type.fullName}.decodeText(reader)`;
+                                    this._builder.add(`reader.entry(${variable}, () => reader.${field.keyType.name}(), () => ${value});`);
                                 } else if (field.repeated) { // Repeated fields
                                     if (field.type instanceof protoc.Enum) {
-                                        this._builder.add('reader.array(' + variable + ', () => reader.enum(' + typeName(field.type) + '));');
+                                        this._builder.add(`reader.array(${variable}, () => reader.enum(${field.type.fullName}));`);
                                     } else if (field.type instanceof protoc.PrimitiveType) {
-                                        this._builder.add('reader.array(' + variable + ', () => reader.' + field.type.name + '());');
-                                    } else if (field.type.fullName === '.google.protobuf.Any') {
-                                        this._builder.add('reader.anyarray(' + variable + ', () => new ' + typeName(field.type) + '());');
+                                        this._builder.add(`reader.array(${variable}, () => reader.${field.type.name}());`);
+                                    } else if (field.type.fullName === 'google.protobuf.Any') {
+                                        this._builder.add(`reader.anyarray(${variable}, () => new ${field.type.fullName}());`);
                                     } else {
-                                        this._builder.add(variable + '.push(' + typeName(field.type) + '.decodeText(reader));');
+                                        this._builder.add(`${variable}.push(${field.type.fullName}.decodeText(reader));`);
                                     }
                                 // Non-repeated
                                 } else if (field.type instanceof protoc.Enum) {
-                                    this._builder.add(variable + ' = reader.enum(' + typeName(field.type) + ');');
+                                    this._builder.add(`${variable} = reader.enum(${field.type.fullName});`);
                                 } else if (field.type instanceof protoc.PrimitiveType) {
-                                    this._builder.add(variable + ' = reader.' + field.type.name + '();');
+                                    this._builder.add(`${variable} = reader.${field.type.name}();`);
                                 } else {
-                                    this._builder.add(variable + ' = ' + typeName(field.type) + '.decodeText(reader);');
+                                    this._builder.add(`${variable} = ${field.type.fullName}.decodeText(reader);`);
                                 }
                                 this._builder.add("break;");
                             this._builder.outdent();
                         }
-
                         this._builder.add("default:");
                         this._builder.indent();
                             this._builder.add("reader.field(tag, message);");
@@ -1358,12 +1399,82 @@ protoc.Generator = class {
                 this._builder.outdent();
                 this._builder.add('}');
                 for (const field of Array.from(type.fields.values()).filter((field) => field.required)) {
-                    this._builder.add('if (!Object.prototype.hasOwnProperty.call(message, "' + field.name + '")) {');
+                    this._builder.add(`if (!Object.prototype.hasOwnProperty.call(message, "${field.name}")) {`);
                     this._builder.indent();
-                        this._builder.add('throw new protobuf.Error("Excepted \'' + field.name + '\'.");');
+                        this._builder.add(`throw new Error("Expected '${field.name}'.");`);
                     this._builder.outdent();
                     this._builder.add('}');
                 }
+                this._builder.add('return message;');
+            }
+        this._builder.outdent();
+        this._builder.add('}');
+        /* eslint-enable indent */
+    }
+
+    _buildDecodeJsonFunction(type) {
+        /* eslint-disable indent */
+        this._builder.add(`static decodeJson(${type.fullName === 'google.protobuf.Any' || type.fields.size === 0 ? '' : 'obj'}) {`);
+        this._builder.indent();
+            if (type.fullName === 'google.protobuf.Any') {
+                this._builder.add("throw new Error('Any fields not implemented.');");
+            } else {
+                this._builder.add(`const message = new ${type.fullName}();`);
+                for (const field of type.fields.values()) {
+                    const json = field.name.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+                    const source = `obj.${json}`;
+                    const target = `message${protoc.Generator._propertyReference(field.name)}`;
+                    if (!field.required) {
+                        this._builder.add(`if ('${json}' in obj) {`);
+                        this._builder.indent();
+                    }
+                    if (field instanceof protoc.MapField) {
+                        this._builder.add(`for (const [key, value] of Object.entries(obj.${json})) {`);
+                        this._builder.indent();
+                            const value = field.type instanceof protoc.PrimitiveType ? `value` : `${field.type.fullName}.decodeJson(value)`;
+                            this._builder.add(`${target}[key] = ${value};`);
+                        this._builder.outdent();
+                        this._builder.add(`}`);
+                    } else if (field.repeated) {
+                        if (field.type instanceof protoc.PrimitiveType) {
+                            if (field.type.name === 'float' || field.type.name === 'double' || field.type.name === 'int32' || field.type.name === 'uint32') {
+                                this._builder.add(`${target} = ${source}.map((obj) => Number(obj));`);
+                            } else if (field.type.name === 'int64' || field.type.name === 'uint64' || field.type.name === 'fixed64' || field.type.name === 'sint64') {
+                                this._builder.add(`${target} = ${source}.map((obj) => BigInt(obj));`);
+                            } else if (field.type.name === 'bytes') {
+                                this._builder.add(`${target} = ${source}.map((obj) => typeof obj === 'string' ? Uint8Array.from(atob(obj), (c) => c.charCodeAt(0)) : Uint8Array.from(obj));`);
+                            } else if (field.type.name === 'string' || field.type.name === 'bool') {
+                                this._builder.add(`${target} = ${source};`);
+                            } else {
+                                throw new protoc.Error(`Repeated primitive field type '${field.type.name}' not implemented.`);
+                            }
+                        } else if (field.type instanceof protoc.Enum) {
+                            this._builder.add(`${target} = ${source}.map((key) => typeof key === 'string' ? ${field.type.fullName}[key] : key);`);
+                        } else {
+                            this._builder.add(`${target} = ${source}.map((obj) => ${field.type.fullName}.decodeJson(obj));`);
+                        }
+                    } else if (field.type instanceof protoc.PrimitiveType) {
+                        if (field.type.name === 'float' || field.type.name === 'double' || field.type.name === 'int32' || field.type.name === 'uint32' || field.type.name === 'fixed32') {
+                            this._builder.add(`${target} = Number(${source});`);
+                        } else if (field.type.name === 'int64' || field.type.name === 'uint64' || field.type.name === 'fixed64' || field.type.name === 'sint64') {
+                            this._builder.add(`${target} = BigInt(${source});`);
+                        } else if (field.type.name === 'bytes') {
+                            this._builder.add(`${target} = typeof ${source} === 'string' ? Uint8Array.from(atob(${source}), (c) => c.charCodeAt(0)) : Uint8Array.from(${source});`);
+                        } else if (field.type.name === 'string' || field.type.name === 'bool') {
+                            this._builder.add(`${target} = ${source};`);
+                        } else {
+                            throw new protoc.Error(`Primitive field type '${field.type.name}' not implemented.`);
+                        }
+                    } else if (field.type instanceof protoc.Enum) {
+                        this._builder.add(`${target} = typeof ${source} === 'string' ? ${field.type.fullName}[${source}] : ${source};`);
+                    } else {
+                        this._builder.add(`${target} = ${field.type.fullName}.decodeJson(${source});`);
+                    }
+                    if (!field.required) {
+                        this._builder.outdent();
+                        this._builder.add('}');
+                    }
+               }
                 this._builder.add('return message;');
             }
         this._builder.outdent();
@@ -1376,23 +1487,22 @@ protoc.Generator = class {
     }
 
     static _escapeName(name) {
-        return !name ? '$root' : protoc.Generator._isKeyword(name) ? name + '_' : name;
+        return protoc.Generator._isKeyword(name) ? `${name}_` : name;
     }
 
     static _propertyReference(name) {
-        if (!/^[$\w_]+$/.test(name) || protoc.Generator._isKeyword(name)) {
-            return '["' + name.replace(/\\/g, '\\\\').replace(/"/g, "\\\"") + '"]';
+        if (!/^[$\w_]+$/.test(name)) {
+            return `["${name.replace(/\\/g, '\\\\').replace(/"/g, "\\\"")}"]`;
         }
-        return "." + name;
+        return `.${name}`;
     }
-
 };
 
 protoc.Generator.StringBuilder = class {
 
     constructor() {
         this._indentation = '';
-        this._lines = [];
+        this._lines = [''];
         this._newline = true;
     }
 
@@ -1426,11 +1536,11 @@ protoc.Error = class extends Error {
 
     constructor(message) {
         super(message);
-        this.name = 'Protocol Buffer Compiler Error';
+        this.name = 'Protocol Buffers Compiler Error';
     }
 };
 
-const main = (args) => {
+const main = async (args) => {
 
     const options = { verbose: false, root: 'default', out: '', text: false, paths: [], files: [] };
     while (args.length > 0) {
@@ -1445,15 +1555,21 @@ const main = (args) => {
             case '--root':
                 options.root = args.shift();
                 break;
+            case '--binary':
+                options.binary = true;
+                break;
             case '--text':
                 options.text = true;
+                break;
+            case '--json':
+                options.json = true;
                 break;
             case '--path':
                 options.paths.push(args.shift());
                 break;
             default:
                 if (arg.startsWith('-')) {
-                    throw new protoc.Error("Invalid command line argument '" + arg + "'.");
+                    throw new protoc.Error(`Invalid command line argument '${arg}'.`);
                 }
                 options.files.push(arg);
                 break;
@@ -1461,29 +1577,28 @@ const main = (args) => {
     }
 
     try {
-        const root = new protoc.Root(options.root, options.paths, options.files);
-        const generator = new protoc.Generator(root, options.text);
+        const root = new protoc.Root(options.root);
+        await root.load(options.paths, options.files);
+        const generator = new protoc.Generator(root, options);
         if (options.out) {
-            fs.writeFileSync(options.out, generator.content, 'utf-8');
+            await fs.writeFile(options.out, generator.content, 'utf-8');
         }
-    } catch (err) {
-        if (err instanceof protoc.Error && !options.verbose) {
-            process.stderr.write(err.message + '\n');
+    } catch (error) {
+        if (error instanceof protoc.Error && !options.verbose) {
+            process.stderr.write(`${error.message}\n`);
         } else {
-            process.stderr.write(err.stack + '\n');
+            process.stderr.write(`${error.stack}\n`);
         }
-        return 1;
+        process.exit(1);
     }
-    return 0;
+    process.exit(0);
 };
 
-if (typeof process === 'object' && Array.isArray(process.argv) &&
-    process.argv.length > 1 && process.argv[1] === __filename) {
+if (typeof process === 'object' &&
+    Array.isArray(process.argv) && process.argv.length > 1 &&
+    path.basename(process.argv[1]) === 'protoc.js') {
     const args = process.argv.slice(2);
-    const code = main(args);
-    process.exit(code);
+    await main(args);
 }
 
-if (typeof module !== 'undefined' && typeof module.exports === 'object') {
-    module.exports.Root = protoc.Root;
-}
+export const Root = protoc.Root;

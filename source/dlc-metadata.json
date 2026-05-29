@@ -1,5 +1,31 @@
 [
   {
+    "name": "BatchNorm",
+    "category": "Normalization"
+  },
+  {
+    "name": "Batchnorm",
+    "category": "Normalization",
+    "inputs": [
+      { "name": "input" },
+      { "name": "mean" },
+      { "name": "variance" }
+    ]
+  },
+  {
+    "name": "Concat",
+    "category": "Tensor"
+  },
+  {
+    "name": "Conv2d",
+    "category": "Layer",
+    "inputs": [
+      { "name": "input" },
+      { "name": "weight" },
+      { "name": "bias" }
+    ]
+  },
+  {
     "name": "Convolutional",
     "category": "Layer"
   },
@@ -8,16 +34,30 @@
     "category": "Layer"
   },
   {
-    "name": "BatchNorm",
-    "category": "Normalization"
-  },
-  {
-    "name": "Concat",
-    "category": "Tensor"
+    "name": "DepthWiseConv2d",
+    "category": "Layer",
+    "inputs": [
+      { "name": "input" },
+      { "name": "weight" },
+      { "name": "bias" }
+    ]
   },
   {
     "name": "FullyConnected",
-    "category": "Layer"
+    "category": "Layer",
+    "inputs": [
+      { "name": "input" },
+      { "name": "weight" },
+      { "name": "bias" }
+    ]
+  },
+  {
+    "name": "Gather",
+    "category": "Transform",
+    "inputs": [
+      { "name": "input" },
+      { "name": "indices" }
+    ]
   },
   {
     "name": "Neuron",
@@ -27,7 +67,7 @@
     ]
   },
   {
-    "name": "Reshape",
+    "name": "Pad",
     "category": "Shape"
   },
   {
@@ -35,15 +75,72 @@
     "category": "Shape"
   },
   {
+    "name": "Pool",
+    "category": "Pool"
+  },
+  {
+    "name": "PoolAvg2d",
+    "category": "Pool"
+  },
+  {
     "name": "Pooling",
     "category": "Pool"
+  },
+  {
+    "name": "PoolMax2d",
+    "category": "Pool"
+  },
+  {
+    "name": "Prelu",
+    "category": "Activation",
+    "inputs": [
+      { "name": "input" },
+      { "name": "weight" }
+    ]
+  },
+  {
+    "name": "Relu",
+    "category": "Activation"
+  },
+  {
+    "name": "Reshape",
+    "category": "Shape"
+  },
+  {
+    "name": "Sigmoid",
+    "category": "Activation"
+  },
+  {
+    "name": "Slice",
+    "category": "Tensor"
   },
   {
     "name": "SoftMax",
     "category": "Activation"
   },
   {
+    "name": "Softmax",
+    "category": "Activation"
+  },
+  {
+    "name": "Split",
+    "category": "Tensor"
+  },
+  {
     "name": "StridedSlice",
     "category": "Tensor"
+  },
+  {
+    "name": "Transpose",
+    "category": "Transform"
+  },
+  {
+    "name": "TransposeConv2d",
+    "category": "Layer",
+    "inputs": [
+      { "name": "input" },
+      { "name": "weight" },
+      { "name": "bias" }
+    ]
   }
 ]

@@ -1,37 +1,51 @@
 
-var view =  {};
-var base = require('./base');
-var zip = require('./zip');
-var tar = require('./tar');
-var json = require('./json');
-var xml = require('./xml');
-var protobuf = require('./protobuf');
-var flatbuffers = require('./flatbuffers');
-var hdf5 = require('./hdf5');
-var python = require('./python');
-var grapher = require('./grapher');
+import * as base from './base.js';
+import * as grapher from './grapher.js';
+
+const view = {};
+const markdown = {};
+const png = {};
+const metadata = {};
+const metrics = {};
 
 view.View = class {
 
-    constructor(host, id) {
+    constructor(host) {
         this._host = host;
-        this._id = id ? ('-' + id) : '';
-        this._options = {
+        this._defaultOptions = {
             weights: true,
             attributes: false,
             names: false,
             direction: 'vertical',
             mousewheel: 'scroll'
         };
-        this._host.view(this).then(() => {
-            this._model = null;
-            this._graphs = [];
-            this._selection = [];
-            this._sidebar = new view.Sidebar(this._host, id);
-            this._searchText = '';
-            this._modelFactoryService = new view.ModelFactoryService(this._host);
-            this._element('sidebar-button').addEventListener('click', () => {
+        this._options = { ...this._defaultOptions };
+        this._events = {};
+        this._events.selectionchange = () => this._selectionChangeHandler();
+        this._model = null;
+        this._path = [];
+        this._selection = [];
+        this._sidebar = new view.Sidebar(this._host);
+        this._find = null;
+        this._modelFactoryService = new view.ModelFactoryService(this._host);
+        this._modelFactoryService.import();
+        this._worker = this._host.environment('serial') ? null : new view.Worker(this._host);
+    }
+
+    async start() {
+        try {
+            const zip = await import('./zip.js');
+            await zip.Archive.import();
+            await this._host.view(this);
+            const options = this._host.get('options') || {};
+            for (const [name, value] of Object.entries(options)) {
+                this._options[name] = value;
+            }
+            this._element('sidebar-model-button').addEventListener('click', () => {
                 this.showModelProperties();
+            });
+            this._element('sidebar-target-button').addEventListener('click', () => {
+                this.showTargetProperties();
             });
             this._element('zoom-in-button').addEventListener('click', () => {
                 this.zoomIn();
@@ -39,66 +53,90 @@ view.View = class {
             this._element('zoom-out-button').addEventListener('click', () => {
                 this.zoomOut();
             });
-            this._element('back-button').addEventListener('click', () => {
-                this.popGraph();
-            });
-            this._element('name-button').addEventListener('click', () => {
-                this.showDocumentation(this.activeGraph);
+            this._element('toolbar-path-back-button').addEventListener('click', async () => {
+                await this.popTarget();
             });
             this._element('sidebar').addEventListener('mousewheel', (e) => {
                 if (e.shiftKey || e.ctrlKey) {
                     e.preventDefault();
                 }
-            }, { passive: true });
-            this._host.document.addEventListener('keydown', () => {
-                if (this._graph) {
-                    this._graph.select(null);
+            }, { passive: false });
+            this._host.document.addEventListener('keydown', (e) => {
+                if (this._target && !e.metaKey && !e.ctrlKey) {
+                    this._target.select(null);
                 }
             });
+            this._host.document.addEventListener('copy', (e) => {
+                const selection = this._host.document.getSelection();
+                if (!selection || selection.toString().trim() === '') {
+                    if (this._target && this._target.selection.size > 0) {
+                        const names = [];
+                        for (const element of this._target.selection) {
+                            if (element.value && element.value.name) {
+                                names.push(element.value.name);
+                            }
+                        }
+                        if (names.length > 0) {
+                            e.clipboardData.setData('text/plain', names.join('\n'));
+                            e.preventDefault();
+                        }
+                    }
+                }
+            });
+            if (this._host.type === 'Electron') {
+                this._host.update({ 'copy.enabled': false });
+                this._host.document.addEventListener('selectionchange', this._events.selectionchange);
+            }
             const platform = this._host.environment('platform');
             this._menu = new view.Menu(this._host);
             this._menu.add({
                 accelerator: platform === 'darwin' ? 'Ctrl+Cmd+F' : 'F11',
-                execute: () => this._host.execute('fullscreen')
+                execute: async () => await this._host.execute('fullscreen')
+            });
+            this._menu.add({
+                accelerator: 'Backspace',
+                execute: async () => await this.popTarget()
             });
             if (this._host.environment('menu')) {
-                this._menu.attach(this._element('menu'), this._element('menu-button'));
+                const menu = this._element('menu');
+                const button = this._element('menu-button');
+                this._menu.attach(menu, button);
                 const file = this._menu.group('&File');
                 file.add({
                     label: '&Open...',
                     accelerator: 'CmdOrCtrl+O',
-                    execute: () => this._host.execute('open')
+                    execute: async () => await this._host.execute('open')
                 });
                 if (this._host.type === 'Electron') {
                     this._recents = file.group('Open &Recent');
                     file.add({
                         label: '&Export...',
                         accelerator: 'CmdOrCtrl+Shift+E',
-                        execute: () => this._host.execute('export'),
-                        enabled: () => this.activeGraph
+                        execute: async () => await this._host.execute('export'),
+                        enabled: () => this.activeTarget
                     });
                     file.add({
                         label: platform === 'darwin' ? '&Close Window' : '&Close',
                         accelerator: 'CmdOrCtrl+W',
-                        execute: () => this._host.execute('close'),
+                        execute: async () => await this._host.execute('close'),
                     });
                     file.add({
                         label: platform === 'win32' ? 'E&xit' : '&Quit',
                         accelerator: platform === 'win32' ? '' : 'CmdOrCtrl+Q',
-                        execute: () => this._host.execute('quit'),
+                        execute: async () => await this._host.execute('quit'),
                     });
                 } else {
                     file.add({
                         label: 'Export as &PNG',
                         accelerator: 'CmdOrCtrl+Shift+E',
-                        execute: () => this.export(this._host.document.title + '.png'),
-                        enabled: () => this.activeGraph
+                        execute: async () => await this.export(`${this._host.document.title}.png`),
+                        enabled: () => this.activeTarget
                     });
                     file.add({
                         label: 'Export as &SVG',
                         accelerator: 'CmdOrCtrl+Alt+E',
-                        execute: () => this.export(this._host.document.title + '.svg'),
-                        enabled: () => this.activeGraph
+                        execute: async () => await this.export(`${this._host.document.title}.svg`),
+                        enabled: () => this.activeTarget
                     });
                 }
                 const edit = this._menu.group('&Edit');
@@ -106,46 +144,46 @@ view.View = class {
                     label: '&Find...',
                     accelerator: 'CmdOrCtrl+F',
                     execute: () => this.find(),
-                    enabled: () => this.activeGraph
+                    enabled: () => this.activeTarget
                 });
                 const view = this._menu.group('&View');
                 view.add({
                     label: () => this.options.attributes ? 'Hide &Attributes' : 'Show &Attributes',
                     accelerator: 'CmdOrCtrl+D',
                     execute: () => this.toggle('attributes'),
-                    enabled: () => this.activeGraph
+                    enabled: () => this.activeTarget
                 });
                 view.add({
                     label: () => this.options.weights ? 'Hide &Weights' : 'Show &Weights',
                     accelerator: 'CmdOrCtrl+I',
                     execute: () => this.toggle('weights'),
-                    enabled: () => this.activeGraph
+                    enabled: () => this.activeTarget
                 });
                 view.add({
                     label: () => this.options.names ? 'Hide &Names' : 'Show &Names',
                     accelerator: 'CmdOrCtrl+U',
                     execute: () => this.toggle('names'),
-                    enabled: () => this.activeGraph
+                    enabled: () => this.activeTarget
                 });
                 view.add({
                     label: () => this.options.direction === 'vertical' ? 'Show &Horizontal' : 'Show &Vertical',
                     accelerator: 'CmdOrCtrl+K',
                     execute: () => this.toggle('direction'),
-                    enabled: () => this.activeGraph
+                    enabled: () => this.activeTarget
                 });
                 view.add({
                     label: () => this.options.mousewheel === 'scroll' ? '&Mouse Wheel: Zoom' : '&Mouse Wheel: Scroll',
                     accelerator: 'CmdOrCtrl+M',
                     execute: () => this.toggle('mousewheel'),
-                    enabled: () => this.activeGraph
+                    enabled: () => this.activeTarget
                 });
                 view.add({});
                 if (this._host.type === 'Electron') {
                     view.add({
                         label: '&Reload',
                         accelerator: platform === 'darwin' ? 'CmdOrCtrl+R' : 'F5',
-                        execute: () => this._host.execute('reload'),
-                        enabled: () => this.activeGraph
+                        execute: async () => await this._host.execute('reload'),
+                        enabled: () => this.activeTarget
                     });
                     view.add({});
                 }
@@ -153,54 +191,67 @@ view.View = class {
                     label: 'Zoom &In',
                     accelerator: 'Shift+Up',
                     execute: () => this.zoomIn(),
-                    enabled: () => this.activeGraph
+                    enabled: () => this.activeTarget && this.target
                 });
                 view.add({
                     label: 'Zoom &Out',
                     accelerator: 'Shift+Down',
                     execute: () => this.zoomOut(),
-                    enabled: () => this.activeGraph
+                    enabled: () => this.activeTarget && this.target
                 });
                 view.add({
                     label: 'Actual &Size',
                     accelerator: 'Shift+Backspace',
                     execute: () => this.resetZoom(),
-                    enabled: () => this.activeGraph
+                    enabled: () => this.activeTarget && this.target
                 });
                 view.add({});
                 view.add({
                     label: '&Properties...',
                     accelerator: 'CmdOrCtrl+Enter',
-                    execute: () => this.showModelProperties(),
-                    enabled: () => this.activeGraph
+                    execute: () => this.showTargetProperties(),
+                    enabled: () => this.activeTarget
                 });
                 if (this._host.type === 'Electron' && !this._host.environment('packaged')) {
                     view.add({});
                     view.add({
                         label: '&Developer Tools...',
                         accelerator: 'CmdOrCtrl+Alt+I',
-                        execute: () => this._host.execute('toggle-developer-tools')
+                        execute: async () => await this._host.execute('toggle-developer-tools')
                     });
                 }
                 const help = this._menu.group('&Help');
                 help.add({
                     label: 'Report &Issue',
-                    execute: () => this._host.execute('report-issue')
+                    execute: async () => await this._host.execute('report-issue')
                 });
                 help.add({
-                    label: '&About ' + this._host.environment('name'),
-                    execute: () => this._host.execute('about')
+                    label: `&About ${this._host.environment('name')}`,
+                    execute: async () => await this._host.execute('about')
                 });
             }
-            this._host.start();
-        }).catch((err) => {
-            this.error(err, null, null);
-        });
+            const navigator = this._element('toolbar-navigator');
+            this._select = new view.TargetSelector(this, navigator);
+            this._select.on('change', (sender, target) => this._updateActiveTarget([target]));
+            await this._host.start();
+        } catch (error) {
+            this.error(error, null, null);
+        }
+    }
+
+    dispose() {
+        if (this._worker) {
+            this._worker.cancel(true);
+        }
+    }
+
+    get host() {
+        return this._host;
     }
 
     show(page) {
         if (!page) {
-            page = (!this._model && !this.activeGraph) ? 'welcome' : 'default';
+            page = (!this._model && !this.activeTarget) ? 'welcome' : 'default';
         }
         this._host.event('screen_view', {
             screen_name: page,
@@ -213,10 +264,10 @@ view.View = class {
         }
         this._host.document.body.classList.remove(...Array.from(this._host.document.body.classList).filter((_) => _ !== 'active'));
         this._host.document.body.classList.add(...page.split(' '));
-        if (page === 'default') {
-            this._activate();
-        } else {
-            this._deactivate();
+        if (this._target && page === 'default') {
+            this._target.register();
+        } else if (this._target) {
+            this._target.unregister();
         }
         if (page === 'welcome') {
             const element = this._element('open-file-button');
@@ -230,44 +281,30 @@ view.View = class {
     progress(percent) {
         const bar = this._element('progress-bar');
         if (bar) {
-            bar.style.width = percent.toString() + '%';
+            bar.style.width = `${percent}%`;
         }
     }
 
-    cut() {
-        this._host.document.execCommand('cut');
-    }
-
-    copy() {
-        this._host.document.execCommand('copy');
-    }
-
-    paste() {
-        this._host.document.execCommand('paste');
-    }
-
-    selectAll() {
-        this._host.document.execCommand('selectall');
-    }
-
     find() {
-        if (this._graph) {
-            this._graph.select(null);
-            const content = new view.FindSidebar(this._host, this.activeGraph);
-            content.on('search-text-changed', (sender, text) => {
-                this._searchText = text;
+        if (this._target && this._sidebar.identifier !== 'find') {
+            this._target.select(null);
+            const sidebar = new view.FindSidebar(this, this._find, this.activeTarget, this.activeSignature);
+            sidebar.on('state-changed', (sender, state) => {
+                this._find = state;
             });
-            content.on('select', (sender, selection) => {
-                this.scrollTo(this._graph.select([ selection ]));
+            sidebar.on('select', (sender, value) => {
+                this._target.scrollTo(this._target.select([value], 'sidebar'));
             });
-            content.on('focus', (sender, selection) => {
-                this._graph.focus([ selection ]);
+            sidebar.on('focus', (sender, value) => {
+                this._target.focus([value]);
             });
-            content.on('blur', (sender, selection) => {
-                this._graph.blur([ selection ]);
+            sidebar.on('blur', (sender, value) => {
+                this._target.blur([value]);
             });
-            this._sidebar.open(content.render(), 'Find');
-            content.focus(this._searchText);
+            sidebar.on('activate', (sender, value) => {
+                this._target.scrollTo(this._target.activate(value, 'sidebar'));
+            });
+            this._sidebar.open(sidebar, 'Find');
         }
     }
 
@@ -275,8 +312,36 @@ view.View = class {
         return this._model;
     }
 
+    set model(value) {
+        this._model = value;
+    }
+
     get options() {
         return this._options;
+    }
+
+    get target() {
+        return this._target;
+    }
+
+    set target(value) {
+        if (this._target !== value) {
+            if (this._target) {
+                this._target.off('selectionchange', this._events.selectionchange);
+                this._target.unregister();
+            }
+            const enabled = value ? true : false;
+            this._host.update({
+                'zoom-reset.enabled': enabled,
+                'zoom-in.enabled': enabled,
+                'zoom-out.enabled': enabled
+            });
+            this._target = value;
+            if (this._target) {
+                this._target.on('selectionchange', this._events.selectionchange);
+                this._target.register();
+            }
+        }
     }
 
     toggle(name) {
@@ -295,7 +360,18 @@ view.View = class {
                 this._options.mousewheel = this._options.mousewheel === 'scroll' ? 'zoom' : 'scroll';
                 break;
             default:
-                throw new view.Error("Unsupported toogle '" + name + "'.");
+                throw new view.Error(`Unsupported toggle '${name}'.`);
+        }
+        const options = {};
+        for (const [name, value] of Object.entries(this._options)) {
+            if (this._defaultOptions[name] !== value) {
+                options[name] = value;
+            }
+        }
+        if (Object.entries(options).length === 0) {
+            this._host.delete('options');
+        } else {
+            this._host.set('options', options);
         }
     }
 
@@ -306,7 +382,7 @@ view.View = class {
                 const recent = recents[i];
                 this._recents.add({
                     label: recent.label,
-                    accelerator: 'CmdOrCtrl+' + (i + 1).toString(),
+                    accelerator: `CmdOrCtrl+${(i + 1)}`,
                     execute: () => this._host.execute('open', recent.path)
                 });
             }
@@ -315,8 +391,8 @@ view.View = class {
 
     _reload() {
         this.show('welcome spinner');
-        if (this._model && this._graphs.length > 0) {
-            this._updateGraph(this._model, this._graphs).catch((error) => {
+        if (this._model && this._path.length > 0) {
+            this._updateTarget(this._model, this._path).catch((error) => {
                 if (error) {
                     this.error(error, 'Graph update failed.', 'welcome');
                 }
@@ -326,264 +402,321 @@ view.View = class {
 
     _timeout(delay) {
         return new Promise((resolve) => {
-            setTimeout(resolve, delay);
+            this._host.window.setTimeout(resolve, delay);
         });
     }
 
+    _selectionChangeHandler() {
+        if (this._host.type === 'Electron') {
+            const selection = this._host.document.getSelection();
+            const text = selection.rangeCount === 0 || selection.toString().trim() !== '';
+            const graph = this._target && this._target.selection.size > 0;
+            this._host.update({ 'copy.enabled': text || graph });
+        }
+    }
+
     _element(id) {
-        return this._host.document.getElementById(id + this._id);
+        return this._host.document.getElementById(id);
     }
 
     zoomIn() {
-        this._updateZoom(this._zoom * 1.1);
+        this._target.zoom *= 1.1;
     }
 
     zoomOut() {
-        this._updateZoom(this._zoom * 0.9);
+        this._target.zoom *= 0.9;
     }
 
     resetZoom() {
-        this._updateZoom(1);
+        this._target.zoom = 1;
     }
 
-    _activate() {
-        if (!this._events) {
-            this._events = {};
-            this._events.scroll = (e) => this._scrollHandler(e);
-            this._events.wheel = (e) => this._wheelHandler(e);
-            this._events.gesturestart = (e) => this._gestureStartHandler(e);
-            this._events.pointerdown = (e) => this._pointerDownHandler(e);
-            this._events.touchstart = (e) => this._touchStartHandler(e);
+    async refresh(anchor) {
+        const snapshot = new Map();
+        if (this._target) {
+            for (const [key, entry] of this._target.nodes) {
+                const label = entry.label;
+                if (label && label.x !== undefined) {
+                    snapshot.set(label.value || key, {
+                        x: label.x, y: label.y,
+                        width: label.width || 0, height: label.height || 0
+                    });
+                }
+            }
         }
-        const graph = this._element('graph');
-        graph.focus();
-        graph.addEventListener('scroll', this._events.scroll);
-        graph.addEventListener('wheel', this._events.wheel, { passive: false });
-        graph.addEventListener('pointerdown', this._events.pointerdown);
-        if (this._host.environment('agent') === 'safari') {
-            graph.addEventListener('gesturestart', this._events.gesturestart, false);
+        const document = this._host.document;
+        const container = document.getElementById('target');
+        const zoom = this._target ? this._target._zoom : 1;
+        const blocks = this._target ? this._target.blocks : null;
+        if (blocks && blocks.size > 0 && this._path.length > 0) {
+            this._path[0].state = Object.assign(this._path[0].state || {}, { blocks });
+        }
+        const origin = document.getElementById('origin');
+        let previous = null;
+        if (origin && this.activeTarget) {
+            previous = origin.getScreenCTM();
+            const oldChildren = Array.from(origin.children);
+            const graph = this.activeTarget;
+            const groups = graph.groups || false;
+            const viewGraph = new view.Graph(this, groups);
+            const state = this._path && this._path.length > 0 && this._path[0] ? this._path[0].state : null;
+            if (state && state.blocks) {
+                viewGraph.blocks = state.blocks;
+            }
+            viewGraph.add(graph, this.activeSignature);
+            viewGraph.addTunnels();
+            viewGraph.build(document, origin);
+            await viewGraph.measure();
+            const status = await viewGraph.layout(this._worker);
+            if (status === '') {
+                for (const child of oldChildren) {
+                    if (child.parentNode === origin) {
+                        origin.removeChild(child);
+                    }
+                }
+                viewGraph.update();
+                viewGraph.updateTunnels();
+                origin.setAttribute('transform', 'translate(0,0) scale(1)');
+                document.getElementById('background').setAttribute('width', 0);
+                document.getElementById('background').setAttribute('height', 0);
+                viewGraph.restore(state);
+                this.target = viewGraph;
+            } else {
+                for (const child of Array.from(origin.children)) {
+                    if (!oldChildren.includes(child)) {
+                        origin.removeChild(child);
+                    }
+                }
+            }
         } else {
-            graph.addEventListener('touchstart', this._events.touchstart, { passive: true });
+            await this.render(this.activeTarget, this.activeSignature);
         }
-    }
-
-    _deactivate() {
-        if (this._events) {
-            const graph = this._element('graph');
-            graph.removeEventListener('scroll', this._events.scroll);
-            graph.removeEventListener('wheel', this._events.wheel);
-            graph.removeEventListener('pointerdown', this._events.pointerdown);
-            graph.removeEventListener('gesturestart', this._events.gesturestart);
-            graph.removeEventListener('touchstart', this._events.touchstart);
-        }
-    }
-
-    _updateZoom(zoom, e) {
-        const container = this._element('graph');
-        const canvas = this._element('canvas');
-        const limit = this._options.direction === 'vertical' ?
-            container.clientHeight / this._height :
-            container.clientWidth / this._width;
-        const min = Math.min(Math.max(limit, 0.15), 1);
-        zoom = Math.max(min, Math.min(zoom, 1.4));
-        const scrollLeft = this._scrollLeft || container.scrollLeft;
-        const scrollTop = this._scrollTop || container.scrollTop;
-        const x = (e ? e.pageX : (container.clientWidth / 2)) + scrollLeft;
-        const y = (e ? e.pageY : (container.clientHeight / 2)) + scrollTop;
-        const width = zoom * this._width;
-        const height = zoom * this._height;
-        canvas.style.width = width + 'px';
-        canvas.style.height = height + 'px';
-        this._scrollLeft = Math.max(0, ((x * zoom) / this._zoom) - (x - scrollLeft));
-        this._scrollTop = Math.max(0, ((y * zoom) / this._zoom) - (y - scrollTop));
-        container.scrollLeft = this._scrollLeft;
-        container.scrollTop = this._scrollTop;
-        this._zoom = zoom;
-    }
-
-    _pointerDownHandler(e) {
-        if (e.pointerType !== 'touch' && e.buttons === 1) {
-            e.target.setPointerCapture(e.pointerId);
-            const document = this._host.document.documentElement;
-            const container = this._element('graph');
-            this._mousePosition = {
-                left: container.scrollLeft,
-                top: container.scrollTop,
-                x: e.clientX,
-                y: e.clientY
-            };
-            container.style.cursor = 'grabbing';
-            e.stopImmediatePropagation();
-            const pointerMoveHandler = (e) => {
-                e.preventDefault();
-                e.stopImmediatePropagation();
-                const dx = e.clientX - this._mousePosition.x;
-                const dy = e.clientY - this._mousePosition.y;
-                this._mousePosition.moved = dx * dx + dy * dy > 0;
-                if (this._mousePosition.moved) {
-                    const container = this._element('graph');
-                    container.scrollTop = this._mousePosition.top - dy;
-                    container.scrollLeft = this._mousePosition.left - dx;
+        this.show(null);
+        if (this._target) {
+            this._target.zoom = zoom;
+            if (container && anchor) {
+                const anchorNode = this._target.find(anchor.value);
+                if (anchorNode instanceof grapher.Node && anchorNode.element) {
+                    let newRect = anchorNode.element.getBoundingClientRect();
+                    if (anchorNode.definition && anchorNode.definition.element) {
+                        newRect = anchorNode.definition.element.getBoundingClientRect();
+                    }
+                    if (container.scrollWidth > container.clientWidth) {
+                        container.scrollLeft += (newRect.left - anchor.rect.left);
+                    }
+                    if (container.scrollHeight > container.clientHeight) {
+                        container.scrollTop += (newRect.top - anchor.rect.top);
+                    }
                 }
-            };
-            const pointerUpHandler = (e) => {
-                e.target.releasePointerCapture(e.pointerId);
-                container.style.removeProperty('cursor');
-                container.removeEventListener('pointerup', pointerUpHandler);
-                container.removeEventListener('pointerleave', pointerUpHandler);
-                container.removeEventListener('pointermove', pointerMoveHandler);
-                if (this._mousePosition && this._mousePosition.moved) {
-                    e.preventDefault();
-                    e.stopImmediatePropagation();
-                    delete this._mousePosition;
-                    document.addEventListener('click', clickHandler, true);
+                delete this._target._scrollLeft;
+                delete this._target._scrollTop;
+            }
+            const current = origin ? origin.getScreenCTM() : null;
+            const ox = previous && current ? (previous.e - current.e) / current.a : 0;
+            const oy = previous && current ? (previous.f - current.f) / current.d : 0;
+            const animateTransition = (snapshot) => {
+                if (!this._target || snapshot.size === 0) {
+                    return;
                 }
-            };
-            const clickHandler = (e) => {
-                e.stopPropagation();
-                document.removeEventListener('click', clickHandler, true);
-            };
-            container.addEventListener('pointermove', pointerMoveHandler);
-            container.addEventListener('pointerup', pointerUpHandler);
-            container.addEventListener('pointerleave', pointerUpHandler);
-        }
-    }
-
-    _touchStartHandler(e) {
-        if (e.touches.length === 2) {
-            this._touchPoints = Array.from(e.touches);
-            this._touchZoom = this._zoom;
-        }
-        const touchMoveHandler = (e) => {
-            if (Array.isArray(this._touchPoints) && this._touchPoints.length === 2 && e.touches.length === 2) {
-                const distance = (points) => {
-                    const dx =(points[1].clientX - points[0].clientX);
-                    const dy =(points[1].clientY - points[0].clientY);
-                    return Math.sqrt(dx * dx + dy * dy);
+                const duration = 300;
+                let startTime = 0;
+                const animations = [];
+                for (const [key, entry] of this._target.nodes) {
+                    const label = entry.label;
+                    if (!label || !label.element) {
+                        continue;
+                    }
+                    const modelKey = label.value || key;
+                    const old = snapshot.get(modelKey);
+                    const isCluster = this._target.children(key).length > 0;
+                    if (old) {
+                        if (isCluster) {
+                            animations.push({
+                                type: 'cluster', element: label.element, rect: label.rectangle,
+                                fromX: old.x + ox, fromY: old.y + oy, toX: label.x, toY: label.y,
+                                fromW: old.width, fromH: old.height, toW: label.width, toH: label.height
+                            });
+                        } else {
+                            const fw = old.width;
+                            const fh = old.height;
+                            const tw = label.width;
+                            const th = label.height;
+                            animations.push({
+                                type: 'node', element: label.element,
+                                fromX: old.x - fw / 2 + ox, fromY: old.y - fh / 2 + oy,
+                                toX: label.x - tw / 2, toY: label.y - th / 2
+                            });
+                        }
+                    } else {
+                        label.element.style.opacity = '0';
+                        animations.push({ type: 'fadein', element: label.element });
+                    }
+                }
+                for (const edge of this._target.edges.values()) {
+                    const label = edge.label;
+                    if (!label || !label.element) {
+                        continue;
+                    }
+                    const fromNode = snapshot.get(label.from.value || edge.v);
+                    const toNode = snapshot.get(label.to.value || edge.w);
+                    if (fromNode && toNode) {
+                        const newFrom = this._target.node(edge.v);
+                        const newTo = this._target.node(edge.w);
+                        if (newFrom && newTo) {
+                            const dfx = fromNode.x - newFrom.label.x;
+                            const dfy = fromNode.y - newFrom.label.y;
+                            const dtx = toNode.x - newTo.label.x;
+                            const dty = toNode.y - newTo.label.y;
+                            const edgeOx = (dfx + dtx) / 2 + ox;
+                            const edgeOy = (dfy + dty) / 2 + oy;
+                            if (Math.abs(edgeOx) > 0.5 || Math.abs(edgeOy) > 0.5) {
+                                const labelTransform = label.labelElement ? label.labelElement.getAttribute('transform') : null;
+                                animations.push({
+                                    type: 'edge', element: label.element,
+                                    hitTest: label.hitTest, labelElement: label.labelElement,
+                                    labelTransform,
+                                    fromX: edgeOx, fromY: edgeOy
+                                });
+                            }
+                        }
+                    } else {
+                        label.element.style.opacity = '0';
+                        animations.push({ type: 'fadein', element: label.element });
+                        if (label.hitTest) {
+                            label.hitTest.style.opacity = '0';
+                            animations.push({ type: 'fadein', element: label.hitTest });
+                        }
+                        if (label.labelElement) {
+                            label.labelElement.style.opacity = '0';
+                            animations.push({ type: 'fadein', element: label.labelElement });
+                        }
+                    }
+                }
+                for (const anim of animations) {
+                    if (anim.type === 'node') {
+                        anim.element.setAttribute('transform', `translate(${anim.fromX},${anim.fromY})`);
+                    } else if (anim.type === 'cluster') {
+                        anim.element.setAttribute('transform', `translate(${anim.fromX},${anim.fromY})`);
+                        if (anim.rect) {
+                            anim.rect.setAttribute('x', -anim.fromW / 2);
+                            anim.rect.setAttribute('y', -anim.fromH / 2);
+                            anim.rect.setAttribute('width', anim.fromW);
+                            anim.rect.setAttribute('height', anim.fromH);
+                        }
+                    } else if (anim.type === 'edge') {
+                        const t = `translate(${anim.fromX},${anim.fromY})`;
+                        anim.element.setAttribute('transform', t);
+                        if (anim.hitTest) {
+                            anim.hitTest.setAttribute('transform', t);
+                        }
+                        if (anim.labelElement) {
+                            anim.labelElement.setAttribute('transform', `translate(${anim.fromX},${anim.fromY}) ${anim.labelTransform || ''}`);
+                        }
+                    } else if (anim.type === 'fadein') {
+                        anim.element.style.opacity = '0';
+                    }
+                }
+                const tick = (now) => {
+                    if (!startTime) {
+                        startTime = now;
+                    }
+                    const elapsed = now - startTime;
+                    const t = Math.min(elapsed / duration, 1);
+                    const ease = 1 - Math.pow(1 - t, 3);
+                    for (const anim of animations) {
+                        if (anim.type === 'node') {
+                            const x = anim.fromX + (anim.toX - anim.fromX) * ease;
+                            const y = anim.fromY + (anim.toY - anim.fromY) * ease;
+                            anim.element.setAttribute('transform', `translate(${x},${y})`);
+                        } else if (anim.type === 'cluster') {
+                            const x = anim.fromX + (anim.toX - anim.fromX) * ease;
+                            const y = anim.fromY + (anim.toY - anim.fromY) * ease;
+                            anim.element.setAttribute('transform', `translate(${x},${y})`);
+                            if (anim.rect) {
+                                const w = anim.fromW + (anim.toW - anim.fromW) * ease;
+                                const h = anim.fromH + (anim.toH - anim.fromH) * ease;
+                                anim.rect.setAttribute('x', -w / 2);
+                                anim.rect.setAttribute('y', -h / 2);
+                                anim.rect.setAttribute('width', w);
+                                anim.rect.setAttribute('height', h);
+                            }
+                        } else if (anim.type === 'edge') {
+                            const x = anim.fromX * (1 - ease);
+                            const y = anim.fromY * (1 - ease);
+                            const tr = `translate(${x},${y})`;
+                            anim.element.setAttribute('transform', tr);
+                            if (anim.hitTest) {
+                                anim.hitTest.setAttribute('transform', tr);
+                            }
+                            if (anim.labelElement) {
+                                anim.labelElement.setAttribute('transform', `translate(${x},${y}) ${anim.labelTransform || ''}`);
+                            }
+                        } else if (anim.type === 'fadein') {
+                            anim.element.style.opacity = String(ease);
+                        }
+                    }
+                    if (t < 1) {
+                        this._host.window.requestAnimationFrame(tick);
+                    } else {
+                        for (const anim of animations) {
+                            if (anim.type === 'fadein') {
+                                anim.element.style.removeProperty('opacity');
+                            } else if (anim.type === 'edge') {
+                                anim.element.removeAttribute('transform');
+                                if (anim.hitTest) {
+                                    anim.hitTest.removeAttribute('transform');
+                                }
+                                if (anim.labelElement) {
+                                    if (anim.labelTransform) {
+                                        anim.labelElement.setAttribute('transform', anim.labelTransform);
+                                    } else {
+                                        anim.labelElement.removeAttribute('transform');
+                                    }
+                                }
+                            }
+                        }
+                    }
                 };
-                const d1 = distance(Array.from(e.touches));
-                const d2 = distance(this._touchPoints);
-                if (d2 !== 0) {
-                    const points = this._touchPoints;
-                    const e = {
-                        pageX: (points[1].pageX + points[0].pageX) / 2,
-                        pageY: (points[1].pageY + points[0].pageY) / 2
-                    };
-                    const zoom = d2 === 0 ? d1 : d1 / d2;
-                    this._updateZoom(this._touchZoom * zoom, e);
-                }
-            }
-        };
-        const touchEndHandler = () => {
-            container.removeEventListener('touchmove', touchMoveHandler, { passive: true });
-            container.removeEventListener('touchcancel', touchEndHandler, { passive: true });
-            container.removeEventListener('touchend', touchEndHandler, { passive: true });
-            delete this._touchPoints;
-            delete this._touchZoom;
-        };
-        const container = this._element('graph');
-        container.addEventListener('touchmove', touchMoveHandler, { passive: true });
-        container.addEventListener('touchcancel', touchEndHandler, { passive: true });
-        container.addEventListener('touchend', touchEndHandler, { passive: true });
-    }
-
-    _gestureStartHandler(e) {
-        e.preventDefault();
-        this._gestureZoom = this._zoom;
-        const container = this._element('graph');
-        const gestureChangeHandler = (e) => {
-            e.preventDefault();
-            this._updateZoom(this._gestureZoom * e.scale, e);
-        };
-        const gestureEndHandler = (e) => {
-            container.removeEventListener('gesturechange', gestureChangeHandler, false);
-            container.removeEventListener('gestureend', gestureEndHandler, false);
-            e.preventDefault();
-            if (this._gestureZoom) {
-                this._updateZoom(this._gestureZoom * e.scale, e);
-                delete this._gestureZoom;
-            }
-        };
-        container.addEventListener('gesturechange', gestureChangeHandler, false);
-        container.addEventListener('gestureend', gestureEndHandler, false);
-    }
-
-    _scrollHandler(e) {
-        if (this._scrollLeft && e.target.scrollLeft !== Math.floor(this._scrollLeft)) {
-            delete this._scrollLeft;
-        }
-        if (this._scrollTop && e.target.scrollTop !== Math.floor(this._scrollTop)) {
-            delete this._scrollTop;
+                this._host.window.requestAnimationFrame(tick);
+            };
+            animateTransition(snapshot);
         }
     }
 
-    _wheelHandler(e) {
-        if (e.shiftKey || e.ctrlKey || this._options.mousewheel === 'zoom') {
-            const delta = -e.deltaY * (e.deltaMode === 1 ? 0.05 : e.deltaMode ? 1 : 0.002) * (e.ctrlKey ? 10 : 1);
-            this._updateZoom(this._zoom * Math.pow(2, delta), e);
-            e.preventDefault();
-        }
-    }
-
-    scrollTo(selection) {
-        if (selection && selection.length > 0) {
-            const container = this._element('graph');
-            let x = 0;
-            let y = 0;
-            for (const element of selection) {
-                const rect = element.getBoundingClientRect();
-                x += rect.left + (rect.width / 2);
-                y += rect.top + (rect.height / 2);
-            }
-            x = x / selection.length;
-            y = y / selection.length;
-            const rect = container.getBoundingClientRect();
-            const left = (container.scrollLeft + x - rect.left) - (rect.width / 2);
-            const top = (container.scrollTop + y - rect.top) - (rect.height / 2);
-            container.scrollTo({ left: left, top: top, behavior: 'smooth' });
-        }
-    }
-
-    async error(err, name, screen) {
+    async error(error, name, screen) {
         if (this._sidebar) {
             this._sidebar.close();
         }
-        this._host.exception(err, false);
+        this.exception(error, false);
+        const repository = this._host.environment('repository');
         const knowns = [
-            { name: '', message: /^Invalid value identifier/, url: 'https://github.com/lutzroeder/netron/issues/540' },
-            { name: '', message: /^Cannot read property/, url: 'https://github.com/lutzroeder/netron/issues/647' },
-            { name: '', message: /^Failed to render tensor/, url: 'https://github.com/lutzroeder/netron/issues/681' },
-            { name: 'Error', message: /^EPERM: operation not permitted/, url: 'https://github.com/lutzroeder/netron/issues/551' },
-            { name: 'Error', message: /^EACCES: permission denied/, url: 'https://github.com/lutzroeder/netron/issues/504' },
-            { name: 'RangeError', message: /^Offset is outside the bounds of the DataView/, url: 'https://github.com/lutzroeder/netron/issues/563' },
-            { name: 'RangeError', message: /^Maximum call stack size exceeded/, url: 'https://github.com/lutzroeder/netron/issues/589' },
-            { name: 'RangeError', message: /^Invalid string length/, url: 'https://github.com/lutzroeder/netron/issues/648' },
-            { name: 'Python Error', message: /^Unknown function/, url: 'https://github.com/lutzroeder/netron/issues/546' },
-            { name: 'Error loading model.', message: /^Unsupported file content \(/, url: 'https://github.com/lutzroeder/netron/issues/550' },
-            { name: 'Error loading model.', message: /^Unsupported Protocol Buffers content/, url: 'https://github.com/lutzroeder/netron/issues/593' },
-            { name: 'Error loading model.', message: /^Unsupported Protocol Buffers text content/, url: 'https://github.com/lutzroeder/netron/issues/594' },
-            { name: 'Error loading model.', message: /^Unsupported JSON content/, url: 'https://github.com/lutzroeder/netron/issues/595' },
-            { name: 'Error loading Caffe model.', message: /^File format is not caffe\.NetParameter/, url: 'https://github.com/lutzroeder/netron/issues/563' },
-            { name: 'Error loading Darknet model.', message: /^Invalid tensor shape/, url: 'https://github.com/lutzroeder/netron/issues/541' },
-            { name: 'Error loading DaVinci model.', message: /^Unsupported attribute type/, url: 'https://github.com/lutzroeder/netron/issues/926' },
-            { name: 'Error loading Keras model.', message: /^Unsupported data object header version/, url: 'https://github.com/lutzroeder/netron/issues/548' },
-            { name: 'Error loading MNN model.', message: /^File format is not mnn\.Net/, url: 'https://github.com/lutzroeder/netron/issues/746' },
-            { name: 'Error loading NNEF model.', message: /^.*/, url: 'https://github.com/lutzroeder/netron/issues/992' },
-            { name: 'Error loading PyTorch model.', message: /^File does not contain root module or state dictionary/, url: 'https://github.com/lutzroeder/netron/issues/543' },
-            { name: 'Error loading PyTorch model.', message: /^Module does not contain modules/, url: 'https://github.com/lutzroeder/netron/issues/544' },
-            { name: 'Error loading PyTorch model.', message: /^Unknown type name/, url: 'https://github.com/lutzroeder/netron/issues/969' },
-            { name: 'Error loading ONNX model.', message: /^File format is not onnx\.ModelProto/, url: 'https://github.com/lutzroeder/netron/issues/549' },
-            { name: 'Error loading TensorFlow Lite model.', message: /^Offset is outside the bounds of the DataView/, url: 'https://github.com/lutzroeder/netron/issues/563' },
+            { message: /^Invalid value identifier/, issue: '540' },
+            { message: /^Cannot read property/, issue: '647' },
+            { message: /^Duplicate value /, issue: '1364' },
+            { message: /^EPERM: operation not permitted/, issue: '551' },
+            { message: /^EACCES: permission denied/, issue: '504' },
+            { message: /^Offset is outside the bounds of the DataView/, issue: '563' },
+            { message: /^Invalid string length/, issue: '648' },
+            { message: /^Unknown function /, issue: '546' },
+            { message: /^Unsupported file content/, issue: '550' },
+            { message: /^Unsupported Protocol Buffers content/, issue: '593' },
+            { message: /^Unsupported Protocol Buffers text content/, issue: '594' },
+            { message: /^Unsupported JSON content/, issue: '595' },
+            { message: /^Unknown type name '__torch__\./, issue: '969' },
+            { name: 'Error loading ONNX model.', message: /^File format is not onnx\.ModelProto \(Unexpected end of file\)\./, issue: '1155' },
+            { name: 'Error loading ONNX model.', message: /^File format is not onnx\.ModelProto \(Cannot read properties of undefined \(reading 'ModelProto'\)\)\./, issue: '1156' },
+            { name: 'Error loading ONNX model.', message: /^File format is not onnx\.ModelProto/, issue: '549' }
         ];
-        const known = knowns.find((known) => (known.name.length === 0 || known.name === err.name) && err.message.match(known.message));
-        const message = err.message;
-        name = name || err.name;
-        const button = await this._host.error(name, message);
-        const url = known && known.url ? known.url : null;
-        if (button === 0 && (url || this._host.type == 'Electron')) {
-            this._host.openURL(url || this._host.environment('repository') + '/issues');
+        const known = knowns.find((known) => (!known.name || known.name === error.name) && error.message.match(known.message));
+        const url = known && known.issue ? `${repository}/issues/${known.issue}` : `${repository}/issues`;
+        const message = error.message;
+        name = name || error.name;
+        const report = !message.startsWith('Invalid file content.') && this.host.environment('packaged');
+        await this._host.message(message, true, report ? 'Report' : 'OK');
+        if (report) {
+            this._host.openURL(url);
         }
-        this.show(screen !== undefined ? screen : 'welcome');
+        this.show(screen);
     }
 
     accept(file, size) {
@@ -600,34 +733,52 @@ view.View = class {
                 format.push(model.format);
             }
             if (model.producer) {
-                format.push('(' + model.producer + ')');
+                format.push(`(${model.producer})`);
             }
             if (format.length > 0) {
-                this._host.event_ua('Model', 'Format', format.join(' '));
                 this._host.event('model_open', {
                     model_format: model.format || '',
                     model_producer: model.producer || ''
                 });
             }
             await this._timeout(20);
-            const graphs = Array.isArray(model.graphs) && model.graphs.length > 0 ? [ model.graphs[0] ] : [];
-            return await this._updateGraph(model, graphs);
-        } catch (error) {
-            if (error && context.identifier) {
-                error.context = context.identifier;
+            const path = [];
+            const modules = Array.isArray(model.functions) ? model.modules.concat(model.functions) : model.modules;
+            let target = modules.length > 0 ? modules[0] : null;
+            for (const module of modules) {
+                if (Array.isArray(module.nodes) && module.nodes.length > 0) {
+                    target = module;
+                    break;
+                }
             }
+            if (target) {
+                const signature = Array.isArray(target.signatures) && target.signatures.length > 0 ? target.signatures[0] : null;
+                path.push({ target, signature });
+            }
+            return await this._updateTarget(model, path);
+        } catch (error) {
+            error.context = !error.context && context && context.identifier ? context.identifier : error.context || '';
             throw error;
         }
     }
 
-    async _updateActiveGraph(graph) {
+    async attach(context) {
+        if (this._model) {
+            const attachment = new metadata.Attachment();
+            if (await attachment.open(context)) {
+                this._model.attachment = attachment;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    async _updateActiveTarget(stack) {
         this._sidebar.close();
         if (this._model) {
-            const model = this._model;
             this.show('welcome spinner');
-            await this._timeout(200);
             try {
-                await this._updateGraph(model, [ graph ]);
+                await this._updateTarget(this._model, stack);
             } catch (error) {
                 if (error) {
                     this.error(error, 'Graph update failed.', 'welcome');
@@ -636,213 +787,194 @@ view.View = class {
         }
     }
 
-    get activeGraph() {
-        return Array.isArray(this._graphs) && this._graphs.length > 0 ? this._graphs[0] : null;
-    }
-
-    async _updateGraph(model, graphs) {
-        await this._timeout(100);
-        const graph = Array.isArray(graphs) && graphs.length > 0 ? graphs[0] : null;
-        if (graph && graph != this._graphs[0]) {
-            const nodes = graph.nodes;
-            if (nodes.length > 2048) {
-                if (!this._host.confirm('Large model detected.', 'This graph contains a large number of nodes and might take a long time to render. Do you want to continue?')) {
-                    this._host.event('graph_view', {
-                        graph_node_count: nodes.length,
-                        graph_skip: 1 }
-                    );
-                    this.show(null);
-                    return null;
-                }
-            }
-        }
-        const update = () => {
-            const nameButton = this._element('name-button');
-            const backButton = this._element('back-button');
-            if (this._graphs.length > 1) {
-                const graph = this.activeGraph;
-                nameButton.innerHTML = graph ? graph.name : '';
-                backButton.style.opacity = 1;
-                nameButton.style.opacity = 1;
-            } else {
-                backButton.style.opacity = 0;
-                nameButton.style.opacity = 0;
-            }
-        };
-        const lastModel = this._model;
-        const lastGraphs = this._graphs;
-        this._model = model;
-        this._graphs = graphs;
-        try {
-            await this.renderGraph(this._model, this.activeGraph);
-            if (this._page !== 'default') {
-                this.show('default');
-            }
-            update();
-            return this._model;
-        } catch (error) {
-            this._model = lastModel;
-            this._graphs = lastGraphs;
-            await this.renderGraph(this._model, this.activeGraph);
-            if (this._page !== 'default') {
-                this.show('default');
-            }
-            update();
-            throw error;
-        }
-    }
-
-    pushGraph(graph) {
-        if (graph !== this.activeGraph) {
-            this._sidebar.close();
-            this._updateGraph(this._model, [ graph ].concat(this._graphs));
-        }
-    }
-
-    popGraph() {
-        if (this._graphs.length > 1) {
-            this._sidebar.close();
-            return this._updateGraph(this._model, this._graphs.slice(1));
+    get activeTarget() {
+        if (this._path.length > 0) {
+            return this._path[0].target;
         }
         return null;
     }
 
-    async renderGraph(model, graph) {
-        this._graph = null;
-
-        const canvas = this._element('canvas');
-        while (canvas.lastChild) {
-            canvas.removeChild(canvas.lastChild);
+    get activeSignature() {
+        if (this._path.length > 0) {
+            return this._path[0].signature;
         }
-        if (!graph) {
-            return;
-        }
-        this._zoom = 1;
-
-        const groups = graph.groups;
-        const nodes = graph.nodes;
-        this._host.event('graph_view', {
-            graph_node_count: nodes.length,
-            graph_skip: 0
-        });
-
-        const options = {};
-        options.nodesep = 20;
-        options.ranksep = 20;
-        const rotate = graph.nodes.every((node) => node.inputs.filter((input) => input.value.every((argument) => !argument.initializer)).length === 0 && node.outputs.length === 0);
-        const horizontal = rotate ? this._options.direction === 'vertical' : this._options.direction !== 'vertical';
-        if (horizontal) {
-            options.rankdir = "LR";
-        }
-        if (nodes.length > 3000) {
-            options.ranker = 'longest-path';
-        }
-
-        const viewGraph = new view.Graph(this, model, groups, options);
-        viewGraph.add(graph);
-
-        // Workaround for Safari background drag/zoom issue:
-        // https://stackoverflow.com/questions/40887193/d3-js-zoom-is-not-working-with-mousewheel-in-safari
-        const background = this._host.document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        background.setAttribute('id', 'background');
-        background.setAttribute('fill', 'none');
-        background.setAttribute('pointer-events', 'all');
-        canvas.appendChild(background);
-
-        const origin = this._host.document.createElementNS('http://www.w3.org/2000/svg', 'g');
-        origin.setAttribute('id', 'origin');
-        canvas.appendChild(origin);
-
-        viewGraph.build(this._host.document, origin);
-
-        this._zoom = 1;
-
-        await this._timeout(20);
-
-        viewGraph.update();
-
-        const elements = Array.from(canvas.getElementsByClassName('graph-input') || []);
-        if (elements.length === 0) {
-            const nodeElements = Array.from(canvas.getElementsByClassName('graph-node') || []);
-            if (nodeElements.length > 0) {
-                elements.push(nodeElements[0]);
-            }
-        }
-        const size = canvas.getBBox();
-        const margin = 100;
-        const width = Math.ceil(margin + size.width + margin);
-        const height = Math.ceil(margin + size.height + margin);
-        origin.setAttribute('transform', 'translate(' + margin.toString() + ', ' + margin.toString() + ') scale(1)');
-        background.setAttribute('width', width);
-        background.setAttribute('height', height);
-        this._width = width;
-        this._height = height;
-        delete this._scrollLeft;
-        delete this._scrollRight;
-        canvas.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
-        canvas.setAttribute('width', width);
-        canvas.setAttribute('height', height);
-
-        this._zoom = 1;
-        this._updateZoom(this._zoom);
-
-        const container = this._element('graph');
-        if (elements && elements.length > 0) {
-            // Center view based on input elements
-            const xs = [];
-            const ys = [];
-            for (let i = 0; i < elements.length; i++) {
-                const element = elements[i];
-                const rect = element.getBoundingClientRect();
-                xs.push(rect.left + (rect.width / 2));
-                ys.push(rect.top + (rect.height / 2));
-            }
-            let x = xs[0];
-            const y = ys[0];
-            if (ys.every(y => y === ys[0])) {
-                x = xs.reduce((a, b) => a + b, 0) / xs.length;
-            }
-            const graphRect = container.getBoundingClientRect();
-            const left = (container.scrollLeft + x - graphRect.left) - (graphRect.width / 2);
-            const top = (container.scrollTop + y - graphRect.top) - (graphRect.height / 2);
-            container.scrollTo({ left: left, top: top, behavior: 'auto' });
-        } else {
-            const canvasRect = canvas.getBoundingClientRect();
-            const graphRect = container.getBoundingClientRect();
-            const left = (container.scrollLeft + (canvasRect.width / 2) - graphRect.left) - (graphRect.width / 2);
-            const top = (container.scrollTop + (canvasRect.height / 2) - graphRect.top) - (graphRect.height / 2);
-            container.scrollTo({ left: left, top: top, behavior: 'auto' });
-        }
-        this._graph = viewGraph;
+        return null;
     }
 
-    applyStyleSheet(element, name) {
-        let rules = [];
-        for (const styleSheet of this._host.document.styleSheets) {
-            if (styleSheet && styleSheet.href && styleSheet.href.endsWith('/' + name)) {
-                rules = styleSheet.cssRules;
-                break;
-            }
+    async _updateTarget(model, path) {
+        const lastModel = this._model;
+        const lastPath = this._path;
+        try {
+            await this._updatePath(model, path);
+            return this._model;
+        } catch (error) {
+            await this._updatePath(lastModel, lastPath);
+            throw error;
         }
-        const nodes = element.getElementsByTagName('*');
-        for (const node of nodes) {
-            for (const rule of rules) {
-                if (node.matches(rule.selectorText)) {
-                    for (const item of rule.style) {
-                        node.style[item] = rule.style[item];
+    }
+
+    async _updatePath(model, stack) {
+        this.model = model;
+        this._path = stack;
+        const status = await this.render(this.activeTarget, this.activeSignature);
+        if (status === 'cancel') {
+            this.model = null;
+            this._path = [];
+            this._activeTarget = null;
+        }
+        this.show(null);
+        const path = this._element('toolbar-path');
+        const back = this._element('toolbar-path-back-button');
+        while (path.children.length > 1) {
+            path.removeChild(path.lastElementChild);
+        }
+        if (status === '') {
+            if (this._path.length <= 1) {
+                back.style.opacity = 0;
+            } else {
+                back.style.opacity = 1;
+                const last = this._path.length - 2;
+                const count = Math.min(2, last);
+                const document = this.host.document;
+                if (count < last) {
+                    const element = document.createElement('button');
+                    element.setAttribute('class', 'toolbar-path-name-button');
+                    element.innerHTML = '&hellip;';
+                    path.appendChild(element);
+                }
+                for (let i = count; i >= 0; i--) {
+                    const target = this._path[i].target;
+                    const element = document.createElement('button');
+                    element.setAttribute('class', 'toolbar-path-name-button');
+                    element.addEventListener('click', async () => {
+                        if (i > 0) {
+                            this._path = this._path.slice(i);
+                            await this._updateTarget(this._model, this._path);
+                        } else {
+                            await this.showTargetProperties(target);
+                        }
+                    });
+                    let name = '';
+                    if (target && target.identifier) {
+                        name = target.identifier;
+                    } else if (target && target.name) {
+                        name = target.name;
                     }
+                    if (name.length > 24) {
+                        element.setAttribute('title', name);
+                        const truncated = name.substring(name.length - 24, name.length);
+                        element.innerHTML = '&hellip;';
+                        const text = document.createTextNode(truncated);
+                        element.appendChild(text);
+                    } else {
+                        element.removeAttribute('title');
+                        if (name) {
+                            element.textContent = name;
+                        } else {
+                            element.innerHTML = '&nbsp;';
+                        }
+                    }
+                    path.appendChild(element);
                 }
             }
+            this._select.update(model, stack);
+            const button = this._element('sidebar-target-button');
+            if (stack.length > 0) {
+                const type = stack[stack.length - 1].type || 'graph';
+                const name = type.charAt(0).toUpperCase() + type.slice(1);
+                button.setAttribute('title', `${name} Properties`);
+                button.style.display = 'block';
+            } else {
+                button.style.display = 'none';
+            }
         }
     }
 
-    export(file) {
+    async pushTarget(graph, context) {
+        if (graph && graph !== this.activeTarget && Array.isArray(graph.nodes)) {
+            this._sidebar.close();
+            if (context && this._path.length > 0) {
+                this._path[0].state = { context, zoom: this._target.zoom, blocks: this._target.blocks };
+            }
+            const signature = Array.isArray(graph.signatures) && graph.signatures.length > 0 ? graph.signatures[0] : null;
+            const entry = { target: graph, signature };
+            const stack = [entry].concat(this._path);
+            await this._updateTarget(this._model, stack);
+        }
+    }
+
+    async popTarget() {
+        if (this._path.length > 1) {
+            this._sidebar.close();
+            return await this._updateTarget(this._model, this._path.slice(1));
+        }
+        return null;
+    }
+
+    async render(target, signature) {
+        this.target = null;
+        const element = this._element('target');
+        while (element.lastChild) {
+            element.removeChild(element.lastChild);
+        }
+        let status = '';
+        if (target) {
+            const document = this._host.document;
+            const graph = target;
+            const groups = graph.groups || false;
+            const nodes = graph.nodes;
+            this._host.event('graph_view', {
+                graph_node_count: nodes.length,
+                graph_skip: 0
+            });
+            const viewGraph = new view.Graph(this, groups);
+            const state = this._path && this._path.length > 0 && this._path[0] ? this._path[0].state : null;
+            if (state && state.blocks) {
+                viewGraph.blocks = state.blocks;
+            }
+            viewGraph.add(graph, signature);
+            viewGraph.addTunnels();
+            viewGraph.build(document);
+            await viewGraph.measure();
+            status = await viewGraph.layout(this._worker);
+            if (status === '') {
+                viewGraph.update();
+                viewGraph.updateTunnels();
+                viewGraph.restore(state);
+                this.target = viewGraph;
+            }
+        }
+        return status;
+    }
+
+    async export(file) {
+        const window = this.host.window;
         const lastIndex = file.lastIndexOf('.');
-        const extension = (lastIndex != -1) ? file.substring(lastIndex + 1).toLowerCase() : 'png';
-        if (this.activeGraph && (extension === 'png' || extension === 'svg')) {
+        const extension = lastIndex === -1 ? 'png' : file.substring(lastIndex + 1).toLowerCase();
+        if (this.activeTarget && (extension === 'png' || extension === 'svg')) {
             const canvas = this._element('canvas');
             const clone = canvas.cloneNode(true);
-            this.applyStyleSheet(clone, 'grapher.css');
+            const document = this._host.document;
+            const applyStyleSheet = (element, name) => {
+                let rules = [];
+                for (const styleSheet of document.styleSheets) {
+                    if (styleSheet && styleSheet.href && styleSheet.href.endsWith(`/${name}`)) {
+                        rules = styleSheet.cssRules;
+                        break;
+                    }
+                }
+                const nodes = element.getElementsByTagName('*');
+                for (const node of nodes) {
+                    for (const rule of rules) {
+                        if (node.matches(rule.selectorText)) {
+                            for (const item of rule.style) {
+                                node.style[item] = rule.style[item];
+                            }
+                        }
+                    }
+                }
+            };
+            applyStyleSheet(clone, 'grapher.css');
             clone.setAttribute('id', 'export');
             clone.removeAttribute('viewBox');
             clone.removeAttribute('width');
@@ -852,11 +984,11 @@ view.View = class {
             clone.style.removeProperty('width');
             clone.style.removeProperty('height');
             const background = clone.querySelector('#background');
+            clone.getElementById('edge-paths-hit-test').remove();
             const origin = clone.querySelector('#origin');
             origin.setAttribute('transform', 'translate(0,0) scale(1)');
             background.removeAttribute('width');
             background.removeAttribute('height');
-
             const parent = canvas.parentElement;
             parent.insertBefore(clone, canvas);
             const size = clone.getBBox();
@@ -866,135 +998,243 @@ view.View = class {
             const delta = (Math.min(size.width, size.height) / 2.0) * 0.1;
             const width = Math.ceil(delta + size.width + delta);
             const height = Math.ceil(delta + size.height + delta);
-            origin.setAttribute('transform', 'translate(' + (delta - size.x).toString() + ', ' + (delta - size.y).toString() + ') scale(1)');
+            origin.setAttribute('transform', `translate(${(delta - size.x)}, ${(delta - size.y)}) scale(1)`);
             clone.setAttribute('width', width);
             clone.setAttribute('height', height);
             background.setAttribute('width', width);
             background.setAttribute('height', height);
             background.setAttribute('fill', '#fff');
-
-            const data = new XMLSerializer().serializeToString(clone);
-
+            const data = new window.XMLSerializer().serializeToString(clone);
             if (extension === 'svg') {
-                const blob = new Blob([ data ], { type: 'image/svg' });
-                this._host.export(file, blob);
+                const blob = new window.Blob([data], { type: 'image/svg' });
+                await this._host.export(file, blob);
             }
-
             if (extension === 'png') {
-                const image = new Image();
-                image.onload = () => {
-                    const max = Math.max(width, height);
-                    const scale = Math.min(24000.0 / max, 2.0);
-                    const canvas = this._host.document.createElement('canvas');
-                    canvas.width = Math.ceil(width * scale);
-                    canvas.height = Math.ceil(height * scale);
-                    const context = canvas.getContext('2d');
-                    context.scale(scale, scale);
-                    context.drawImage(image, 0, 0);
-                    canvas.toBlob((blob) => {
-                        if (blob) {
-                            this._host.export(file, blob);
-                        } else {
-                            const error = new Error('Image may be too large to render as PNG.');
-                            error.name = 'Error exporting image.';
-                            this._host.exception(error, false);
-                            this._host.error(error.name, error.message);
+                const blob = await new Promise((resolve, reject) => {
+                    this.show('welcome spinner');
+                    this.progress(0);
+                    const image = new window.Image();
+                    image.onload = async () => {
+                        try {
+                            let targetWidth = Math.ceil(width * 2);
+                            let targetHeight = Math.ceil(height * 2);
+                            let scale = 1;
+                            if (targetWidth > 100000 || targetHeight > 100000) {
+                                scale = Math.min(scale, 100000 / Math.max(targetWidth, targetHeight));
+                            }
+                            if (targetWidth * targetHeight * scale * scale > 500000000) {
+                                scale = Math.min(scale, Math.sqrt(500000000 / (targetWidth * targetHeight)));
+                            }
+                            if (scale < 1) {
+                                targetWidth = Math.floor(targetWidth * scale);
+                                targetHeight = Math.floor(targetHeight * scale);
+                            }
+                            const drawScale = targetWidth / width;
+                            const size = Math.min(targetWidth, 4096);
+                            const encoder = new png.Encoder(window, targetWidth, targetHeight);
+                            const canvas = this._host.document.createElement('canvas');
+                            canvas.width = size;
+                            canvas.height = 4096;
+                            const context = canvas.getContext('2d');
+                            for (let y = 0; y < targetHeight; y += 4096) {
+                                const h = Math.min(4096, targetHeight - y);
+                                const data = new Uint8Array(targetWidth * h * 4);
+                                for (let x = 0; x < targetWidth; x += size) {
+                                    const w = Math.min(size, targetWidth - x);
+                                    context.setTransform(drawScale, 0, 0, drawScale, -x, -y);
+                                    context.drawImage(image, 0, 0);
+                                    const tileData = context.getImageData(0, 0, w, h);
+                                    for (let row = 0; row < h; row++) {
+                                        const src = row * w * 4;
+                                        const dst = row * targetWidth * 4 + x * 4;
+                                        data.set(tileData.data.subarray(src, src + w * 4), dst);
+                                    }
+                                }
+                                /* eslint-disable-next-line no-await-in-loop */
+                                await encoder.write(data, h);
+                                this.progress((y + h) / targetHeight * 100);
+                            }
+                            const buffer = await encoder.toBuffer();
+                            this.progress(0);
+                            this.show('default');
+                            resolve(new window.Blob([buffer], { type: 'image/png' }));
+                        } catch (error) {
+                            this.progress(0);
+                            this.show('default');
+                            reject(error);
                         }
-                    }, 'image/png');
-                };
-                image.src = 'data:image/svg+xml;base64,' + this._host.window.btoa(unescape(encodeURIComponent(data)));
+                    };
+                    image.onerror = (error) => {
+                        this.progress(0);
+                        this.show('default');
+                        reject(error);
+                    };
+                    image.src = `data:image/svg+xml;base64,${this._host.window.btoa(unescape(encodeURIComponent(data)))}`;
+                });
+                await this._host.export(file, blob);
             }
         }
     }
 
     showModelProperties() {
-        if (this._model) {
-            try {
-                const modelSidebar = new view.ModelSidebar(this._host, this._model, this.activeGraph);
-                modelSidebar.on('update-active-graph', (sender, graph) => {
-                    this._updateActiveGraph(graph);
-                });
-                const content = modelSidebar.render();
-                this._sidebar.open(content, 'Model Properties');
-            } catch (error) {
-                if (error) {
-                    error.context = this._model.identifier;
-                }
-                this.error(error, 'Error showing model properties.', null);
-            }
+        if (!this._model) {
+            return;
+        }
+        try {
+            const sidebar = new view.ModelSidebar(this, this.model);
+            this._sidebar.open(sidebar, 'Model Properties');
+        } catch (error) {
+            this.error(error, 'Error showing model properties.', null);
         }
     }
 
-    showNodeProperties(node, input) {
+    showTargetProperties(target) {
+        if (this._sidebar.identifier === 'target' && !target) {
+            this.showModelProperties();
+            return;
+        }
+        target = target || this.activeTarget;
+        if (!target) {
+            return;
+        }
+        try {
+            const sidebar = new view.TargetSidebar(this, target, this.activeSignature);
+            sidebar.on('show-definition', async (/* sender, e */) => {
+                await this.showDefinition(target);
+            });
+            sidebar.on('focus', (sender, value) => {
+                this._target.focus([value]);
+            });
+            sidebar.on('blur', (sender, value) => {
+                this._target.blur([value]);
+            });
+            sidebar.on('select', (sender, value) => {
+                this._target.scrollTo(this._target.select([value], 'sidebar'));
+            });
+            sidebar.on('activate', (sender, value) => {
+                this._target.scrollTo(this._target.activate(value, 'sidebar'));
+            });
+            sidebar.on('deactivate', () => {
+                this._target.select(null);
+            });
+            let title = null;
+            const type = target.type || 'graph';
+            switch (type) {
+                case 'graph':
+                    title = 'Graph Properties';
+                    break;
+                case 'function':
+                    title = 'Function Properties';
+                    break;
+                case 'weights':
+                    title = 'Weights Properties';
+                    break;
+                default:
+                    throw new view.Error(`Unsupported graph type '${type}'.`);
+            }
+            this._sidebar.open(sidebar, title);
+        } catch (error) {
+            this.error(error, 'Error showing target properties.', null);
+        }
+    }
+
+    showNodeProperties(node, source) {
         if (node) {
             try {
                 if (this._menu) {
                     this._menu.close();
                 }
-                const nodeSidebar = new view.NodeSidebar(this._host, node);
-                nodeSidebar.on('show-documentation', (/* sender, e */) => {
-                    this.showDocumentation(node.type);
+                const sidebar = new view.NodeSidebar(this, node);
+                sidebar.on('show-definition', async (/* sender, e */) => {
+                    await this.showDefinition(node.type);
                 });
-                nodeSidebar.on('show-graph', (sender, graph) => {
-                    this.pushGraph(graph);
+                sidebar.on('focus', (sender, value) => {
+                    this._target.focus([value]);
                 });
-                nodeSidebar.on('export-tensor', (sender, tensor) => {
-                    const defaultPath = tensor.name ? tensor.name.split('/').join('_').split(':').join('_').split('.').join('_') : 'tensor';
-                    this._host.save('NumPy Array', 'npy', defaultPath, (file) => {
-                        try {
-                            let data_type = tensor.type.dataType;
-                            if (data_type === 'boolean') {
-                                data_type = 'bool';
-                            }
-                            const execution = new python.Execution();
-                            const bytes = execution.invoke('io.BytesIO', []);
-                            const dtype = execution.invoke('numpy.dtype', [ data_type ]);
-                            const array = execution.invoke('numpy.asarray', [ tensor.value, dtype ]);
-                            execution.invoke('numpy.save', [ bytes, array ]);
-                            bytes.seek(0);
-                            const blob = new Blob([ bytes.read() ], { type: 'application/octet-stream' });
-                            this._host.export(file, blob);
-                        } catch (error) {
-                            this.error(error, 'Error saving NumPy tensor.', null);
-                        }
-                    });
+                sidebar.on('blur', (sender, value) => {
+                    this._target.blur([value]);
                 });
-                nodeSidebar.on('error', (sender, error) => {
-                    if (this._model) {
-                        error.context = this._model.identifier;
-                    }
-                    this.error(error, null, null);
+                sidebar.on('select', (sender, value) => {
+                    this._target.scrollTo(this._target.select([value], 'sidebar'));
                 });
-                nodeSidebar.on('activate', (sender, argument) => {
-                    this._graph.select([ argument ]);
+                sidebar.on('activate', (sender, value) => {
+                    this._target.scrollTo(this._target.activate(value, 'sidebar'));
                 });
-                nodeSidebar.on('deactivate', () => {
-                    this._graph.select(null);
-                });
-                if (input) {
-                    nodeSidebar.toggleInput(input.name);
-                }
-                this._sidebar.open(nodeSidebar.render(), 'Node Properties');
+                this._sidebar.open(sidebar, 'Node Properties', source);
             } catch (error) {
-                if (error) {
-                    error.context = this._model.identifier;
-                }
                 this.error(error, 'Error showing node properties.', null);
             }
         }
     }
 
-    showDocumentation(type) {
+    showConnectionProperties(value, from, to, source) {
+        try {
+            if (this._menu) {
+                this._menu.close();
+            }
+            const sidebar = new view.ConnectionSidebar(this, value, from, to);
+            sidebar.on('focus', (sender, value) => {
+                this._target.focus([value]);
+            });
+            sidebar.on('blur', (sender, value) => {
+                this._target.blur([value]);
+            });
+            sidebar.on('select', (sender, value) => {
+                this._target.scrollTo(this._target.select([value], 'sidebar'));
+            });
+            sidebar.on('activate', (sender, value) => {
+                this._target.scrollTo(this._target.activate(value, 'sidebar'));
+            });
+            this._sidebar.open(sidebar, 'Connection Properties', source);
+        } catch (error) {
+            this.error(error, 'Error showing connection properties.', null);
+        }
+    }
+
+    showTensorProperties(value, source) {
+        try {
+            if (this._menu) {
+                this._menu.close();
+            }
+            const sidebar = new view.TensorSidebar(this, value);
+            sidebar.on('focus', (sender, value) => {
+                this._target.focus([value]);
+            });
+            sidebar.on('blur', () => {
+                this._target.blur(null);
+            });
+            sidebar.on('select', (sender, value) => {
+                this._target.scrollTo(this._target.select([value], 'sidebar'));
+            });
+            sidebar.on('activate', (sender, value) => {
+                this._target.scrollTo(this._target.activate(value, 'sidebar'));
+            });
+            this._sidebar.open(sidebar, 'Tensor Properties', source);
+        } catch (error) {
+            this.error(error, 'Error showing tensor properties.', null);
+        }
+    }
+
+    exception(error, fatal) {
+        if (error && !error.context && this._model && this._model.identifier) {
+            error.context = this._model.identifier;
+        }
+        this._host.exception(error, fatal);
+    }
+
+    async showDefinition(type) {
         if (type && (type.description || type.inputs || type.outputs || type.attributes)) {
             if (type.nodes && type.nodes.length > 0) {
-                this.pushGraph(type);
+                await this.pushTarget(type);
             }
-            const documentationSidebar = new view.DocumentationSidebar(this._host, type);
-            documentationSidebar.on('navigate', (sender, e) => {
-                this._host.openURL(e.link);
-            });
-            const title = type.type === 'function' ? 'Function' : 'Documentation';
-            this._sidebar.push(documentationSidebar.render(), title);
+            if (type.type !== 'weights') {
+                const sidebar = new view.DocumentationSidebar(this, type);
+                sidebar.on('navigate', (sender, e) => {
+                    this._host.openURL(e.link);
+                });
+                const title = type.type === 'function' ? 'Function Documentation' : 'Documentation';
+                this._sidebar.open(sidebar, title, 'sidebar');
+            }
         }
     }
 
@@ -1017,18 +1257,19 @@ view.Menu = class {
         this.items = [];
         this._darwin = host.environment('platform') === 'darwin';
         this._document = host.document;
+        this._window = host.window;
         this._stack = [];
         this._root = [];
         this._buttons = [];
         this._accelerators = new Map();
         this._keyCodes = new Map([
-            [ 'Backspace', 0x08 ], [ 'Enter', 0x0D ], [ 'Escape', 0x1B ],
-            [ 'Left', 0x25 ], [ 'Up', 0x26 ], [ 'Right', 0x27 ], [ 'Down', 0x28 ],
-            [ 'F5', 0x74 ], [ 'F11', 0x7a ]
+            ['Backspace', 0x08], ['Enter', 0x0D], ['Escape', 0x1B],
+            ['Left', 0x25], ['Up', 0x26], ['Right', 0x27], ['Down', 0x28],
+            ['F5', 0x74], ['F11', 0x7a]
         ]);
         this._symbols = new Map([
-            [ 'Backspace', '&#x232B;' ], [ 'Enter', '&#x23ce;' ],
-            [ 'Up', '&#x2191;' ], [ 'Down', '&#x2193;' ],
+            ['Backspace', '&#x232B;'], ['Enter', '&#x23ce;'],
+            ['Up', '&#x2191;'], ['Down', '&#x2193;'],
         ]);
         this._keydown = (e) => {
             this._alt = false;
@@ -1051,31 +1292,23 @@ view.Menu = class {
             }
         };
         this._keyup = (e) => {
-            const code = e.keyCode;
-            if (code === 0x0012 && this._alt) { // Alt
-                switch (this._stack.length) {
-                    case 0: {
-                        if (this.open()) {
-                            e.preventDefault();
-                        }
-                        break;
-                    }
-                    case 1: {
-                        if (this.close()) {
-                            e.preventDefault();
-                        }
-                        break;
-                    }
-                    default: {
-                        this._stack = [ this ];
-                        if (this._root.length > 1) {
-                            this._root =  [ this ];
-                            this._rebuild();
-                        }
-                        this._update();
+            if (e.keyCode === 0x0012 && this._alt) { // Alt
+                if (this._stack.length === 0) {
+                    if (this.open()) {
                         e.preventDefault();
-                        break;
                     }
+                } else if (this._stack.length === 1) {
+                    if (this.close()) {
+                        e.preventDefault();
+                    }
+                } else {
+                    this._stack = [this];
+                    if (this._root.length > 1) {
+                        this._root =  [this];
+                        this._rebuild();
+                    }
+                    this._update();
+                    e.preventDefault();
                 }
             }
             this._alt = false;
@@ -1132,7 +1365,7 @@ view.Menu = class {
 
     group(label) {
         const item = new view.Menu.Group(this, label);
-        item.identifier = 'menu-item-' + this.items.length.toString();
+        item.identifier = `menu-item-${this.items.length}`;
         this.items.push(item);
         item.shortcut = this.register(item.accelerator);
         return item;
@@ -1142,8 +1375,8 @@ view.Menu = class {
         if (this._element.style.opacity >= 1) {
             this.close();
         } else {
-            this._root = [ this ];
-            this._stack = [ this ];
+            this._root = [this];
+            this._stack = [this];
             this.open();
         }
     }
@@ -1152,7 +1385,7 @@ view.Menu = class {
         if (this._element) {
             if (this._stack.length === 0) {
                 this.toggle();
-                this._stack = [ this ];
+                this._stack = [this];
             }
             this._rebuild();
             this._update();
@@ -1172,7 +1405,7 @@ view.Menu = class {
             this.unregister(this._pop);
             this.unregister(this._push);
             this._element.style.opacity = 0;
-            this._element.style.left = '-16em';
+            this._element.style.left = '-17em';
             const button = this._element.ownerDocument.activeElement;
             if (this._buttons.indexOf(button) > 0) {
                 button.blur();
@@ -1216,7 +1449,7 @@ view.Menu = class {
                     shortcut += shift ? 'Shift+' : '';
                     shortcut += key;
                 }
-                let code = (cmdOrCtrl ? 0x1000 : 0) | (cmd ? 0x0800 : 0) | (ctrl ? 0x0400 : 0) | (alt ? 0x0200 : 0 | shift ? 0x0100 : 0);
+                let code = (cmdOrCtrl ? 0x1000 : 0) | (cmd ? 0x0800 : 0) | (ctrl ? 0x0400 : 0) | (alt ? 0x0200 : 0) | (shift ? 0x0100 : 0);
                 code |= this._keyCodes.has(key) ? this._keyCodes.get(key) : key.charCodeAt(0);
                 this._accelerators.set(code, action);
             }
@@ -1225,10 +1458,11 @@ view.Menu = class {
     }
 
     unregister(action) {
-        this._accelerators = new Map(Array.from(this._accelerators.entries()).filter((entry) => entry[1] !== action));
+        this._accelerators = new Map(Array.from(this._accelerators.entries()).filter(([, value]) => value !== action));
     }
 
     _execute(action) {
+        const window = this._window;
         if (typeof action === 'function') {
             action();
             return true;
@@ -1238,7 +1472,7 @@ view.Menu = class {
                 while (this._stack.length > this._root.length) {
                     this._stack.pop();
                 }
-                this._root.push({ items: [ action ] });
+                this._root.push({ items: [action] });
                 this._stack.push(action);
                 this._rebuild();
                 this._update();
@@ -1246,7 +1480,7 @@ view.Menu = class {
             }
             case 'command': {
                 this.close();
-                setTimeout(() => action.execute(), 10);
+                window.setTimeout(() => action.execute(), 10);
                 return true;
             }
             default: {
@@ -1316,7 +1550,7 @@ view.Menu = class {
             if (index !== -1) {
                 if (mnemonic) {
                     item.mnemonic = value[index + 1].toUpperCase();
-                    return value.substring(0, index) + '<u>' + value[index + 1] + '</u>' + value.substring(index + 2);
+                    return `${value.substring(0, index)}<u>${value[index + 1]}</u>${value.substring(index + 2)}`;
                 }
                 return value.substring(0, index) + value.substring(index + 1);
             }
@@ -1325,7 +1559,7 @@ view.Menu = class {
     }
 
     _rebuild() {
-        this._element.innerHTML = '';
+        this._element.replaceChildren();
         const root = this._root[this._root.length - 1];
         for (const group of root.items) {
             const container = this._document.createElement('div');
@@ -1460,14 +1694,14 @@ view.Menu.Group = class {
 
     add(value) {
         const item = Object.keys(value).length > 0 ? new view.Menu.Command(value) : new view.Menu.Separator();
-        item.identifier = this.identifier + '-' + this.items.length.toString();
+        item.identifier = `${this.identifier}-${this.items.length}`;
         this.items.push(item);
         item.shortcut = this.parent.register(item, item.accelerator);
     }
 
     group(label) {
         const item = new view.Menu.Group(this, label);
-        item.identifier = this.identifier + '-' + this.items.length.toString();
+        item.identifier = `${this.identifier}-${this.items.length}`;
         this.items.push(item);
         item.shortcut = this.parent.register(item, item.accelerator);
         return item;
@@ -1525,57 +1759,216 @@ view.Menu.Separator = class {
     }
 };
 
+view.Worker = class {
+
+    constructor(host) {
+        this._host = host;
+        this._timeout = -1;
+        if (this._host.type !== 'Electron') {
+            this._create();
+        }
+    }
+
+    async request(message, delay, notification) {
+        if (this._resolve) {
+            const resolve = this._resolve;
+            resolve({ type: 'terminate' });
+            delete this._resolve;
+            delete this._reject;
+            this.cancel(true);
+        } else {
+            this.cancel(false);
+        }
+        return new Promise((resolve, reject) => {
+            this._resolve = resolve;
+            this._reject = reject;
+            this._create();
+            this._worker.postMessage(message);
+            const window = this._host.window;
+            this._timeout = window.setTimeout(async () => {
+                await this._host.message(notification, null, 'Cancel');
+                this.cancel(true);
+                delete this._resolve;
+                delete this._reject;
+                resolve({ type: 'cancel' });
+            }, delay);
+        });
+    }
+
+    _create() {
+        if (!this._worker) {
+            this._worker = this._host.worker('./worker');
+            this._worker.addEventListener('message', (e) => {
+                this.cancel(false);
+                const message = e.data;
+                const resolve = this._resolve;
+                const reject = this._reject;
+                delete this._resolve;
+                delete this._reject;
+                if (reject && message.type === 'error') {
+                    const error = new Error(`Worker: ${message.message}`);
+                    reject(error);
+                } else if (resolve) {
+                    resolve(message);
+                }
+            });
+            this._worker.addEventListener('error', (e) => {
+                this.cancel(true);
+                const reject = this._reject;
+                delete this._resolve;
+                delete this._reject;
+                if (reject) {
+                    reject(new Error(`Unknown worker error type '${e.type}'.`));
+                }
+            });
+        }
+    }
+
+    cancel(terminate) {
+        if (this._worker && terminate) {
+            this._worker.terminate();
+            this._worker = null;
+        }
+        if (this._timeout !== -1) {
+            this._host.window.clearTimeout(this._timeout);
+            this._timeout = -1;
+            this._host.message();
+        }
+    }
+};
+
 view.Graph = class extends grapher.Graph {
 
-    constructor(view, model, compound, options) {
-        super(compound, options);
+    constructor(view, compound) {
+        super(compound);
         this.view = view;
-        this.model = model;
+        this.counter = 0;
         this._nodeKey = 0;
         this._values = new Map();
+        this._tensors = new Map();
         this._table = new Map();
         this._selection = new Set();
+        this.blocks = new Set();
+        this._zoom = 1;
+        this._listeners = {};
+    }
+
+    on(event, callback) {
+        this._listeners[event] = this._listeners[event] || [];
+        this._listeners[event].push(callback);
+    }
+
+    off(event, callback) {
+        if (this._listeners[event]) {
+            this._listeners[event] = this._listeners[event].filter((c) => c !== callback);
+        }
+    }
+
+    emit(event, data) {
+        if (this._listeners[event]) {
+            for (const callback of this._listeners[event]) {
+                callback(this, data);
+            }
+        }
+    }
+
+    get model() {
+        return this.view.model;
+    }
+
+    get host() {
+        return this.view.host;
+    }
+
+    get options() {
+        return this.view.options;
+    }
+
+    get values() {
+        return this._values;
+    }
+
+    get selection() {
+        return this._selection;
     }
 
     createNode(node) {
-        const value = new view.Node(this, node);
-        value.name = (this._nodeKey++).toString();
-        this.setNode(value);
-        this._table.set(node, value);
-        return value;
+        const obj = new view.Node(this, node);
+        obj.name = (this._nodeKey++).toString();
+        this._table.set(node, obj);
+        return obj;
+    }
+
+    createGraph(graph, type) {
+        const obj = new view.Node(this, graph, type || 'graph');
+        obj.name = (this._nodeKey++).toString();
+        this._table.set(graph, obj);
+        return obj;
     }
 
     createInput(input) {
-        const value = new view.Input(this, input);
-        value.name = (this._nodeKey++).toString();
-        this.setNode(value);
-        this._table.set(input, value);
-        return value;
+        const obj = new view.Input(this, input);
+        obj.name = (this._nodeKey++).toString();
+        this._table.set(input, obj);
+        return obj;
     }
 
     createOutput(output) {
-        const value = new view.Output(this, output);
-        value.name = (this._nodeKey++).toString();
-        this.setNode(value);
-        this._table.set(output, value);
-        return value;
+        const obj = new view.Output(this, output);
+        obj.name = (this._nodeKey++).toString();
+        this._table.set(output, obj);
+        return obj;
     }
 
-    createValue(argument) {
-        const name = argument.name;
-        if (!this._values.has(name)) {
-            const value = new view.Value(this, argument);
-            this._values.set(name, value);
-            this._table.set(argument, value);
+    createValue(value) {
+        const key = value && value.name && !value.initializer ? value.name : value;
+        if (this._values.has(key)) {
+            // duplicate argument name
+            const obj = this._values.get(key);
+            this._table.set(value, obj);
         } else {
-            // TODO #1109 duplicate argument name
-            const value = this._values.get(name);
-            this._table.set(argument, value);
+            const obj = new view.Value(this, value);
+            this._values.set(key, obj);
+            this._table.set(value, obj);
         }
-        return this._values.get(name);
+        return this._values.get(key);
     }
 
-    add(graph) {
+    createArgument(value) {
+        if (Array.isArray(value.value) && value.value.length === 1 && value.value[0].initializer) {
+            if (!this._tensors.has(value)) {
+                const obj = new view.Argument(this, value);
+                this._tensors.set(value, obj);
+                this._table.set(value, obj);
+            }
+            return this._tensors.get(value);
+        }
+        return null;
+    }
+
+    find(value) {
+        if (this._table.has(value)) {
+            return this._table.get(value);
+        }
+        for (const obj of this._table.values()) {
+            if (obj instanceof grapher.Node) {
+                for (const block of obj.blocks) {
+                    if (block instanceof view.Block) {
+                        const found = block.target.find(value);
+                        if (found) {
+                            return found;
+                        }
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    add(graph, signature) {
+        this.target = graph;
+        this.identifier = this.model.identifier;
+        this.identifier += graph && graph.name ? `.${graph.name.replace(/\/|\\/g, '.')}` : '';
         const clusters = new Set();
         const clusterParentMap = new Map();
         const groups = graph.groups;
@@ -1591,22 +1984,22 @@ view.Graph = class extends grapher.Graph {
                 }
             }
         }
-        for (const input of graph.inputs) {
-            const viewInput = this.createInput(input);
-            for (const value of input.value) {
-                this.createValue(value).from(viewInput);
+        const inputs = signature ? signature.inputs : graph.inputs;
+        const outputs = signature ? signature.outputs : graph.outputs;
+        if (Array.isArray(inputs)) {
+            for (const argument of inputs) {
+                if (argument.visible !== false) {
+                    const viewInput = this.createInput(argument);
+                    this.setNode(viewInput);
+                    for (const value of argument.value) {
+                        this.createValue(value).from = viewInput;
+                    }
+                }
             }
         }
         for (const node of graph.nodes) {
             const viewNode = this.createNode(node);
-            const inputs = node.inputs;
-            for (const input of inputs) {
-                for (const value of input.value) {
-                    if (value.name != '' && !value.initializer) {
-                        this.createValue(value).to(viewNode);
-                    }
-                }
-            }
+            this.setNode(viewNode);
             let outputs = node.outputs;
             if (node.chain && node.chain.length > 0) {
                 const chainOutputs = node.chain[node.chain.length - 1].outputs;
@@ -1614,27 +2007,26 @@ view.Graph = class extends grapher.Graph {
                     outputs = chainOutputs;
                 }
             }
-            for (const output of outputs) {
-                for (const value of output.value) {
-                    if (!value) {
-                        const error = new view.Error('Invalid null argument.');
-                        error.context = this.model.identifier;
-                        throw error;
-                    }
-                    if (value.name != '') {
-                        this.createValue(value).from(viewNode);
+            if (Array.isArray(outputs)) {
+                for (const argument of outputs) {
+                    for (const value of argument.value) {
+                        if (!value) {
+                            throw new view.Error('Invalid null argument.');
+                        }
+                        if (value.name !== '') {
+                            this.createValue(value).from = viewNode;
+                        }
                     }
                 }
             }
-
-            if (node.controlDependencies && node.controlDependencies.length > 0) {
+            if (Array.isArray(node.controlDependencies) && node.controlDependencies.length > 0) {
                 for (const value of node.controlDependencies) {
-                    this.createValue(value).to(viewNode, true);
+                    this.createValue(value).controlDependency(viewNode);
                 }
             }
             const createCluster = (name) => {
                 if (!clusters.has(name)) {
-                    this.setNode({ name: name, rx: 5, ry: 5 });
+                    this.setNode({ name, rx: 5, ry: 5 });
                     clusters.add(name);
                     const parent = clusterParentMap.get(name);
                     if (parent) {
@@ -1648,44 +2040,352 @@ view.Graph = class extends grapher.Graph {
                 if (groupName && groupName.length > 0) {
                     if (!clusterParentMap.has(groupName)) {
                         const lastIndex = groupName.lastIndexOf('/');
-                        if (lastIndex != -1) {
+                        if (lastIndex === -1) {
+                            groupName = null;
+                        } else {
                             groupName = groupName.substring(0, lastIndex);
                             if (!clusterParentMap.has(groupName)) {
                                 groupName = null;
                             }
-                        } else {
-                            groupName = null;
                         }
                     }
                     if (groupName) {
-                        createCluster(groupName + '\ngroup');
-                        this.setParent(viewNode.name, groupName + '\ngroup');
+                        createCluster(`${groupName}\ngroup`);
+                        this.setParent(viewNode.name, `${groupName}\ngroup`);
                     }
                 }
             }
         }
-        for (const output of graph.outputs) {
-            const viewOutput = this.createOutput(output);
-            for (const value of output.value) {
-                this.createValue(value).to(viewOutput);
+        if (Array.isArray(outputs)) {
+            for (const argument of outputs) {
+                if (argument.visible !== false) {
+                    const viewOutput = this.createOutput(argument);
+                    this.setNode(viewOutput);
+                    if (Array.isArray(argument.value)) {
+                        for (const value of argument.value) {
+                            this.createValue(value).to.push(viewOutput);
+                        }
+                    }
+                }
             }
         }
     }
 
+    addTunnels() {
+        this._tunnels = [];
+        const subgraphOuterRefs = (graph) => {
+            const produced = new Set();
+            if (Array.isArray(graph.inputs)) {
+                for (const arg of graph.inputs) {
+                    if (!Array.isArray(arg.value)) {
+                        continue;
+                    }
+                    for (const val of arg.value) {
+                        if (val.name) {
+                            produced.add(val.name);
+                        }
+                    }
+                }
+            }
+            for (const node of (graph.nodes || [])) {
+                for (const arg of (node.outputs || [])) {
+                    if (!Array.isArray(arg.value)) {
+                        continue;
+                    }
+                    for (const val of arg.value) {
+                        if (val.name) {
+                            produced.add(val.name);
+                        }
+                    }
+                }
+            }
+            const refs = new Set();
+            for (const node of (graph.nodes || [])) {
+                for (const arg of (node.inputs || [])) {
+                    if (!Array.isArray(arg.value)) {
+                        continue;
+                    }
+                    for (const val of arg.value) {
+                        if (val.name && !val.initializer && !produced.has(val.name)) {
+                            refs.add(val.name);
+                        }
+                    }
+                }
+            }
+            return refs;
+        };
+        // Collect tunnel refs per (source, parent, attrName)
+        const seen = new Set();
+        for (const entry of this._nodes.values()) {
+            const node = entry.label;
+            if (!(node instanceof view.Node)) {
+                continue;
+            }
+            const modelNode = node.value;
+            const subgraphs = (modelNode.attributes || []).concat(modelNode.blocks || []);
+            for (const attr of subgraphs) {
+                if (attr.type !== 'graph' || !attr.value) {
+                    continue;
+                }
+                const refs = subgraphOuterRefs(attr.value);
+                for (const valueName of refs) {
+                    const outerValue = this._values.get(valueName);
+                    if (!outerValue || !outerValue.from) {
+                        continue;
+                    }
+                    const sourceNode = outerValue.from;
+                    const refKey = `${sourceNode.name}:${node.name}:${attr.name}`;
+                    if (seen.has(refKey)) {
+                        continue;
+                    }
+                    seen.add(refKey);
+                    const edge = sourceNode.edge(node);
+                    if (!edge._tunnel) {
+                        edge._tunnel = true;
+                    }
+                    const edgeKey = `${edge.v}:${edge.w}`;
+                    if (!this._edges.has(edgeKey)) {
+                        this.setEdge(edge);
+                    }
+                    this._tunnels.push({
+                        sourceNode,
+                        parentNode: node,
+                        attrName: attr.name,
+                        valueName,
+                        edge
+                    });
+                }
+            }
+        }
+    }
+
+    updateTunnels() {
+        if (!this._tunnelGroup || !this._tunnels || !this._document) {
+            return;
+        }
+        while (this._tunnelGroup.lastChild) {
+            this._tunnelGroup.removeChild(this._tunnelGroup.lastChild);
+        }
+        if (this._tunnels.length === 0) {
+            return;
+        }
+        const document = this._document;
+        const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+        const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+        marker.setAttribute('id', 'arrowhead-tunnel');
+        marker.setAttribute('viewBox', '0 0 10 10');
+        marker.setAttribute('refX', 9);
+        marker.setAttribute('refY', 5);
+        marker.setAttribute('markerUnits', 'strokeWidth');
+        marker.setAttribute('markerWidth', 8);
+        marker.setAttribute('markerHeight', 6);
+        marker.setAttribute('orient', 'auto');
+        const markerPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        markerPath.setAttribute('d', 'M 0 0 L 10 5 L 0 10 L 4 5 z');
+        markerPath.style.setProperty('stroke-width', 1);
+        marker.appendChild(markerPath);
+        defs.appendChild(marker);
+        this._tunnelGroup.appendChild(defs);
+        const intersectRect = (node, point) => {
+            const dx = point.x - node.x;
+            const dy = point.y - node.y;
+            let h = node.height / 2;
+            let w = node.width / 2;
+            if (Math.abs(dy) * w > Math.abs(dx) * h) {
+                if (dy < 0) {
+                    h = -h;
+                }
+                return { x: node.x + (dy === 0 ? 0 : h * dx / dy), y: node.y + h };
+            }
+            if (dx < 0) {
+                w = -w;
+            }
+            return { x: node.x + w, y: node.y + (dx === 0 ? 0 : w * dy / dx) };
+        };
+        const findTarget = (node, attrName, valueName) => {
+            const nodeTop = node.y - node.height / 2;
+            const nodeLeft = node.x - node.width / 2;
+            for (const block of node.blocks) {
+                if (!block._items) {
+                    continue;
+                }
+                for (const item of block._items) {
+                    if (item.name !== attrName) {
+                        continue;
+                    }
+                    if (item.content && item.content.blocks) {
+                        for (const innerBlock of item.content.blocks) {
+                            if (innerBlock instanceof view.Block && innerBlock.target && innerBlock.target._values) {
+                                const innerValue = innerBlock.target._values.get(valueName);
+                                if (innerValue && innerValue.to.length > 0) {
+                                    const innerNode = innerValue.to[0];
+                                    if (innerNode.x !== undefined && innerNode.y !== undefined) {
+                                        const padding = innerBlock._padding || 10;
+                                        const originX = innerBlock.target.originX || 0;
+                                        const originY = innerBlock.target.originY || 0;
+                                        const contentNode = item.content;
+                                        const cx = nodeLeft + block.x + (contentNode.x - contentNode.width / 2);
+                                        const cy = nodeTop + block.y + (contentNode.y - contentNode.height / 2);
+                                        return {
+                                            x: cx + innerBlock.x + (padding - originX) + innerNode.x,
+                                            y: cy + innerBlock.y + (padding - originY) + innerNode.y,
+                                            width: innerNode.width || 0,
+                                            height: innerNode.height || 0
+                                        };
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (item.content && item.content.x !== undefined) {
+                        const contentNode = item.content;
+                        return {
+                            x: nodeLeft + block.x + contentNode.x,
+                            y: nodeTop + block.y + contentNode.y,
+                            width: contentNode.width,
+                            height: contentNode.height
+                        };
+                    }
+                    return {
+                        x: nodeLeft + block.x + item.x + item.width / 2,
+                        y: nodeTop + block.y + item.y + item.height / 2,
+                        width: item.width,
+                        height: item.height
+                    };
+                }
+            }
+            return { x: node.x, y: node.y, width: node.width || 0, height: node.height || 0 };
+        };
+        // Group tunnels by parent node to detect all overlaps into same target
+        const groups = new Map();
+        for (let i = 0; i < this._tunnels.length; i++) {
+            const ref = this._tunnels[i];
+            const key = ref.parentNode.name;
+            if (!groups.has(key)) {
+                groups.set(key, []);
+            }
+            groups.get(key).push(i);
+        }
+        for (let i = 0; i < this._tunnels.length; i++) {
+            const { parentNode, attrName, valueName, edge } = this._tunnels[i];
+            if (!edge.points || edge.points.length < 2) {
+                continue;
+            }
+            const target = findTarget(parentNode, attrName, valueName);
+            const points = [];
+            const inner = edge.points.slice(1, edge.points.length - 1);
+            if (inner.length > 0) {
+                points.push(intersectRect(edge.from, inner[0]));
+                points.push(...inner);
+            } else {
+                points.push(intersectRect(edge.from, edge.points[edge.points.length - 1]));
+            }
+            points.push(intersectRect(target, points[points.length - 1]));
+            // If multiple tunnels target the same parent, draw arcs to separate them
+            const group = groups.get(parentNode.name);
+            let pathData = '';
+            if (group && group.length > 1) {
+                const j = group.indexOf(i);
+                const end = points[points.length - 1];
+                const start = intersectRect(edge.from, end);
+                const dy = Math.abs(end.y - start.y);
+                const arcBase = Math.min(80, dy * 0.2);
+                const arc = (j - (group.length - 1) / 2) * arcBase;
+                const p = new grapher.Edge.Path();
+                p.moveTo(start.x, start.y);
+                p.bezierCurveTo(
+                    start.x, start.y + (end.y - start.y) * 0.33,
+                    end.x + arc, start.y + (end.y - start.y) * 0.67,
+                    end.x, end.y
+                );
+                pathData = p.data;
+            } else {
+                pathData = new grapher.Edge.Curve(points).path.data;
+            }
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('class', 'edge-path edge-path-tunnel');
+            path.setAttribute('d', pathData);
+            path.setAttribute('marker-end', 'url(#arrowhead-tunnel)');
+            this._tunnelGroup.appendChild(path);
+        }
+    }
+
     build(document, origin) {
+        if (!origin) {
+            const element = document.getElementById('target');
+            while (element.lastChild) {
+                element.removeChild(element.lastChild);
+            }
+            const canvas = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            canvas.setAttribute('id', 'canvas');
+            canvas.setAttribute('class', 'canvas');
+            canvas.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+            canvas.setAttribute('width', '100%');
+            canvas.setAttribute('height', '100%');
+            element.appendChild(canvas);
+            // Workaround for Safari background drag/zoom issue:
+            // https://stackoverflow.com/questions/40887193/d3-js-zoom-is-not-working-with-mousewheel-in-safari
+            const background = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            background.setAttribute('id', 'background');
+            background.setAttribute('fill', 'none');
+            background.setAttribute('pointer-events', 'all');
+            canvas.appendChild(background);
+            origin = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            origin.setAttribute('id', 'origin');
+            canvas.appendChild(origin);
+        }
         for (const value of this._values.values()) {
             value.build();
         }
         super.build(document, origin);
     }
 
-    select(selection) {
-        for (const element of this._selection) {
-            element.deselect();
+    async measure() {
+        const document = this.host.document;
+        const window = this.host.window;
+        if (document.fonts && document.fonts.ready) {
+            try {
+                await document.fonts.ready;
+            } catch {
+                // continue regardless of error
+            }
         }
-        this._selection.clear();
-        let array = [];
+        await new Promise((resolve) => {
+            window.requestAnimationFrame(() => {
+                window.requestAnimationFrame(() => {
+                    window.requestAnimationFrame(resolve);
+                });
+            });
+        });
+        await super.measure();
+    }
+
+    clearSelection() {
+        if (this._selection.size > 0) {
+            for (const element of this._selection) {
+                element.deselect();
+            }
+            this._selection.clear();
+        }
+        for (const entry of this._table.values()) {
+            if (entry instanceof grapher.Node) {
+                for (const block of entry.blocks) {
+                    if (block.target && block.target.clearSelection) {
+                        block.target.clearSelection();
+                    }
+                }
+            }
+        }
+    }
+
+    select(selection, source) {
+        if (selection && this.view.target && this.view.target !== this) {
+            this.view.target.clearSelection();
+        } else {
+            this.clearSelection();
+        }
         if (selection) {
+            let array = [];
             for (const value of selection) {
                 if (this._table.has(value)) {
                     const element = this._table.get(value);
@@ -1693,8 +2393,21 @@ view.Graph = class extends grapher.Graph {
                     this._selection.add(element);
                 }
             }
+            this.emit('selectionchange', source);
+            return array;
         }
-        return array;
+        this.emit('selectionchange', source);
+        return null;
+    }
+
+    activate(value, source) {
+        if (this._table.has(value)) {
+            this.select(null, source);
+            const element = this._table.get(value);
+            element.activate(source);
+            return this.select([value], source);
+        }
+        return [];
     }
 
     focus(selection) {
@@ -1714,17 +2427,387 @@ view.Graph = class extends grapher.Graph {
             }
         }
     }
+
+    restore(state) {
+        const document = this.host.document;
+        const canvas = document.getElementById('canvas');
+        const origin = document.getElementById('origin');
+        const background = document.getElementById('background');
+        const elements = Array.from(canvas.getElementsByClassName('graph-input') || []);
+        if (elements.length === 0) {
+            const nodeElements = Array.from(canvas.getElementsByClassName('graph-node') || []);
+            if (nodeElements.length > 0) {
+                elements.push(nodeElements[0]);
+            }
+        }
+        const size = canvas.getBBox();
+        const margin = 100;
+        const width = Math.ceil(margin + size.width + margin);
+        const height = Math.ceil(margin + size.height + margin);
+        origin.setAttribute('transform', `translate(${margin - size.x}, ${margin - size.y}) scale(1)`);
+        background.setAttribute('width', width);
+        background.setAttribute('height', height);
+        this._width = width;
+        this._height = height;
+        delete this._scrollLeft;
+        delete this._scrollRight;
+        canvas.setAttribute('viewBox', `0 0 ${width} ${height}`);
+        canvas.setAttribute('width', width);
+        canvas.setAttribute('height', height);
+        this._zoom = state ? state.zoom : 1;
+        this._updateZoom(this._zoom);
+        const container = document.getElementById('target');
+        const context = state ? this.select([state.context]) : [];
+        if (context.length > 0) {
+            this.scrollTo(context, 'instant');
+        } else if (elements && elements.length > 0) {
+            // Center view based on input elements
+            const bounds = container.getBoundingClientRect();
+            const xs = [];
+            const ys = [];
+            for (let i = 0; i < elements.length; i++) {
+                const element = elements[i];
+                const rect = element.getBoundingClientRect();
+                const width = Math.min(rect.width, bounds.width);
+                const height = Math.min(rect.height, bounds.height);
+                xs.push(rect.left + (width / 2));
+                ys.push(rect.top + (height / 2));
+            }
+            let [x] = xs;
+            const [y] = ys;
+            if (ys.every((y) => y === ys[0])) {
+                x = xs.reduce((a, b) => a + b, 0) / xs.length;
+            }
+            const left = (container.scrollLeft + x - bounds.left) - (bounds.width / 2);
+            const top = (container.scrollTop + y - bounds.top) - (bounds.height / 2);
+            container.scrollTo({ left, top, behavior: 'auto' });
+        } else {
+            const canvasRect = canvas.getBoundingClientRect();
+            const graphRect = container.getBoundingClientRect();
+            const left = (container.scrollLeft + (canvasRect.width / 2) - graphRect.left) - (graphRect.width / 2);
+            const top = (container.scrollTop + (canvasRect.height / 2) - graphRect.top) - (graphRect.height / 2);
+            container.scrollTo({ left, top, behavior: 'auto' });
+        }
+    }
+
+    register() {
+        if (!this._events) {
+            this._events = {};
+            this._events.scroll = (e) => this._scrollHandler(e);
+            this._events.wheel = (e) => this._wheelHandler(e);
+            this._events.gesturestart = (e) => this._gestureStartHandler(e);
+            this._events.pointerdown = (e) => this._pointerDownHandler(e);
+            this._events.touchstart = (e) => this._touchStartHandler(e);
+            const document = this.host.document;
+            const element = document.getElementById('target');
+            element.focus();
+            element.addEventListener('scroll', this._events.scroll);
+            element.addEventListener('wheel', this._events.wheel, { passive: false });
+            element.addEventListener('pointerdown', this._events.pointerdown);
+            if (this.host.environment('agent') === 'safari') {
+                element.addEventListener('gesturestart', this._events.gesturestart, false);
+            } else {
+                element.addEventListener('touchstart', this._events.touchstart, { passive: true });
+            }
+        }
+    }
+
+    unregister() {
+        if (this._events) {
+            const document = this.host.document;
+            const element = document.getElementById('target');
+            element.removeEventListener('scroll', this._events.scroll);
+            element.removeEventListener('wheel', this._events.wheel);
+            element.removeEventListener('pointerdown', this._events.pointerdown);
+            element.removeEventListener('gesturestart', this._events.gesturestart);
+            element.removeEventListener('touchstart', this._events.touchstart);
+            delete this._events;
+        }
+    }
+
+    get zoom() {
+        return this._zoom;
+    }
+
+    set zoom(value) {
+        this._updateZoom(value);
+    }
+
+    _updateZoom(zoom, e) {
+        const document = this.host.document;
+        const container = document.getElementById('target');
+        const canvas = document.getElementById('canvas');
+        const limit = this.view.options.direction === 'vertical' ?
+            container.clientHeight / this._height :
+            container.clientWidth / this._width;
+        const min = Math.min(Math.max(limit, 0.15), 1);
+        zoom = Math.max(min, Math.min(zoom, 1.4));
+        const scrollLeft = this._scrollLeft || container.scrollLeft;
+        const scrollTop = this._scrollTop || container.scrollTop;
+        const x = (e ? e.pageX : (container.clientWidth / 2)) + scrollLeft;
+        const y = (e ? e.pageY : (container.clientHeight / 2)) + scrollTop;
+        const width = zoom * this._width;
+        const height = zoom * this._height;
+        canvas.style.width = `${width}px`;
+        canvas.style.height = `${height}px`;
+        this._scrollLeft = Math.max(0, ((x * zoom) / this._zoom) - (x - scrollLeft));
+        this._scrollTop = Math.max(0, ((y * zoom) / this._zoom) - (y - scrollTop));
+        container.scrollLeft = this._scrollLeft;
+        container.scrollTop = this._scrollTop;
+        this._zoom = zoom;
+    }
+
+    _pointerDownHandler(e) {
+        if (e.pointerType === 'touch' || e.buttons !== 1) {
+            return;
+        }
+        // Workaround for Firefox emitting 'pointerdown' event when scrollbar is pressed and interfering with dragging
+        if (e.rangeParent === null) {
+            return;
+        }
+        const document = this.host.document;
+        const container = document.getElementById('target');
+        e.target.setPointerCapture(e.pointerId);
+        this._mousePosition = {
+            left: container.scrollLeft,
+            top: container.scrollTop,
+            x: e.clientX,
+            y: e.clientY
+        };
+        e.target.style.cursor = 'grabbing';
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const pointerMoveHandler = (e) => {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            if (this._mousePosition) {
+                const dx = e.clientX - this._mousePosition.x;
+                const dy = e.clientY - this._mousePosition.y;
+                this._mousePosition.moved = dx * dx + dy * dy > 0;
+                if (this._mousePosition.moved) {
+                    const document = this.host.document;
+                    const container = document.getElementById('target');
+                    container.scrollTop = this._mousePosition.top - dy;
+                    container.scrollLeft = this._mousePosition.left - dx;
+                }
+            }
+        };
+        const clickHandler = (e) => {
+            e.stopPropagation();
+            document.removeEventListener('click', clickHandler, true);
+        };
+        const pointerUpHandler = (e) => {
+            e.target.releasePointerCapture(e.pointerId);
+            e.target.style.removeProperty('cursor');
+            container.removeEventListener('pointerup', pointerUpHandler);
+            container.removeEventListener('pointermove', pointerMoveHandler);
+            if (this._mousePosition && this._mousePosition.moved) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                delete this._mousePosition;
+                document.addEventListener('click', clickHandler, true);
+            }
+        };
+        container.addEventListener('pointermove', pointerMoveHandler);
+        container.addEventListener('pointerup', pointerUpHandler);
+    }
+
+    _touchStartHandler(e) {
+        if (e.touches.length === 2) {
+            this._touchPoints = Array.from(e.touches);
+            this._touchZoom = this._zoom;
+        }
+        const touchMoveHandler = (e) => {
+            if (Array.isArray(this._touchPoints) && this._touchPoints.length === 2 && e.touches.length === 2) {
+                const distance = (points) => {
+                    const dx = (points[1].clientX - points[0].clientX);
+                    const dy = (points[1].clientY - points[0].clientY);
+                    return Math.sqrt(dx * dx + dy * dy);
+                };
+                const d1 = distance(Array.from(e.touches));
+                const d2 = distance(this._touchPoints);
+                if (d2 !== 0) {
+                    const points = this._touchPoints;
+                    const e = {
+                        pageX: (points[1].pageX + points[0].pageX) / 2,
+                        pageY: (points[1].pageY + points[0].pageY) / 2
+                    };
+                    const zoom = d2 === 0 ? d1 : d1 / d2;
+                    this._updateZoom(this._touchZoom * zoom, e);
+                }
+            }
+        };
+        const document = this.host.document;
+        const container = document.getElementById('target');
+        const touchEndHandler = () => {
+            container.removeEventListener('touchmove', touchMoveHandler, { passive: true });
+            container.removeEventListener('touchcancel', touchEndHandler, { passive: true });
+            container.removeEventListener('touchend', touchEndHandler, { passive: true });
+            delete this._touchPoints;
+            delete this._touchZoom;
+        };
+        container.addEventListener('touchmove', touchMoveHandler, { passive: true });
+        container.addEventListener('touchcancel', touchEndHandler, { passive: true });
+        container.addEventListener('touchend', touchEndHandler, { passive: true });
+    }
+
+    _gestureStartHandler(e) {
+        e.preventDefault();
+        this._gestureZoom = this._zoom;
+        const document = this.host.document;
+        const container = document.getElementById('target');
+        const gestureChangeHandler = (e) => {
+            e.preventDefault();
+            this._updateZoom(this._gestureZoom * e.scale, e);
+        };
+        const gestureEndHandler = (e) => {
+            container.removeEventListener('gesturechange', gestureChangeHandler, false);
+            container.removeEventListener('gestureend', gestureEndHandler, false);
+            e.preventDefault();
+            if (this._gestureZoom) {
+                this._updateZoom(this._gestureZoom * e.scale, e);
+                delete this._gestureZoom;
+            }
+        };
+        container.addEventListener('gesturechange', gestureChangeHandler, false);
+        container.addEventListener('gestureend', gestureEndHandler, false);
+    }
+
+    _scrollHandler(e) {
+        if (this._scrollLeft && e.target.scrollLeft !== Math.floor(this._scrollLeft)) {
+            delete this._scrollLeft;
+        }
+        if (this._scrollTop && e.target.scrollTop !== Math.floor(this._scrollTop)) {
+            delete this._scrollTop;
+        }
+    }
+
+    _wheelHandler(e) {
+        if (e.shiftKey || e.ctrlKey || this.view.options.mousewheel === 'zoom') {
+            let factor = 1;
+            if (e.deltaMode === 1) {
+                factor = 0.05;
+            } else if (e.deltaMode) {
+                factor = 1;
+            } else {
+                factor = 0.002;
+            }
+            const delta = -e.deltaY * factor * (e.ctrlKey ? 10 : 1);
+            this._updateZoom(this._zoom * Math.pow(2, delta), e);
+            e.preventDefault();
+        }
+    }
+
+    scrollTo(selection, behavior) {
+        if (selection && selection.length > 0) {
+            const document = this.host.document;
+            const container = document.getElementById('target');
+            const rect = container.getBoundingClientRect();
+            // Exclude scrollbars
+            const cw = container.clientWidth;
+            const ch = container.clientHeight;
+            // Shrink the test rectangle by 10%
+            const bounds = {};
+            bounds.left = (rect.x + cw / 2) - (cw * 0.45);
+            bounds.width = cw * 0.9;
+            bounds.right = bounds.left + bounds.width;
+            bounds.top = (rect.y + ch / 2) - (ch * 0.45);
+            bounds.height = ch * 0.9;
+            bounds.bottom = bounds.top + bounds.height;
+            let x = 0;
+            let y = 0;
+            let left = Number.POSITIVE_INFINITY;
+            let right = Number.NEGATIVE_INFINITY;
+            let top = Number.POSITIVE_INFINITY;
+            let bottom = Number.NEGATIVE_INFINITY;
+            for (const element of selection) {
+                const rect = element.getBoundingClientRect();
+                const width = Math.min(rect.width, bounds.width);
+                const height = Math.min(rect.height, bounds.height);
+                x += rect.left + (width / 2);
+                y += rect.top + (height / 2);
+                left = Math.min(left, rect.left);
+                right = Math.max(right, rect.right);
+                top = Math.min(top, rect.top);
+                bottom = Math.max(bottom, rect.bottom);
+            }
+            // No need to scroll if new selection is in the safe area.
+            if (right <= bounds.right && left >= bounds.left && bottom <= bounds.bottom && top >= bounds.top) {
+                return;
+            }
+            // If new selection is completely out of the bounds, scroll to centerize it.
+            if (bottom - top >= bounds.height || right - left >= bounds.width || right < rect.left || left > rect.right || bottom < rect.top || top > rect.bottom) {
+                x /= selection.length;
+                y /= selection.length;
+                const options = {};
+                options.left = (container.scrollLeft + x - bounds.left) - (bounds.width / 2);
+                options.top = (container.scrollTop + y - bounds.top) - (bounds.height / 2);
+                options.behavior = behavior || 'smooth';
+                container.scrollTo(options);
+                return;
+            }
+            const options = {};
+            options.left = 0;
+            options.top = 0;
+            options.behavior = behavior || 'smooth';
+            // similar to scrollIntoView block: "nearest"
+            const dr = bounds.right - right;
+            const dl = left - bounds.left;
+            const db = bounds.bottom - bottom;
+            const dt = top - bounds.top;
+            if (right - left < bounds.width) {
+                if (dl < 0) {
+                    options.left = dl;
+                } else if (dr < 0) {
+                    options.left = -dr;
+                }
+            }
+            if (bottom - top < bounds.height) {
+                if (dt < 0) {
+                    options.top = dt;
+                } else if (db < 0) {
+                    options.top = -db;
+                }
+            }
+            container.scrollBy(options);
+        }
+    }
 };
 
 view.Node = class extends grapher.Node {
 
-    constructor(context, value) {
+    constructor(context, value, type) {
         super();
         this.context = context;
         this.value = value;
-        view.Node.counter = view.Node.counter || 0;
-        this.id = 'node-' + (value.name ? 'name-' + value.name : 'id-' + (view.Node.counter++).toString());
-        this._add(this.value);
+        this.id = `node-${value.name ? `name-${value.name}` : `id-${(context.counter++)}`}`;
+        this._add(value, type);
+        const inputs = value.inputs;
+        if (type !== 'graph' && type !== 'function' && Array.isArray(inputs)) {
+            for (const argument of inputs) {
+                if (!argument.type || argument.type.endsWith('*')) {
+                    if (Array.isArray(argument.value) && argument.value.length === 1 && argument.value[0].initializer) {
+                        context.createArgument(argument);
+                    } else {
+                        for (const value of argument.value) {
+                            if (value === null) {
+                                // null argument
+                            } else if (value.name !== '' && !value.initializer) {
+                                context.createValue(value).to.push(this);
+                            } else if (value.initializer) {
+                                context.createValue(value);
+                            }
+                        }
+                    }
+                } else if (Array.isArray(argument.value) && argument.value.some((value) => value && value.constructor && value.constructor.name === 'Value' && typeof value.name === 'string' && value.name !== '' && !value.initializer)) {
+                    for (const value of argument.value) {
+                        if (value && value.constructor && value.constructor.name === 'Value' && typeof value.name === 'string' && value.name !== '' && !value.initializer) {
+                            context.createValue(value).to.push(this);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     get class() {
@@ -1739,133 +2822,272 @@ view.Node = class extends grapher.Node {
         return this.value.outputs;
     }
 
-    _add(node) {
+    _add(value, type) {
+        const node = (type === 'graph' || type === 'function') ? { type: value } : value;
+        const options = this.context.options;
         const header =  this.header();
-        const styles = [ 'node-item-type' ];
-        const type = node.type;
-        const category = type && type.category ? type.category : '';
-        if (category) {
-            styles.push('node-item-type-' + category.toLowerCase());
-        }
-        if (typeof type.name !== 'string' || !type.name.split) { // #416
-            const error = new view.Error("Unsupported node type '" + JSON.stringify(type.name) + "'.");
+        const category = node.type && node.type.category ? node.type.category : '';
+        if (node.type && typeof node.type.name !== 'string' || !node.type.name.split) { // #416
+            const error = new view.Error(`Unsupported node type '${JSON.stringify(node.type.name)}'.`);
             if (this.context.model && this.context.model.identifier) {
                 error.context = this.context.model.identifier;
             }
             throw error;
         }
-        const content = this.context.view.options.names && (node.name || node.location) ? (node.name || node.location) : type.name.split('.').pop();
-        const tooltip = this.context.view.options.names && (node.name || node.location) ? type.name : (node.name || node.location);
-        const title = header.add(null, styles, content, tooltip);
-        title.on('click', () => this.context.view.showNodeProperties(node, null));
-        if (node.type.nodes && node.type.nodes.length > 0) {
-            const definition = header.add(null, styles, '\u0192', 'Show Function Definition');
-            definition.on('click', () => this.context.view.pushGraph(node.type));
+        let content = options.names && (node.name || node.identifier) ? (node.name || node.identifier) : node.type.name.split('.').pop();
+        let tooltip = options.names && (node.name || node.identifier) ? `[${node.type.name}]` : (node.name || node.identifier);
+        if (content.length > 21) {
+            tooltip = options.names ? `${content}` : `[${content}]`;
+            const begin = content.substring(0, 10);
+            const end = content.substring(content.length - 10, content.length);
+            content = `${begin}\u2026${end}`;
         }
-        if (node.nodes) {
-            // this._expand = header.add(null, styles, '+', null);
-            // this._expand.on('click', () => this.toggle());
-        }
-        const initializers = [];
-        let hiddenInitializers = false;
-        if (this.context.view.options.weights) {
-            for (const input of node.inputs) {
-                if (input.visible !== false && input.value.length === 1 && input.value[0].initializer != null) {
-                    initializers.push(input);
-                }
-                if ((input.visible === false || input.value.length > 1) &&
-                    input.value.some((argument) => argument.initializer != null)) {
-                    hiddenInitializers = true;
-                }
-            }
-        }
-        let sortedAttributes = [];
-        const attributes = node.attributes || [];
-        if (this.context.view.options.attributes) {
-            sortedAttributes = attributes.filter((attribute) => attribute.visible).slice();
-        }
-        sortedAttributes.sort((a, b) => {
-            const au = a.name.toUpperCase();
-            const bu = b.name.toUpperCase();
-            return (au < bu) ? -1 : (au > bu) ? 1 : 0;
+        const styles = category ? ['node-item-type', `node-item-type-${category.toLowerCase()}`] : ['node-item-type'];
+        const title = header.add(null, styles);
+        title.content = content;
+        title.tooltip = tooltip;
+        title.on('click', () => {
+            this.context.activate(value, 'target');
         });
-        if (initializers.length > 0 || hiddenInitializers || sortedAttributes.length > 0) {
-            const list = this.list();
-            list.on('click', () => this.context.view.showNodeProperties(node));
-            for (const initializer of initializers) {
-                const value = initializer.value[0];
-                const type = value.type;
-                let shape = '';
-                let separator = '';
-                if (type && type.shape && type.shape.dimensions && Array.isArray(type.shape.dimensions)) {
-                    shape = '\u3008' + type.shape.dimensions.map((d) => (d !== null && d !== undefined) ? d : '?').join('\u00D7') + '\u3009';
-                    if (type.shape.dimensions.length === 0 && value.initializer) {
-                        try {
-                            const initializer = value.initializer;
-                            const tensor = new view.Tensor(initializer);
-                            if ((tensor.layout === '<' || tensor.layout === '>' || tensor.layout === '|') && !tensor.empty && tensor.type.dataType !== '?') {
-                                shape = tensor.toString();
-                                if (shape && shape.length > 10) {
-                                    shape = shape.substring(0, 10) + '\u2026';
-                                }
-                                separator = ' = ';
-                            }
-                        } catch (err) {
-                            let type = '?';
-                            try {
-                                type = value.initializer.type.toString();
-                            } catch (error) {
-                                // continue regardless of error
-                            }
-                            const error = new view.Error("Failed to render tensor of type '" + type + "' (" + err.message + ").");
-                            if (this.context.view.model && this.context.view.model.identifier) {
-                                error.context = this.context.view.model.identifier;
-                            }
-                            throw error;
-                        }
-                    }
+        if (type === 'graph') {
+            this.definition = header.add(null, styles);
+            this.definition.content = '\u25CB';
+            this.definition.tooltip = 'Show Graph';
+            this.definition.padding = 4;
+            this.definition.on('click', async () => await this.context.view.pushTarget(value, this.value));
+            const expanded = this.context.blocks.has(value);
+            const icon = expanded ? '\u2212' : '+';
+            const tooltip = expanded ? 'Collapse Graph' : 'Expand Graph';
+            this.expander = header.add(null, styles);
+            this.expander.content = icon;
+            this.expander.tooltip = tooltip;
+            this.expander.padding = 6;
+            this.expander.on('click', () => {
+                const rect = this.expander.element.getBoundingClientRect();
+                if (this.context.blocks.has(value)) {
+                    this.context.blocks.delete(value);
+                } else {
+                    this.context.blocks.add(value);
                 }
-                list.add(value.name ? 'initializer-' + value.name : '', initializer.name, shape, type ? type.toString() : '', separator);
+                this.context.view.refresh({ value: this.value, rect });
+            });
+        } else if (node.type.type || (Array.isArray(node.type.nodes) && node.type.nodes.length > 0)) {
+            let icon = '\u0192';
+            let tooltip = 'Show Function Definition';
+            if (node.type.type === 'weights') {
+                icon = '\u25CF';
+                tooltip = 'Show Weights';
             }
-            if (hiddenInitializers) {
-                list.add(null, '\u3008' + '\u2026' + '\u3009', '', null, '');
+            this.definition = header.add(null, styles);
+            this.definition.content = icon;
+            this.definition.tooltip = tooltip;
+            this.definition.on('click', async () => await this.context.view.pushTarget(node.type, this.value));
+        }
+        let current = null;
+        const list = () => {
+            if (!current) {
+                current = this.list();
+                current.on('click', () => this.context.activate(node, 'target'));
+            }
+            return current;
+        };
+        let hiddenTensors = false;
+        const objects = [];
+        const attribute = (argument) => {
+            let content = new view.Formatter(argument.value, argument.type).toString();
+            if (content && content.length > 12) {
+                content = `${content.substring(0, 12)}\u2026`;
+            }
+            const item = list().argument(argument.name, content);
+            item.tooltip = argument.type;
+            if (!content.startsWith('\u3008')) {
+                item.separator = ' = ';
+            }
+            return item;
+        };
+        const isObject = (node) => {
+            if (node.name || node.identifier || node.description ||
+                (Array.isArray(node.inputs) && node.inputs.length > 0) ||
+                (Array.isArray(node.outputs) && node.outputs.length > 0) ||
+                (Array.isArray(node.attributes) && node.attributes.length > 0) ||
+                (Array.isArray(node.blocks) && node.blocks.length > 0) ||
+                (Array.isArray(node.chain) && node.chain.length > 0) ||
+                (node.type && Array.isArray(node.type.nodes) && node.type.nodes.length > 0)) {
+                return true;
             }
 
-            for (const attribute of sortedAttributes) {
-                if (attribute.visible) {
-                    let value = new view.Formatter(attribute.value, attribute.type).toString();
-                    if (value && value.length > 25) {
-                        value = value.substring(0, 25) + '\u2026';
-                    }
-                    list.add(null, attribute.name, value, attribute.type, ' = ');
+            return false;
+        };
+        const inputs = node.inputs;
+        if (Array.isArray(inputs)) {
+            for (const argument of inputs) {
+                const type = argument.type;
+                if (argument.visible !== false &&
+                    ((type === 'graph' && argument.value) ||
+                    (type === 'object' && isObject(argument.value)) ||
+                    (type === 'object[]' && Array.isArray(argument.value) && argument.value.length > 0) ||
+                    type === 'function' ||
+                    (type === 'function[]' && Array.isArray(argument.value) && argument.value.length > 0))) {
+                    objects.push(argument);
+                } else if (options.weights && argument.visible !== false && argument.type !== 'attribute' && Array.isArray(argument.value) && argument.value.length === 1 && argument.value[0].initializer) {
+                    const item = this.context.createArgument(argument);
+                    list().add(item);
+                } else if (options.weights && (argument.visible === false || Array.isArray(argument.value) && argument.value.length > 1) && (!argument.type || argument.type.endsWith('*')) && argument.value.some((value) => value !== null && value.initializer)) {
+                    hiddenTensors = true;
+                } else if (options.attributes && argument.visible !== false && argument.type && !argument.type.endsWith('*')) {
+                    const item = attribute(argument);
+                    list().add(item);
                 }
+            }
+        }
+        if (Array.isArray(node.attributes)) {
+            const attributes = node.attributes.slice();
+            attributes.sort((a, b) => a.name.toUpperCase().localeCompare(b.name.toUpperCase()));
+            for (const argument of attributes) {
+                const type = argument.type;
+                if (argument.visible !== false &&
+                    ((type === 'graph' && argument.value) ||
+                    (type === 'object' && argument.value) ||
+                    ((type === 'object[]' || type === 'function' || type === 'function[]') && Array.isArray(argument.value) && argument.value.length > 0))) {
+                    objects.push(argument);
+                } else if (options.attributes && argument.visible !== false) {
+                    const item = attribute(argument);
+                    list().add(item);
+                }
+            }
+        }
+        if (Array.isArray(node.blocks)) {
+            for (const argument of node.blocks) {
+                const type = argument.type;
+                if (argument.visible !== false &&
+                    ((type === 'graph' && argument.value) ||
+                    (type === 'object' && isObject(argument.value)) ||
+                    ((type === 'object[]' || type === 'function' || type === 'function[]') && Array.isArray(argument.value) && argument.value.length > 0))) {
+                    objects.push(argument);
+                }
+            }
+        }
+        if (hiddenTensors) {
+            const item = list().argument('\u3008\u2026\u3009', '');
+            list().add(item);
+        }
+        for (const argument of objects) {
+            const type = argument.type;
+            let content = null;
+            if (type === 'graph' && this.context.blocks.has(argument.value)) {
+                content = this.context.createGraph(argument.value);
+                content.blocks.push(new view.Block(this.context.view, argument.value, this.context.blocks));
+                content.activate = () => this.context.view.showTargetProperties(argument.value);
+                const item = list().argument(argument.name, content);
+                list().add(item);
+            } else if (type === 'graph' || type === 'function') {
+                content = this.context.createGraph(argument.value, type);
+                content.activate = () => this.context.view.showTargetProperties(argument.value);
+                const item = list().argument(argument.name, content);
+                list().add(item);
+            } else if (type === 'graph[]') {
+                content = argument.value.map((value) => this.context.createGraph(value));
+                const item = list().argument(argument.name, content);
+                list().add(item);
+            } else {
+                if (argument.type === 'object') {
+                    content = this.context.createNode(argument.value);
+                } else if (type === 'function[]' || argument.type === 'object[]') {
+                    content = argument.value.map((value) => this.context.createNode(value));
+                }
+                const item = list().argument(argument.name, content);
+                list().add(item);
             }
         }
         if (Array.isArray(node.chain) && node.chain.length > 0) {
             for (const innerNode of node.chain) {
+                this.context.createNode(innerNode);
                 this._add(innerNode);
             }
         }
         if (node.inner) {
+            this.context.createNode(node.inner);
             this._add(node.inner);
-        }
-        if (node.nodes) {
-            // this.canvas = this.canvas();
         }
     }
 
-    toggle() {
-        this._expand.content = '-';
-        this._graph = new view.Graph(this.context.view, this.context.model, false, {});
-        this._graph.add(this.value);
-        // const document = this.element.ownerDocument;
-        // const parent = this.element.parentElement;
-        // this._graph.build(document, parent);
-        // this._graph.update();
-        this.canvas.width = 300;
-        this.canvas.height = 300;
-        this.layout();
-        this.context.update();
+    activate(source) {
+        this.context.view.showNodeProperties(this.value, source);
+    }
+
+    edge(to) {
+        this._edges = this._edges || new Map();
+        if (!this._edges.has(to)) {
+            this._edges.set(to, new view.Edge(this, to));
+        }
+        return this._edges.get(to);
+    }
+};
+
+view.Block = class {
+
+    constructor(viewRef, target, blocks) {
+        this.target = new view.Graph(viewRef, false);
+        if (blocks) {
+            this.target.blocks = blocks;
+        }
+        this.target.add(target);
+        this.x = 0;
+        this.y = 0;
+    }
+
+    build(document, parent) {
+        this.element = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        this.element.setAttribute('class', 'node-block');
+        parent.appendChild(this.element);
+        if (!this.first) {
+            this.line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            this.line.setAttribute('class', 'node');
+            parent.appendChild(this.line);
+        }
+        this._background = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        this._background.setAttribute('class', 'node-block-background');
+        this.element.appendChild(this._background);
+        this._origin = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        this.element.appendChild(this._origin);
+        for (const value of this.target.values.values()) {
+            value.build();
+        }
+        this.target.build(document, this._origin);
+    }
+
+    async measure() {
+        for (const edge of this.target.edges.values()) {
+            if (edge.label.labelElement) {
+                const box = edge.label.labelElement.getBBox();
+                edge.label.width = box.width;
+                edge.label.height = box.height;
+            }
+        }
+        await this.target.measure();
+        await this.target.layout();
+        const padding = 10;
+        this._padding = padding;
+        this.width = (this.target.width || 0) + 2 * padding;
+        this.height = (this.target.height || 0) + 2 * padding;
+    }
+
+    async layout() {
+    }
+
+    update() {
+        const offsetX = this._padding - (this.target.originX || 0);
+        const offsetY = this._padding - (this.target.originY || 0);
+        this.element.setAttribute('transform', `translate(0,${this.y})`);
+        this._origin.setAttribute('transform', `translate(${offsetX},${offsetY})`);
+        this._background.setAttribute('d', grapher.Node.roundedRect(0, 0, this.width, this.height, false, false, this.last, this.last));
+        this.target.update();
+        if (this.line) {
+            this.line.setAttribute('x1', 0);
+            this.line.setAttribute('x2', this.width);
+            this.line.setAttribute('y1', this.y);
+            this.line.setAttribute('y2', this.y);
+        }
     }
 };
 
@@ -1882,9 +3104,15 @@ view.Input = class extends grapher.Node {
             name = name.split('/').pop();
         }
         const header = this.header();
-        const title = header.add(null, [ 'graph-item-input' ], name, types);
-        title.on('click', () => this.context.view.showModelProperties());
-        this.id = 'input-' + (name ? 'name-' + name : 'id-' + (view.Input.counter++).toString());
+        const title = header.add(null, ['graph-item-input']);
+        title.content = name;
+        title.tooltip = types;
+        title.on('click', () => this.context.view.showTargetProperties(this.target));
+        this.id = `input-${name ? `name-${name}` : `id-${(view.Input.counter++)}`}`;
+    }
+
+    get target() {
+        return this.context.target === this.context.view.activeTarget ? null : this.context.target;
     }
 
     get class() {
@@ -1896,7 +3124,19 @@ view.Input = class extends grapher.Node {
     }
 
     get outputs() {
-        return [ this.value ];
+        return [this.value];
+    }
+
+    activate() {
+        this.context.view.showTargetProperties(this.target);
+    }
+
+    edge(to) {
+        this._edges = this._edges || new Map();
+        if (!this._edges.has(to)) {
+            this._edges.set(to, new view.Edge(this, to));
+        }
+        return this._edges.get(to);
     }
 };
 
@@ -1906,72 +3146,80 @@ view.Output = class extends grapher.Node {
         super();
         this.context = context;
         this.value = value;
-        const types = value.value.map((argument) => argument.type || '').join('\n');
-        let name = value.name || '';
-        if (name.length > 16) {
-            name = name.split('/').pop();
+        if (Array.isArray(value.value)) {
+            const types = value.value.map((argument) => argument.type || '').join('\n');
+            let name = value.name || '';
+            if (name.length > 16) {
+                name = name.split('/').pop();
+            }
+            const header = this.header();
+            const title = header.add(null, ['graph-item-output']);
+            title.content = name;
+            title.tooltip = types;
+            title.on('click', () => this.context.view.showTargetProperties(this.target));
         }
-        const header = this.header();
-        const title = header.add(null, [ 'graph-item-output' ], name, types);
-        title.on('click', () => this.context.view.showModelProperties());
+    }
+
+    get target() {
+        return this.context.target === this.context.view.activeTarget ? null : this.context.target;
     }
 
     get inputs() {
-        return [ this.value ];
+        return [this.value];
     }
 
     get outputs() {
         return [];
     }
+
+    activate() {
+        this.context.view.showTargetProperties(this.target);
+    }
 };
 
 view.Value = class {
 
-    constructor(context, argument) {
+    constructor(context, value) {
         this.context = context;
-        this.value = argument;
+        this.value = value;
+        this.from = null;
+        this.to = [];
     }
 
-    from(node) {
-        this._from = node;
-    }
-
-    to(node, controlDependency) {
-        this._to = this._to || [];
-        if (controlDependency) {
-            this._controlDependencies = this._controlDependencies || new Set();
-            this._controlDependencies.add(this._to.length);
-        }
-        this._to.push(node);
+    controlDependency(node) {
+        this._controlDependencies = this._controlDependencies || new Set();
+        this._controlDependencies.add(this.to.length);
+        this.to.push(node);
     }
 
     build() {
         this._edges = this._edges || [];
-        if (this._from && this._to) {
-            for (let i = 0; i < this._to.length; i++) {
-                const to = this._to[i];
+        if (this.from && Array.isArray(this.to)) {
+            for (let i = 0; i < this.to.length; i++) {
+                const to = this.to[i];
                 let content = '';
                 const type = this.value.type;
                 if (type &&
                     type.shape &&
                     type.shape.dimensions &&
                     type.shape.dimensions.length > 0 &&
-                    type.shape.dimensions.every((dim) => !dim || Number.isInteger(dim) || dim instanceof base.Int64 || (typeof dim === 'string'))) {
-                    content = type.shape.dimensions.map((dim) => (dim !== null && dim !== undefined) ? dim : '?').join('\u00D7');
+                    type.shape.dimensions.every((dim) => !dim || Number.isInteger(dim) || typeof dim === 'bigint' || (typeof dim === 'string'))) {
+                    content = type.shape.dimensions.map((dim) => (dim !== null && dim !== undefined && dim !== -1 && dim !== -1n) ? dim : '?').join('\u00D7');
                     content = content.length > 16 ? '' : content;
                 }
-                if (this.context.view.options.names) {
+                if (this.context.options.names) {
                     content = this.value.name.split('\n').shift(); // custom argument id
                 }
-                const edge = new view.Edge(this, this._from, to);
-                edge.v = this._from.name;
-                edge.w = to.name;
-                if (content) {
-                    edge.label = content;
-                }
-                edge.id = 'edge-' + this.value.name;
-                if (this._controlDependencies && this._controlDependencies.has(i)) {
-                    edge.class = 'edge-path-control-dependency';
+                const edge = this.from.edge(to);
+                if (!edge.value) {
+                    edge.value = this;
+                    if (content) {
+                        edge.label = content;
+                    }
+                    edge.id = `edge-${this.value.name}`;
+                    if (this._controlDependencies && this._controlDependencies.has(i)) {
+                        edge.class = 'edge-path-control-dependency';
+                    }
                 }
                 this.context.setEdge(edge);
                 this._edges.push(edge);
@@ -1981,158 +3229,233 @@ view.Value = class {
 
     select() {
         let array = [];
-        for (const edge of this._edges) {
-            array = array.concat(edge.select());
+        if (Array.isArray(this._edges)) {
+            for (const edge of this._edges) {
+                array = array.concat(edge.select());
+            }
         }
         return array;
     }
 
     deselect() {
-        for (const edge of this._edges) {
-            edge.deselect();
+        if (Array.isArray(this._edges)) {
+            for (const edge of this._edges) {
+                edge.deselect();
+            }
         }
+    }
+
+    activate(source) {
+        if (this.value && this.from && Array.isArray(this.to) && !this.value.initializer) {
+            const from = this.from.value;
+            const to = this.to.map((node) => node.value);
+            this.context.view.showConnectionProperties(this.value, from, to, source);
+        } else if (this.value && this.value.initializer) {
+            this.context.view.showTensorProperties({ value: [this.value] }, source);
+        }
+    }
+};
+
+view.Argument = class extends grapher.Argument {
+
+    constructor(context, value) {
+        const name = value.name;
+        let content = '';
+        let separator = '';
+        let tooltip = '';
+        if (Array.isArray(value.value) && value.value.length === 1 && value.value[0].initializer) {
+            const tensor = value.value[0].initializer;
+            const type = value.value[0].type;
+            tooltip = type.toString();
+            content = view.Formatter.tensor(tensor);
+            if (!content.startsWith('\u3008')) {
+                separator = ' = ';
+            }
+        }
+        super(name, content);
+        this.context = context;
+        this.value = value;
+        this.separator = separator;
+        this.tooltip = tooltip;
+    }
+
+    focus() {
+        this.context.focus([this.value]);
+    }
+
+    blur() {
+        this.context.blur([this.value]);
+    }
+
+    activate(source) {
+        this.context.view.showTensorProperties(this.value, source);
     }
 };
 
 view.Edge = class extends grapher.Edge {
 
-    constructor(argument, from, to) {
+    constructor(from, to) {
         super(from, to);
-        this.argument = argument;
+        this.v = from.name;
+        this.w = to.name;
     }
 
     get minlen() {
-        if (this.from.inputs.every((parameter) => parameter.value.every((argument) => argument.initializer))) {
+        if (this.from.inputs.every((argument) => (!argument.type || argument.type.endsWith('*')) && argument.value.every((value) => value.initializer))) {
             return 2;
         }
         return 1;
     }
 
-    emit(event) {
-        switch (event) {
-            case 'pointerover':
-                this.argument.context.focus([ this.argument.value ]);
-                break;
-            case 'pointerleave':
-                this.argument.context.blur([ this.argument.value ]);
-                break;
-            default:
-                break;
-        }
+    focus() {
+        this.value.context.focus([this.value.value]);
+    }
+
+    blur() {
+        this.value.context.blur([this.value.value]);
+    }
+
+    activate() {
+        this.value.context.activate(this.value.value, 'target');
     }
 };
 
 view.Sidebar = class {
 
-    constructor(host, id) {
+    constructor(host) {
         this._host = host;
-        this._id = id ? ('-' + id) : '';
         this._stack = [];
-        this._closeSidebarHandler = () => {
-            this._pop();
-        };
+        this._closeSidebarHandler = () => this.close();
         this._closeSidebarKeyDownHandler = (e) => {
-            if (e.keyCode == 27) {
+            if (e.keyCode === 27) { // Escape
+                e.stopPropagation();
                 e.preventDefault();
-                this._pop();
+                this.close();
+            } else if (e.keyCode === 8 && this._stack.length > 1) { // Backspace
+                const active = this._host.document.activeElement;
+                const tag = active ? active.tagName : '';
+                if (tag !== 'INPUT' && tag !== 'TEXTAREA' && !(active && active.isContentEditable)) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    this._update(this._stack.slice(0, -1));
+                }
             }
         };
         const sidebar = this._element('sidebar');
         sidebar.addEventListener('transitionend', (event) => {
             if (event.propertyName === 'opacity' && sidebar.style.opacity === '0') {
                 const content = this._element('sidebar-content');
-                content.innerHTML = '';
+                content.replaceChildren();
             }
         });
     }
 
     _element(id) {
-        return this._host.document.getElementById(id + this._id);
+        return this._host.document.getElementById(id);
     }
 
-    open(content, title) {
-        this.close();
-        this.push(content, title);
+    open(content, title, source) {
+        const element = this._render(content);
+        const entry = { title, element, content };
+        if (source === 'sidebar') {
+            const depth = 10;
+            this._update(this._stack.concat(entry).slice(-depth));
+        } else {
+            this._update([entry]);
+        }
     }
 
     close() {
-        this._deactivate();
-        this._stack = [];
-        this._hide();
+        this._update([]);
     }
 
-    push(content, title) {
-        const item = { title: title, content: content };
-        this._stack.push(item);
-        this._activate(item);
-    }
-
-    _pop() {
-        this._deactivate();
+    get identifier() {
         if (this._stack.length > 0) {
-            this._stack.pop();
+            const content = this._stack[this._stack.length - 1].content;
+            if (content.identifier) {
+                return content.identifier;
+            }
+        }
+        return '';
+    }
+
+    _render(content) {
+        try {
+            content.render();
+        } catch (error) {
+            content.error(error, false);
+        }
+        const element = content.element;
+        return Array.isArray(element) ? element : [element];
+    }
+
+    _update(stack) {
+        const sidebar = this._element('sidebar');
+        const element = this._element('sidebar-content');
+        const container = this._element('target');
+        const closeButton = this._element('sidebar-closebutton');
+        closeButton.removeEventListener('click', this._closeSidebarHandler);
+        this._host.document.removeEventListener('keydown', this._closeSidebarKeyDownHandler);
+        if (this._stack.length > 0) {
+            const entry = this._stack.pop();
+            const content = entry.content;
+            if (content && content.deactivate) {
+                content.deactivate();
+            }
+        }
+        if (stack) {
+            this._stack = stack;
         }
         if (this._stack.length > 0) {
-            this._activate(this._stack[this._stack.length - 1]);
-        } else {
-            this._hide();
-        }
-    }
-
-    _hide() {
-        const sidebar = this._element('sidebar');
-        if (sidebar) {
-            sidebar.style.right = 'calc(0px - min(calc(100% * 0.6), 42em))';
-            sidebar.style.opacity = 0;
-        }
-        const container = this._element('graph');
-        if (container) {
-            container.style.width = '100%';
-            container.focus();
-        }
-    }
-
-    _deactivate() {
-        const sidebar = this._element('sidebar');
-        if (sidebar) {
-            const closeButton = this._element('sidebar-closebutton');
-            closeButton.removeEventListener('click', this._closeSidebarHandler);
-            this._host.document.removeEventListener('keydown', this._closeSidebarKeyDownHandler);
-        }
-    }
-
-    _activate(item) {
-        const sidebar = this._element('sidebar');
-        if (sidebar) {
-            const title = this._element('sidebar-title');
-            title.innerHTML = item.title ? item.title.toUpperCase() : '';
-            const closeButton = this._element('sidebar-closebutton');
+            const entry = this._stack[this._stack.length - 1];
+            this._element('sidebar-title').innerHTML = entry.title || '';
             closeButton.addEventListener('click', this._closeSidebarHandler);
-            const content = this._element('sidebar-content');
-            if (typeof item.content == 'string') {
-                content.innerHTML = item.content;
-            } else if (item.content instanceof Array) {
-                content.innerHTML = '';
-                for (const element of item.content) {
-                    content.appendChild(element);
-                }
+            if (typeof entry.content === 'string') {
+                element.innerHTML = entry.element;
+            } else if (entry.element instanceof Array) {
+                element.replaceChildren(...entry.element);
             } else {
-                content.innerHTML = '';
-                content.appendChild(item.content);
+                element.replaceChildren(entry.element);
             }
             sidebar.style.width = 'min(calc(100% * 0.6), 42em)';
             sidebar.style.right = 0;
             sidebar.style.opacity = 1;
             this._host.document.addEventListener('keydown', this._closeSidebarKeyDownHandler);
-        }
-        const container = this._element('graph');
-        if (container) {
             container.style.width = 'max(40vw, calc(100vw - 42em))';
+            const content = entry.content;
+            if (content && content.activate) {
+                content.activate();
+            }
+        } else {
+            sidebar.style.right = 'calc(0px - min(calc(100% * 0.6), 42em))';
+            sidebar.style.opacity = 0;
+            const clone = element.cloneNode(true);
+            element.parentNode.replaceChild(clone, element);
+            container.style.width = '100%';
+            container.focus();
         }
     }
 };
 
 view.Control = class {
+
+    constructor(context) {
+        this._view = context;
+        this._host = context.host;
+    }
+
+    createElement(tagName, className) {
+        const element = this._host.document.createElement(tagName);
+        if (className) {
+            element.setAttribute('class', className);
+        }
+        return element;
+    }
+
+    createTextNode(data) {
+        const node = this._host.document.createTextNode(data);
+        return node;
+    }
 
     on(event, callback) {
         this._events = this._events || {};
@@ -2141,179 +3464,336 @@ view.Control = class {
     }
 
     emit(event, data) {
-        if (this._events && this._events[event]) {
-            for (const callback of this._events[event]) {
-                callback(this, data);
+        try {
+            if (this._events && this._events[event]) {
+                for (const callback of this._events[event]) {
+                    callback(this, data);
+                }
             }
+        } catch (error) {
+            this.error(error, false);
         }
+    }
+
+    error(error, fatal) {
+        this._view.exception(error, fatal || false);
+    }
+
+    escape(value) {
+        return value.toString().split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;');
     }
 };
 
-view.NodeSidebar = class extends view.Control {
+view.Expander = class extends view.Control {
 
-    constructor(host, node) {
-        super();
-        this._host = host;
-        this._node = node;
-        this._elements = [];
-        this._attributes = [];
-        this._inputs = [];
-        this._outputs = [];
-
-        const container = this._host.document.createElement('div');
-        container.className = 'sidebar-node';
-        this._elements.push(container);
-
-        if (node.type) {
-            let showDocumentation = null;
-            const type = node.type;
-            if (type && (type.description || type.inputs || type.outputs || type.attributes)) {
-                showDocumentation = {};
-                showDocumentation.text = type.nodes ? '\u0192': '?';
-                showDocumentation.callback = () => {
-                    this.emit('show-documentation', null);
-                };
-            }
-            this._addProperty('type', new view.ValueTextView(this._host, node.type.identifier || node.type.name, showDocumentation));
-            if (node.type.module) {
-                this._addProperty('module', new view.ValueTextView(this._host, node.type.module));
-            }
-        }
-
-        if (node.name) {
-            this._addProperty('name', new view.ValueTextView(this._host, node.name));
-        }
-
-        if (node.location) {
-            this._addProperty('location', new view.ValueTextView(this._host, node.location));
-        }
-
-        if (node.description) {
-            this._addProperty('description', new view.ValueTextView(this._host, node.description));
-        }
-
-        if (node.device) {
-            this._addProperty('device', new view.ValueTextView(this._host, node.device));
-        }
-
-        const attributes = node.attributes;
-        if (attributes && attributes.length > 0) {
-            const sortedAttributes = node.attributes.slice();
-            sortedAttributes.sort((a, b) => {
-                const au = a.name.toUpperCase();
-                const bu = b.name.toUpperCase();
-                return (au < bu) ? -1 : (au > bu) ? 1 : 0;
-            });
-            this._addHeader('Attributes');
-            for (const attribute of sortedAttributes) {
-                this._addAttribute(attribute.name, attribute);
-            }
-        }
-
-        const inputs = node.inputs;
-        if (inputs && inputs.length > 0) {
-            this._addHeader('Inputs');
-            for (const input of inputs) {
-                this._addInput(input.name, input);
-            }
-        }
-
-        const outputs = node.outputs;
-        if (outputs && outputs.length > 0) {
-            this._addHeader('Outputs');
-            for (const output of outputs) {
-                this._addOutput(output.name, output);
-            }
-        }
+    constructor(context) {
+        super(context);
+        this.element = this.createElement('div', 'sidebar-item-value');
+        this._count = -1;
     }
 
     render() {
-        return this._elements;
+        return [this.element];
     }
 
-    _addHeader(title) {
-        const element = this._host.document.createElement('div');
-        element.className = 'sidebar-header';
-        element.innerText = title;
-        this._elements[0].appendChild(element);
-    }
-
-    _addProperty(name, value) {
-        const item = new view.NameValueView(this._host, name, value);
-        this._elements[0].appendChild(item.render());
-    }
-
-    _addAttribute(name, attribute) {
-        const value = new view.AttributeView(this._host, attribute);
-        value.on('show-graph', (sender, graph) => {
-            this.emit('show-graph', graph);
-        });
-        const item = new view.NameValueView(this._host, name, value);
-        this._attributes.push(item);
-        this._elements[0].appendChild(item.render());
-    }
-
-    _addInput(name, input) {
-        if (input.value.length > 0) {
-            const value = new view.ParameterView(this._host, input);
-            value.on('export-tensor', (sender, value) => this.emit('export-tensor', value));
-            value.on('error', (sender, value) => this.emit('error', value));
-            value.on('activate', (sender, value) => this.emit('activate', value));
-            value.on('deactivate', (sender, value) => this.emit('deactivate', value));
-            const item = new view.NameValueView(this._host, name, value);
-            this._inputs.push(item);
-            this._elements[0].appendChild(item.render());
+    expandable() {
+        if (!this._expander) {
+            this._expander = this.createElement('div', 'sidebar-item-value-expander');
+            this._expander.innerText = '+';
+            this._expander.addEventListener('click', () => this.toggle());
+            this.add(this._expander);
         }
     }
 
-    _addOutput(name, output) {
-        if (output.value.length > 0) {
-            const value = new view.ParameterView(this._host, output);
-            value.on('activate', (sender, value) => this.emit('activate', value));
-            value.on('deactivate', (sender, value) => this.emit('deactivate', value));
-            const item = new view.NameValueView(this._host, name, value);
-            this._outputs.push(item);
-            this._elements[0].appendChild(item.render());
-        }
+    add(element) {
+        this.element.appendChild(element);
     }
 
-    toggleInput(name) {
-        for (const input of this._inputs) {
-            if (name == input.name) {
-                input.toggle();
+    control(element) {
+        this.add(element);
+    }
+
+    toggle() {
+        this._count = this._count === -1 ? this.element.childElementCount : this._count;
+        if (this._expander) {
+            while (this.element.childElementCount > this._count) {
+                this.element.removeChild(this.element.lastChild);
             }
+            if (this._expander.innerText === '+') {
+                this._expander.innerText = '-';
+                this.expand();
+            } else {
+                this._expander.innerText = '+';
+                this.collapse();
+            }
+        }
+    }
+
+    expand() {
+    }
+
+    collapse() {
+    }
+};
+
+view.TargetSelector = class extends view.Control {
+
+    constructor(context, element) {
+        super(context);
+        this._element = element;
+        [this._select] = element.getElementsByTagName('select');
+        this._select.addEventListener('change', (e) => {
+            const target = this._targets[e.target.selectedIndex];
+            this.emit('change', target);
+        });
+        this._targets = [];
+    }
+
+    update(model, stack) {
+        while (this._select.firstChild) {
+            this._select.removeChild(this._select.firstChild);
+        }
+        this._targets = [];
+        const current = stack.length > 0 ? stack[stack.length - 1] : null;
+        const section = (title, targets) => {
+            if (targets.length > 0) {
+                const group = this.createElement('optgroup');
+                group.setAttribute('label', title);
+                this._select.appendChild(group);
+                for (let i = 0; i < targets.length; i++) {
+                    const target = targets[i];
+                    const option = this.createElement('option');
+                    option.innerText = target.name;
+                    group.appendChild(option);
+                    if (current && current.target === target.target && current.signature === target.signature) {
+                        option.setAttribute('selected', 'true');
+                        this._select.setAttribute('title', target.name);
+                    }
+                    this._targets.push(target);
+                }
+            }
+        };
+        const modules = [];
+        const signatures = [];
+        const functions = [];
+        if (model && Array.isArray(model.modules)) {
+            for (const graph of model.modules) {
+                const name = graph.name || '-';
+                modules.push({ name, target: graph, signature: null });
+                if (Array.isArray(graph.functions)) {
+                    for (const func of graph.functions) {
+                        functions.push({ name: `${name}.${func.name}`, target: func, signature: null });
+                    }
+                }
+                if (Array.isArray(graph.signatures)) {
+                    for (const signature of graph.signatures) {
+                        signatures.push({ name: `${name}.${signature.name}`, target: graph, signature });
+                    }
+                }
+            }
+        }
+        if (model && Array.isArray(model.functions)) {
+            for (const func of model.functions) {
+                functions.push({ name: func.name, target: func, signature: null });
+            }
+        }
+        section('Modules', modules);
+        section('Signatures', signatures);
+        section('Functions', functions);
+        const visible = functions.length > 0 || signatures.length > 0 || modules.length > 1;
+        this._element.style.display = visible ? 'inline' : 'none';
+    }
+};
+
+view.ObjectSidebar = class extends view.Control {
+
+    constructor(context) {
+        super(context);
+        this.element = this.createElement('div', 'sidebar-object');
+    }
+
+    addSection(title) {
+        const element = this.createElement('div', 'sidebar-section');
+        element.innerText = title;
+        this.element.appendChild(element);
+    }
+
+    addEntry(name, item) {
+        const entry = new view.NameValueView(this._view, name, item);
+        const element = entry.render();
+        this.element.appendChild(element);
+    }
+
+    addProperty(name, value, style) {
+        const item = new view.TextView(this._view, value, style);
+        this.addEntry(name, item);
+        return item;
+    }
+
+    addArgument(name, argument, source) {
+        const value = new view.ArgumentView(this._view, argument, source);
+        value.on('focus', (sender, value) => {
+            this.emit('focus', value);
+            this._focused = this._focused || new Set();
+            this._focused.add(value);
+        });
+        value.on('blur', (sender, value) => {
+            this.emit('blur', value);
+            this._focused = this._focused || new Set();
+            this._focused.delete(value);
+        });
+        value.on('select', (sender, value) => this.emit('select', value));
+        value.on('activate', (sender, value) => this.emit('activate', value));
+        value.on('deactivate', (sender, value) => this.emit('deactivate', value));
+        this.addEntry(name, value);
+        return value;
+    }
+
+    error(error, fatal) {
+        super.error(error, fatal);
+        const element = this.createElement('span');
+        const title = this.createElement('b');
+        title.textContent = 'ERROR: ';
+        element.appendChild(title);
+        const message = this.createTextNode(` ${error.message}`);
+        element.appendChild(message);
+        this.element.appendChild(element);
+    }
+};
+
+view.NodeSidebar = class extends view.ObjectSidebar {
+
+    constructor(context, node) {
+        super(context);
+        this._node = node;
+    }
+
+    get identifier() {
+        return 'node';
+    }
+
+    render() {
+        const node = this._node;
+        if (node.type) {
+            const type = node.type;
+            const item = this.addProperty('type', node.type.identifier || node.type.name);
+            if (type && (type.description || type.inputs || type.outputs || type.attributes)) {
+                let icon = '?';
+                let tooltip = 'Show Definition';
+                if (type.type === 'weights') {
+                    icon = '\u25CF';
+                    tooltip = 'Show Weights';
+                } else if (Array.isArray(type.nodes)) {
+                    icon = '\u0192';
+                }
+                item.action(icon, tooltip, () => {
+                    this.emit('show-definition', null);
+                });
+            }
+            const module = node.type.module;
+            const version = node.type.version;
+            const status = node.type.status;
+            if (module || version || status) {
+                const list = [module, version ? `v${version}` : '', status];
+                const value = list.filter((value) => value).join(' ');
+                this.addProperty('module', value, 'nowrap');
+            }
+        }
+        if (node.name) {
+            this.addProperty('name', node.name, 'nowrap');
+        }
+        if (node.identifier) {
+            this.addProperty('identifier', node.identifier, 'nowrap');
+        }
+        if (node.description) {
+            this.addProperty('description', node.description);
+        }
+        if (node.device) {
+            this.addProperty('device', node.device);
+        }
+        const attributes = node.attributes;
+        if (Array.isArray(attributes) && attributes.length > 0) {
+            this.addSection('Attributes');
+            attributes.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+            for (const attribute of attributes) {
+                this.addArgument(attribute.name, attribute, 'attribute');
+            }
+        }
+        const inputs = node.inputs;
+        if (Array.isArray(inputs) && inputs.length > 0) {
+            this.addSection('Inputs');
+            for (const input of inputs) {
+                const name = input.name;
+                this.addArgument(name, input);
+            }
+        }
+        const outputs = node.outputs;
+        if (Array.isArray(outputs) && outputs.length > 0) {
+            this.addSection('Outputs');
+            for (const output of outputs) {
+                const name = output.name;
+                this.addArgument(name, output);
+            }
+        }
+        const blocks = node.blocks;
+        if (Array.isArray(blocks) && blocks.length > 0) {
+            this.addSection('Blocks');
+            for (const block of blocks) {
+                const name = block.name;
+                this.addArgument(name, block);
+            }
+        }
+        const metadata = this._view.model.attachment.metadata.node(node);
+        if (Array.isArray(metadata) && metadata.length > 0) {
+            this.addSection('Metadata');
+            for (const argument of metadata) {
+                this.addArgument(argument.name, argument, 'attribute');
+            }
+        }
+        const metrics = this._view.model.attachment.metrics.node(node);
+        if (Array.isArray(metrics) && metrics.length > 0) {
+            this.addSection('Metrics');
+            for (const argument of metrics) {
+                this.addArgument(argument.name, argument, 'attribute');
+            }
+        }
+    }
+
+    activate() {
+        this.emit('select', this._node);
+    }
+
+    deactivate() {
+        this.emit('select', null);
+        if (this._focused) {
+            for (const value of this._focused) {
+                this.emit('blur', value);
+            }
+            this._focused.clear();
         }
     }
 };
 
-view.NameValueView = class {
+view.NameValueView = class extends view.Control {
 
-    constructor(host, name, value) {
-        this._host = host;
+    constructor(context, name, value) {
+        super(context);
         this._name = name;
         this._value = value;
-
-        const nameElement = this._host.document.createElement('div');
-        nameElement.className = 'sidebar-item-name';
-
-        const nameInputElement = this._host.document.createElement('input');
-        nameInputElement.setAttribute('type', 'text');
-        nameInputElement.setAttribute('value', name);
-        nameInputElement.setAttribute('title', name);
-        nameInputElement.setAttribute('readonly', 'true');
-        nameElement.appendChild(nameInputElement);
-
-        const valueElement = this._host.document.createElement('div');
-        valueElement.className = 'sidebar-item-value-list';
-
+        const nameElement = this.createElement('div', 'sidebar-item-name');
+        const input = this.createElement('input');
+        input.setAttribute('type', 'text');
+        input.setAttribute('value', name);
+        input.setAttribute('title', name);
+        input.setAttribute('readonly', 'true');
+        nameElement.appendChild(input);
+        const valueElement = this.createElement('div', 'sidebar-item-value-list');
         for (const element of value.render()) {
             valueElement.appendChild(element);
         }
-
-        this._element = this._host.document.createElement('div');
-        this._element.className = 'sidebar-item';
-        this._element.appendChild(nameElement);
-        this._element.appendChild(valueElement);
+        this.element = this.createElement('div', 'sidebar-item');
+        this.element.appendChild(nameElement);
+        this.element.appendChild(valueElement);
     }
 
     get name() {
@@ -2321,7 +3801,7 @@ view.NameValueView = class {
     }
 
     render() {
-        return this._element;
+        return this.element;
     }
 
     toggle() {
@@ -2329,256 +3809,125 @@ view.NameValueView = class {
     }
 };
 
-view.SelectView = class extends view.Control {
+view.TextView = class extends view.Control {
 
-    constructor(host, values, selected) {
-        super();
-        this._host = host;
-        this._elements = [];
-        this._values = values;
-
-        const selectElement = this._host.document.createElement('select');
-        selectElement.setAttribute('class', 'sidebar-item-select');
-        selectElement.addEventListener('change', (e) => {
-            this.emit('change', this._values[e.target.selectedIndex]);
-        });
-        this._elements.push(selectElement);
-
-        for (const value of values) {
-            const optionElement = this._host.document.createElement('option');
-            optionElement.innerText = value.name || '';
-            if (value == selected) {
-                optionElement.setAttribute('selected', 'selected');
-            }
-            selectElement.appendChild(optionElement);
-        }
-    }
-
-    render() {
-        return this._elements;
-    }
-};
-
-view.ValueTextView = class {
-
-    constructor(host, value, action) {
-        this._host = host;
-        this._elements = [];
-        const element = this._host.document.createElement('div');
-        element.className = 'sidebar-item-value';
-        this._elements.push(element);
-
-        if (action) {
-            this._action = this._host.document.createElement('div');
-            this._action.className = 'sidebar-item-value-expander';
-            this._action.innerHTML = action.text;
-            this._action.addEventListener('click', () => {
-                action.callback();
-            });
-            element.appendChild(this._action);
-        }
-
-        const list = Array.isArray(value) ? value : [ value ];
+    constructor(context, value, style) {
+        super(context);
+        this.element = this.createElement('div', 'sidebar-item-value');
         let className = 'sidebar-item-value-line';
-        for (const item of list) {
-            const line = this._host.document.createElement('div');
-            line.className = className;
-            line.innerText = item;
-            element.appendChild(line);
-            className = 'sidebar-item-value-line-border';
-        }
-    }
-
-    render() {
-        return this._elements;
-    }
-
-    toggle() {
-    }
-};
-
-view.ValueView = class extends view.Control {
-
-    _bold(name, value) {
-        const line = this._host.document.createElement('div');
-        line.innerHTML = name + ': ' + '<b>' + value + '</b>';
-        this._add(line);
-    }
-
-    _code(name, value) {
-        const line = this._host.document.createElement('div');
-        line.innerHTML = name + ': ' + '<code><b>' + value + '</b></code>';
-        this._add(line);
-    }
-
-    _add(child) {
-        child.className = this._element.childNodes.length < 2 ? 'sidebar-item-value-line' : 'sidebar-item-value-line-border';
-        this._element.appendChild(child);
-    }
-
-    _tensor(value) {
-        const contentLine = this._host.document.createElement('pre');
-        try {
-            const tensor = new view.Tensor(value);
-            const layout = tensor.layout;
-            if (layout) {
-                const layouts = new Map([
-                    [ 'sparse', 'Sparse' ],
-                    [ 'sparse.coo', 'Sparse COO' ],
-                    [ 'sparse.csr', 'Sparse CSR' ],
-                    [ 'sparse.csc', 'Sparse CSC' ],
-                    [ 'sparse.bsr', 'Sparse BSR' ],
-                    [ 'sparse.bsc', 'Sparse BSC' ]
-                ]);
-                if (layouts.has(layout)) {
-                    this._bold('layout', layouts.get(layout));
+        if (value !== null && value !== undefined) {
+            const list = Array.isArray(value) ? value : [value];
+            for (const item of list) {
+                const line = this.createElement('div', className);
+                switch (style) {
+                    case 'code': {
+                        const element = this.createElement('code');
+                        element.textContent = item;
+                        line.appendChild(element);
+                        break;
+                    }
+                    case 'bold': {
+                        const element = this.createElement('b');
+                        element.textContent = item;
+                        line.appendChild(element);
+                        break;
+                    }
+                    case 'nowrap': {
+                        line.innerText = item;
+                        line.style.whiteSpace = style;
+                        break;
+                    }
+                    default: {
+                        line.innerText = item;
+                        break;
+                    }
                 }
-            }
-            if (Array.isArray(tensor.stride) && tensor.stride.length > 0) {
-                this._code('stride', tensor.stride.join(','));
-            }
-            if (tensor.layout !== '<' && tensor.layout !== '>' && tensor.layout !== '|' && tensor.layout !== 'sparse' && tensor.layout !== 'sparse.coo') {
-                contentLine.innerHTML = "Tensor layout '" + tensor.layout + "' is not implemented.";
-            } else if (tensor.empty) {
-                contentLine.innerHTML = 'Tensor data is empty.';
-            } else if (tensor.type && tensor.type.dataType === '?') {
-                contentLine.innerHTML = 'Tensor data type is not defined.';
-            } else if (tensor.type && !tensor.type.shape) {
-                contentLine.innerHTML = 'Tensor shape is not defined.';
-            } else {
-                contentLine.innerHTML = tensor.toString();
-
-                if (this._host.save &&
-                    value.type.shape && value.type.shape.dimensions &&
-                    value.type.shape.dimensions.length > 0) {
-                    this._saveButton = this._host.document.createElement('div');
-                    this._saveButton.className = 'sidebar-item-value-expander';
-                    this._saveButton.innerHTML = '&#x1F4BE;';
-                    this._saveButton.addEventListener('click', () => {
-                        this.emit('export-tensor', tensor);
-                    });
-                    this._element.appendChild(this._saveButton);
-                }
-            }
-        } catch (err) {
-            contentLine.innerHTML = err.toString();
-            this.emit('error', err);
-        }
-        const valueLine = this._host.document.createElement('div');
-        valueLine.className = 'sidebar-item-value-line-border';
-        valueLine.appendChild(contentLine);
-        this._element.appendChild(valueLine);
-    }
-};
-
-view.AttributeView = class extends view.ValueView {
-
-    constructor(host, attribute) {
-        super();
-        this._host = host;
-        this._attribute = attribute;
-        this._element = this._host.document.createElement('div');
-        this._element.className = 'sidebar-item-value';
-
-        const type = this._attribute.type;
-        if (type) {
-            this._expander = this._host.document.createElement('div');
-            this._expander.className = 'sidebar-item-value-expander';
-            this._expander.innerText = '+';
-            this._expander.addEventListener('click', () => {
-                this.toggle();
-            });
-            this._element.appendChild(this._expander);
-        }
-        const value = this._attribute.value;
-        switch (type) {
-            case 'graph': {
-                const line = this._host.document.createElement('div');
-                line.className = 'sidebar-item-value-line-link';
-                line.innerHTML = value.name;
-                line.addEventListener('click', () => {
-                    this.emit('show-graph', value);
-                });
-                this._element.appendChild(line);
-                break;
-            }
-            case 'function': {
-                const line = this._host.document.createElement('div');
-                line.className = 'sidebar-item-value-line-link';
-                line.innerHTML = value.type.name;
-                line.addEventListener('click', () => {
-                    this.emit('show-graph', value.type);
-                });
-                this._element.appendChild(line);
-                break;
-            }
-            default: {
-                let content = new view.Formatter(value, type).toString();
-                if (content && content.length > 1000) {
-                    content = content.substring(0, 1000) + '\u2026';
-                }
-                if (content && typeof content === 'string') {
-                    content = content.split('<').join('&lt;').split('>').join('&gt;');
-                }
-                const line = this._host.document.createElement('div');
-                line.className = 'sidebar-item-value-line';
-                line.innerHTML = content ? content : '&nbsp;';
-                this._element.appendChild(line);
-            }
-        }
-    }
-
-    render() {
-        return [ this._element ];
-    }
-
-    toggle() {
-        if (this._expander.innerText == '+') {
-            this._expander.innerText = '-';
-
-            const type = this._attribute.type;
-            const value = this._attribute.value;
-            const content = type == 'tensor' && value && value.type ? value.type.toString() : this._attribute.type;
-            const typeLine = this._host.document.createElement('div');
-            typeLine.className = 'sidebar-item-value-line-border';
-            typeLine.innerHTML = 'type: ' + '<code><b>' + content + '</b></code>';
-            this._element.appendChild(typeLine);
-
-            const description = this._attribute.description;
-            if (description) {
-                const descriptionLine = this._host.document.createElement('div');
-                descriptionLine.className = 'sidebar-item-value-line-border';
-                descriptionLine.innerHTML = description;
-                this._element.appendChild(descriptionLine);
-            }
-
-            if (this._attribute.type == 'tensor' && value) {
-                this._tensor(value);
+                this.element.appendChild(line);
+                className = 'sidebar-item-value-line-border';
             }
         } else {
-            this._expander.innerText = '+';
-            while (this._element.childElementCount > 2) {
-                this._element.removeChild(this._element.lastChild);
-            }
+            const line = this.createElement('div', className);
+            line.classList.add('sidebar-item-disable-select');
+            line.innerHTML = '&nbsp';
+            this.element.appendChild(line);
         }
+    }
+
+    action(text, description, callback) {
+        const action = this.createElement('div', 'sidebar-item-value-expander');
+        action.setAttribute('title', description);
+        action.addEventListener('click', () => callback());
+        action.innerHTML = text;
+        this.element.insertBefore(action, this.element.childNodes[0]);
+    }
+
+    render() {
+        return [this.element];
+    }
+
+    toggle() {
     }
 };
 
-view.ParameterView = class extends view.Control {
+view.ArgumentView = class extends view.Control {
 
-    constructor(host, list) {
-        super();
-        this._list = list;
+    constructor(context, argument, source) {
+        super(context);
+        this._argument = argument;
+        this._source = source;
         this._elements = [];
         this._items = [];
-        for (const value of list.value) {
-            const item = new view.ArgumentView(host, value);
-            item.on('export-tensor', (sender, value) => this.emit('export-tensor', value));
-            item.on('error', (sender, value) => this.emit('error', value));
-            item.on('activate', (sender, value) => this.emit('activate', value));
-            item.on('deactivate', (sender, value) => this.emit('deactivate', value));
+        const type = argument.type === 'attribute' ? null : argument.type;
+        let value = argument.value;
+        if (argument.type === 'attribute') {
+            this._source = 'attribute';
+        }
+        if (argument.type === 'tensor' || argument.type === 'tensor?') {
+            if (value === null || (value && value.constructor && value.constructor.name === 'Value')) {
+                value = [value];
+            } else {
+                value = [{ type: value.type, initializer: value }];
+            }
+        } else if (argument.type === 'tensor[]' || argument.type === 'tensor?[]') {
+            value = value.map((value) => {
+                if (value === null || (value && value.constructor && value.constructor.name === 'Value')) {
+                    return value;
+                }
+                return { type: value.type, initializer: value };
+            });
+        }
+        this._source = typeof type === 'string' && !type.endsWith('*') ? 'attribute' : this._source;
+        const primitive = typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint';
+        if (primitive) {
+            const item = new view.PrimitiveView(context, argument);
             this._items.push(item);
-            this._elements.push(item.render());
+        } else if (this._source === 'attribute' && type !== 'tensor' && type !== 'tensor?' && type !== 'tensor[]' && type !== 'tensor?[]') {
+            this._source = 'attribute';
+            const item = new view.PrimitiveView(context, argument);
+            this._items.push(item);
+        } else if (Array.isArray(value) && value.length === 0) {
+            const item = new view.TextView(this._view, null);
+            this._items.push(item);
+        } else {
+            const values = value;
+            for (const value of values) {
+                const emit = values.length === 1 && value && value.initializer;
+                const target = emit ? argument : value;
+                if (value === null) {
+                    const item = new view.TextView(this._view, null);
+                    this._items.push(item);
+                } else {
+                    const item = new view.ValueView(context, value, this._source);
+                    item.on('focus', () => this.emit('focus', target));
+                    item.on('blur', () => this.emit('blur', target));
+                    item.on('activate', () => this.emit('activate', target));
+                    item.on('select', () => this.emit('select', target));
+                    this._items.push(item);
+                }
+            }
+        }
+        for (const item of this._items) {
+            this._elements.push(...item.render());
         }
     }
 
@@ -2593,305 +3942,865 @@ view.ParameterView = class extends view.Control {
     }
 };
 
-view.ArgumentView = class extends view.ValueView {
+view.PrimitiveView = class extends view.Expander {
 
-    constructor(host, argument) {
-        super();
-        this._host = host;
-        this._argument = argument;
-
-        this._element = this._host.document.createElement('div');
-        this._element.className = 'sidebar-item-value';
-
-        const type = this._argument.type;
-        const initializer = this._argument.initializer;
-        const quantization = this._argument.quantization;
-        const location = this._argument.location !== undefined;
-
-        if (initializer) {
-            this._element.classList.add('sidebar-item-value-dark');
-        }
-
-        if (type || initializer || quantization || location) {
-            this._expander = this._host.document.createElement('div');
-            this._expander.className = 'sidebar-item-value-expander';
-            this._expander.innerText = '+';
-            this._expander.addEventListener('click', () => {
-                this.toggle();
-            });
-            this._element.appendChild(this._expander);
-        }
-
-        const name = this._argument.name ? this._argument.name.split('\n').shift() : ''; // custom argument id
-        this._hasId = name ? true : false;
-        this._hasCategory = initializer && initializer.category ? true : false;
-        if (this._hasId || (!this._hasCategory && !type)) {
-            this._hasId = true;
-            const nameLine = this._host.document.createElement('div');
-            nameLine.className = 'sidebar-item-value-line';
-            if (typeof name !== 'string') {
-                throw new Error("Invalid value identifier '" + JSON.stringify(name) + "'.");
+    constructor(context, argument) {
+        super(context);
+        try {
+            this._argument = argument;
+            const type = argument.type === 'attribute' ? null : argument.type;
+            const value = argument.value;
+            if (type) {
+                this.expandable();
             }
-            nameLine.innerHTML = '<span class=\'sidebar-item-value-line-content\'>name: <b>' + (name || ' ') + '</b></span>';
-            nameLine.addEventListener('pointerenter', () => this.emit('activate', this._argument));
-            nameLine.addEventListener('pointerleave', () => this.emit('deactivate', this._argument));
-            this._element.appendChild(nameLine);
-        } else if (this._hasCategory) {
-            this._bold('category', initializer.category);
-        } else if (type) {
-            this._code('type', type.toString().split('<').join('&lt;').split('>').join('&gt;'));
+            switch (type) {
+                case 'graph': {
+                    const line = this.createElement('div', 'sidebar-item-value-line-link');
+                    line.textContent = value ? value.name || '\u00A0' : '(null)';
+                    if (value) {
+                        line.addEventListener('click', () => this.emit('activate', value));
+                    }
+                    this.add(line);
+                    break;
+                }
+                case 'function': {
+                    const line = this.createElement('div', 'sidebar-item-value-line-link');
+                    line.textContent = value.name;
+                    line.addEventListener('click', () => this.emit('activate', value));
+                    this.add(line);
+                    break;
+                }
+                case 'object[]': {
+                    for (const obj of argument.value) {
+                        const line = this.createElement('div', 'sidebar-item-value-line');
+                        line.textContent = obj.type ? obj.type.name : '?';
+                        this.add(line);
+                    }
+                    break;
+                }
+                default: {
+                    const formatter = new view.Formatter(value, type);
+                    let content = formatter.toString();
+                    if (content) {
+                        if (content.length > 2000) {
+                            content = `${content.substring(0, 2000)}\u2026`;
+                        }
+                        const multiline = content.includes('\n');
+                        if (!multiline && content.length > 80) {
+                            this.expandable();
+                        }
+                        content = this.escape(content);
+                        if (multiline) {
+                            content = content.split('\n').join('<br>');
+                        }
+                    }
+                    this._line = this.createElement('div', 'sidebar-item-value-line');
+                    this._line.innerHTML = content ? content : '&nbsp;';
+                    this.add(this._line);
+                }
+            }
+        } catch (error) {
+            super.error(error, false);
+            this._info('ERROR', error.message);
+        }
+    }
+
+    expand() {
+        try {
+            if (this._line) {
+                this._line.classList.add('sidebar-item-value-line-wrap');
+            }
+            const type = this._argument.type;
+            const value = this._argument.value;
+            let content = type === 'tensor' && value && value.type ? value.type.toString() : this._argument.type;
+            if (content) {
+                content = this.escape(content);
+                const line = this.createElement('div', 'sidebar-item-value-line-border');
+                line.innerHTML = `type: <code><b>${content}</b></code>`;
+                this.add(line);
+            }
+            const description = this._argument.description;
+            if (description) {
+                const line = this.createElement('div', 'sidebar-item-value-line-border');
+                line.innerHTML = description;
+                this.add(line);
+            }
+        } catch (error) {
+            super.error(error, false);
+            this._info('ERROR', error.message);
+        }
+    }
+
+    collapse() {
+        if (this._line) {
+            this._line.classList.remove('sidebar-item-value-line-wrap');
+        }
+    }
+
+    _info(name, value) {
+        const line = this.createElement('div');
+        line.innerHTML = `<b>${name}:</b> ${this.escape(value)}`;
+        this._add(line);
+    }
+
+    _add(child) {
+        child.className = this._first === false ? 'sidebar-item-value-line-border' : 'sidebar-item-value-line';
+        this.add(child);
+        this._first = false;
+    }
+};
+
+view.ValueView = class extends view.Expander {
+
+    constructor(context, value, source) {
+        super(context);
+        this._value = value;
+        try {
+            if (value && value.constructor && value.constructor.name === 'Value' && source === 'attribute') {
+                source = '';
+            }
+            const type = this._value.type;
+            const initializer = this._value.initializer;
+            const quantization = this._value.quantization;
+            const location = this._value.location !== undefined;
+            if (initializer) {
+                this.element.classList.add('sidebar-item-value-content');
+            }
+            if (type || initializer || quantization || location || source === 'attribute') {
+                this.expandable();
+            }
+            if (initializer && source !== 'attribute') {
+                const element = this.createElement('div', 'sidebar-item-value-button');
+                element.classList.add('sidebar-item-value-button-tool');
+                element.setAttribute('title', 'Show Tensor');
+                element.innerHTML = `<svg class='sidebar-find-content-icon'><use href="#sidebar-icon-weight"></use></svg>`;
+                element.addEventListener('pointerenter', () => this.emit('focus', this._value));
+                element.addEventListener('pointerleave', () => this.emit('blur', this._value));
+                element.style.cursor = 'pointer';
+                element.addEventListener('click', () => this.emit('activate', this._value));
+                this.control(element);
+            }
+            const name = this._value.name ? this._value.name.split('\n').shift() : ''; // custom argument id
+            this._hasId = name && source !== 'attribute' ? true : false;
+            this._hasCategory = initializer && initializer.category && source !== 'attribute' ? true : false;
+            if (this._hasId || (!this._hasCategory && !type && source !== 'attribute')) {
+                this._hasId = true;
+                const element = this.createElement('div', 'sidebar-item-value-line');
+                if (typeof name !== 'string') {
+                    throw new Error(`Invalid value identifier '${JSON.stringify(name)}'.`);
+                }
+                const text = this.createElement('b');
+                text.innerText = name || ' ';
+                const line = this.createElement('span', 'sidebar-item-value-line-content');
+                line.innerText = 'name: ';
+                line.appendChild(text);
+                element.appendChild(line);
+                element.addEventListener('pointerenter', () => this.emit('focus', this._value));
+                element.addEventListener('pointerleave', () => this.emit('blur', this._value));
+                element.style.cursor = 'pointer';
+                element.addEventListener('click', () => this.emit('activate', this._value));
+                this._add(element);
+            } else if (this._hasCategory) {
+                this._bold('category', initializer.category);
+            } else if (type) {
+                this._code('tensor', type);
+            }
+        } catch (error) {
+            super.error(error, false);
+            this._info('ERROR', error.message);
         }
     }
 
     render() {
-        return this._element;
+        return [this.element];
     }
 
-    toggle() {
-        if (this._expander) {
-            if (this._expander.innerText == '+') {
-                this._expander.innerText = '-';
+    expand() {
+        try {
+            const initializer = this._value.initializer;
+            if (this._hasId && this._hasCategory) {
+                this._bold('category', initializer.category);
+            }
+            let type = null;
+            let denotation = null;
+            if (this._value.type) {
+                type = this._value.type.toString();
+                denotation = this._value.type.denotation || null;
+            }
+            if (type && (this._hasId || this._hasCategory)) {
+                this._code('tensor', type);
+            }
+            if (denotation) {
+                this._code('denotation', denotation);
+            }
+            const description = this._value.description;
+            if (description) {
+                const line = this.createElement('div', 'sidebar-item-value-line-border');
+                line.innerHTML = description;
+                this.add(line);
+            }
+            const identifier = this._value.identifier;
+            if (identifier !== undefined) {
+                this._bold('identifier', identifier);
+            }
+            const layout = this._value.type ? this._value.type.layout : null;
+            if (layout) {
+                this._bold('layout', layout.replace('.', ' '));
+            }
+            const quantization = this._value.quantization;
+            if (quantization) {
+                if (typeof quantization.type !== 'string') {
+                    throw new view.Error('Unsupported quantization value.');
+                }
+                const value = new view.Quantization(quantization).toString();
+                if (quantization.type && (quantization.type !== 'linear' || (value && value !== 'q'))) {
+                    const line = this.createElement('div', 'sidebar-item-value-line-border');
+                    const content = [
+                        `<span class='sidebar-item-value-line-content'>quantization: <b>${quantization.type}</b></span>`
+                    ];
+                    if (value) {
+                        content.push(`<pre style='margin: 4px 0 2px 0'>${value}</pre>`);
+                    }
+                    line.innerHTML = content.join('');
+                    this._add(line);
+                }
+            }
+            if (initializer) {
+                if (initializer.location) {
+                    this._bold('location', initializer.location);
+                }
+                const stride = initializer.stride;
+                if (Array.isArray(stride) && stride.length > 0) {
+                    this._code('stride', stride.join(','));
+                }
+                const tensor = new view.TensorView(this._view, initializer);
+                const content = tensor.content;
+                const line = this.createElement('div', 'sidebar-item-value-line-border');
+                line.appendChild(content);
+                this._add(line);
+            }
+        } catch (error) {
+            super.error(error, false);
+            this._info('ERROR', error.message);
+        }
+    }
 
-                const initializer = this._argument.initializer;
-                if (this._hasId && this._hasCategory) {
-                    this._bold('category', initializer.category);
-                }
+    _bold(name, value) {
+        const line = this.createElement('div');
+        line.innerHTML = `${name}: <b>${this.escape(value)}</b>`;
+        this._add(line);
+    }
 
-                let type = null;
-                let denotation = null;
-                if (this._argument.type) {
-                    type = this._argument.type.toString();
-                    denotation = this._argument.type.denotation || null;
-                }
-                if (type && (this._hasId || this._hasCategory)) {
-                    this._code('type', type.split('<').join('&lt;').split('>').join('&gt;'));
-                }
-                if (denotation) {
-                    this._code('denotation', denotation);
-                }
+    _code(name, value) {
+        const line = this.createElement('div');
+        line.innerHTML = `${name}: <code><b>${this.escape(value)}</b></code>`;
+        this._add(line);
+    }
 
-                const description = this._argument.description;
-                if (description) {
-                    const descriptionLine = this._host.document.createElement('div');
-                    descriptionLine.className = 'sidebar-item-value-line-border';
-                    descriptionLine.innerHTML = description;
-                    this._element.appendChild(descriptionLine);
-                }
+    _info(name, value) {
+        const line = this.createElement('div');
+        line.innerHTML = `<b>${name}:</b> ${this.escape(value)}`;
+        this._add(line);
+    }
 
-                const quantization = this._argument.quantization;
-                if (quantization) {
-                    const quantizationLine = this._host.document.createElement('div');
-                    quantizationLine.className = 'sidebar-item-value-line-border';
-                    const content = !Array.isArray(quantization) ? quantization : '<br><br>' + quantization.map((value) => '  ' + value).join('<br>');
-                    quantizationLine.innerHTML = '<span class=\'sidebar-item-value-line-content\'>quantization: ' + '<b>' + content + '</b></span>';
-                    this._element.appendChild(quantizationLine);
-                }
+    _add(child) {
+        child.className = this._first === false ? 'sidebar-item-value-line-border' : 'sidebar-item-value-line';
+        this.add(child);
+        this._first = false;
+    }
+};
 
-                const location = this._argument.location;
-                if (location !== undefined) {
-                    this._bold('location', location);
-                }
+view.TensorView = class extends view.Expander {
 
-                if (initializer) {
-                    this._tensor(initializer);
+    constructor(context, value, tensor) {
+        super(context);
+        this._value = value;
+        this._tensor = tensor || new base.Tensor(value);
+    }
+
+    render() {
+        if (!this._button) {
+            this.expandable();
+            this._button = this.createElement('div', 'sidebar-item-value-button');
+            this._button.setAttribute('style', 'float: left;');
+            this._button.innerHTML = `<svg class='sidebar-find-content-icon'><use href="#sidebar-icon-weight"></use></svg>`;
+            this._button.addEventListener('click', () => this.toggle());
+            this.control(this._button);
+            const line = this.createElement('div', 'sidebar-item-value-line');
+            line.classList.add('sidebar-item-disable-select');
+            line.innerHTML = '&nbsp';
+            this.element.appendChild(line);
+        }
+        return super.render();
+    }
+
+    expand() {
+        try {
+            const content = this.content;
+            const container = this.createElement('div', 'sidebar-item-value-line-border');
+            container.appendChild(content);
+            this.element.appendChild(container);
+        } catch (error) {
+            this.error(error, false);
+        }
+    }
+
+    get content() {
+        const content = this.createElement('pre');
+        const value = this._value;
+        const tensor = this._tensor;
+        if (tensor.encoding !== '<' && tensor.encoding !== '>' && tensor.encoding !== '|') {
+            content.innerHTML = `Tensor encoding '${tensor.layout}' is not implemented.`;
+        } else if (tensor.layout && (tensor.layout !== 'sparse' && tensor.layout !== 'sparse.coo')) {
+            content.innerHTML = `Tensor layout '${tensor.layout}' is not implemented.`;
+        } else if (tensor.type && tensor.type.dataType === '?') {
+            content.innerHTML = 'Tensor data type is not defined.';
+        } else if (tensor.type && !tensor.type.shape) {
+            content.innerHTML = 'Tensor shape is not defined.';
+        } else {
+            content.innerHTML = '&#x23F3';
+            const promise = value.peek && !value.peek() ? value.read() : Promise.resolve();
+            promise.then(() => {
+                if (tensor.empty) {
+                    content.innerHTML = 'Tensor data is empty.';
+                } else {
+                    content.innerHTML = tensor.toString();
+                    if (this._host.save && value.type.shape && value.type.shape.dimensions && value.type.shape.dimensions.length > 0) {
+                        this._saveButton = this.createElement('div', 'sidebar-item-value-button');
+                        this._saveButton.classList.add('sidebar-item-value-button-context');
+                        this._saveButton.setAttribute('style', 'float: right;');
+                        this._saveButton.innerHTML = '&#x1F4BE;';
+                        this._saveButton.addEventListener('click', async () => {
+                            await this.export();
+                        });
+                        content.insertBefore(this._saveButton, content.firstChild);
+                    }
                 }
-            } else {
-                this._expander.innerText = '+';
-                while (this._element.childElementCount > 2) {
-                    this._element.removeChild(this._element.lastChild);
+            }).catch((error) => {
+                content.innerHTML = error.message;
+            });
+        }
+        return content;
+    }
+
+    error(error, fatal) {
+        super.error(error, fatal);
+        const element = this.createElement('div', 'sidebar-item-value-line');
+        const title = this.createElement('b');
+        title.textContent = 'ERROR: ';
+        element.appendChild(title);
+        const message = this.createTextNode(error.message);
+        element.appendChild(message);
+        this.element.appendChild(element);
+    }
+
+    async export() {
+        const window = this._host.window;
+        const tensor = this._tensor;
+        const defaultPath = tensor.name ? tensor.name.split('/').join('_').split(':').join('_').split('.').join('_') : 'tensor';
+        const file = await this._host.save('NumPy Array', 'npy', defaultPath);
+        if (file) {
+            try {
+                let data_type = '?';
+                switch (tensor.type.dataType) {
+                    case 'boolean': data_type = 'bool'; break;
+                    case 'bfloat16': data_type = 'float32'; break;
+                    case 'float4e2m1fn': data_type = 'float16'; break;
+                    case 'float6e2m3fn': data_type = 'float16'; break;
+                    case 'float6e3m2fn': data_type = 'float16'; break;
+                    case 'float8e3m4': data_type = 'float16'; break;
+                    case 'float8e4m3': data_type = 'float16'; break;
+                    case 'float8e4m3b11fnuz': data_type = 'float16'; break;
+                    case 'float8e4m3fn': data_type = 'float16'; break;
+                    case 'float8e4m3fnuz': data_type = 'float16'; break;
+                    case 'float8e5m2': data_type = 'float16'; break;
+                    case 'float8e5m2fnuz': data_type = 'float16'; break;
+                    case 'float8e8m0fnu': data_type = 'float16'; break;
+                    case 'float8e8m0': data_type = 'float16'; break;
+                    case 'int4': data_type = 'int8'; break;
+                    case 'int48': data_type = 'int64'; break;
+                    case 'quint8': data_type = 'uint8'; break;
+                    default: data_type = tensor.type.dataType; break;
                 }
+                const python = await import('./python.js');
+                const execution = new python.Execution();
+                const io = execution.__import__('io');
+                const numpy = execution.register('numpy');
+                const bytes = new io.BytesIO();
+                const dtype = new numpy.dtype(data_type);
+                const array = numpy.asarray(tensor.value, dtype);
+                numpy.save(bytes, array);
+                bytes.seek(0);
+                const blob = new window.Blob([bytes.read()], { type: 'application/octet-stream' });
+                await this._host.export(file, blob);
+            } catch (error) {
+                this._view.error(error, 'Error saving NumPy tensor.', null);
             }
         }
     }
 };
 
-view.ModelSidebar = class extends view.Control {
+view.NodeView = class extends view.Expander {
 
-    constructor(host, model, graph) {
-        super();
-        this._host = host;
-        this._model = model;
+    constructor(context, node) {
+        super(context);
+        this._node = node;
+        const name = node.name;
+        const type = node.type ? node.type.name : '';
+        if (name && type) {
+            this.expandable();
+        }
+        if (type) {
+            const type = node.type.name;
+            const element = this.createElement('div', 'sidebar-item-value-line');
+            element.innerHTML = `<span class='sidebar-item-value-line-content'>node: <b>${type || ' '}</b></span>`;
+            element.addEventListener('pointerenter', () => this.emit('focus', this._node));
+            element.addEventListener('pointerleave', () => this.emit('blur', this._node));
+            element.addEventListener('click', () => this.emit('activate', this._node));
+            element.style.cursor = 'pointer';
+            this.element.appendChild(element);
+        } else {
+            const element = this.createElement('div', 'sidebar-item-value-line');
+            element.innerHTML = `<span class='sidebar-item-value-line-content'>name: <b>${name || ' '}</b></span>`;
+            element.addEventListener('pointerenter', () => this.emit('focus', this._node));
+            element.addEventListener('pointerleave', () => this.emit('blur', this._node));
+            element.addEventListener('click', () => this.emit('activate', this._node));
+            element.style.cursor = 'pointer';
+            this.element.appendChild(element);
+        }
+    }
 
-        this._container = this._host.document.createElement('div');
-        this._container.className = 'sidebar-node';
+    expand() {
+        const name = this._node.name;
+        const element = this.createElement('div', 'sidebar-item-value-line-border');
+        element.innerHTML = `<span class='sidebar-item-value-line-content'>name: <b>${name}</b></span>`;
+        element.addEventListener('pointerenter', () => this.emit('focus', this._node));
+        element.addEventListener('pointerleave', () => this.emit('blur', this._node));
+        element.addEventListener('click', () => this.emit('activate', this._node));
+        element.style.cursor = 'pointer';
+        this.element.appendChild(element);
+    }
+};
 
-        if (model.format) {
-            this._addProperty('format', new view.ValueTextView(this._host, model.format));
-        }
-        if (model.producer) {
-            this._addProperty('producer', new view.ValueTextView(this._host, model.producer));
-        }
-        if (model.name) {
-            this._addProperty('name', new view.ValueTextView(this._host, model.name));
-        }
-        if (model.version) {
-            this._addProperty('version', new view.ValueTextView(this._host, model.version));
-        }
-        if (model.description) {
-            this._addProperty('description', new view.ValueTextView(this._host, model.description));
-        }
-        if (model.domain) {
-            this._addProperty('domain', new view.ValueTextView(this._host, model.domain));
-        }
-        if (model.imports) {
-            this._addProperty('imports', new view.ValueTextView(this._host, model.imports));
-        }
-        if (model.runtime) {
-            this._addProperty('runtime', new view.ValueTextView(this._host, model.runtime));
-        }
-        if (model.metadata) {
-            for (const entry of model.metadata) {
-                this._addProperty(entry.name, new view.ValueTextView(this._host, entry.value));
-            }
-        }
-        const graphs = Array.isArray(model.graphs) ? model.graphs : [];
-        if (graphs.length > 1) {
-            const graphSelector = new view.SelectView(this._host, model.graphs, graph);
-            graphSelector.on('change', (sender, data) => {
-                this.emit('update-active-graph', data);
-            });
-            this._addProperty('subgraph', graphSelector);
-        }
+view.NodeListView = class extends view.Control {
 
-        if (graph) {
-            if (graph.version) {
-                this._addProperty('version', new view.ValueTextView(this._host, graph.version));
-            }
-            if (graph.type) {
-                this._addProperty('type', new view.ValueTextView(this._host, graph.type));
-            }
-            if (graph.tags) {
-                this._addProperty('tags', new view.ValueTextView(this._host, graph.tags));
-            }
-            if (graph.description) {
-                this._addProperty('description', new view.ValueTextView(this._host, graph.description));
-            }
-            if (Array.isArray(graph.inputs) && graph.inputs.length > 0) {
-                this._addHeader('Inputs');
-                for (const input of graph.inputs) {
-                    this.addArgument(input.name, input);
-                }
-            }
-            if (Array.isArray(graph.outputs) && graph.outputs.length > 0) {
-                this._addHeader('Outputs');
-                for (const output of graph.outputs) {
-                    this.addArgument(output.name, output);
-                }
+    constructor(context, list) {
+        super(context);
+        this._elements = [];
+        for (const node of list) {
+            const item = new view.NodeView(this._view, node);
+            item.on('focus', (sender, value) => this.emit('focus', value));
+            item.on('blur', (sender, value) => this.emit('blur', value));
+            item.on('activate', (sender, value) => this.emit('activate', value));
+            item.on('deactivate', (sender, value) => this.emit('deactivate', value));
+            item.on('select', (sender, value) => this.emit('select', value));
+            item.toggle();
+            for (const element of item.render()) {
+                this._elements.push(element);
             }
         }
     }
 
     render() {
-        return [ this._container ];
+        return this._elements;
+    }
+};
+
+view.ConnectionSidebar = class extends view.ObjectSidebar {
+
+    constructor(context, value, from, to) {
+        super(context);
+        this._value = value;
+        this._from = from;
+        this._to = to;
     }
 
-    _addHeader(title) {
-        const element = this._host.document.createElement('div');
-        element.className = 'sidebar-header';
-        element.innerText = title;
-        this._container.appendChild(element);
+    get identifier() {
+        return 'connection';
     }
 
-    _addProperty(name, value) {
-        const item = new view.NameValueView(this._host, name, value);
-        this._container.appendChild(item.render());
+    render() {
+        const value = this._value;
+        const from = this._from;
+        const to = this._to;
+        const [name] = value.name.split('\n');
+        this.addProperty('name', name);
+        if (value.type) {
+            const item = new view.ValueView(this._view, value);
+            this.addEntry('type', item);
+            item.toggle();
+        }
+        if (from) {
+            this.addSection('Inputs');
+            this.addNodeList('from', [from]);
+        }
+        if (Array.isArray(to) && to.length > 0) {
+            this.addSection('Outputs');
+            this.addNodeList('to', to);
+        }
+        const metadata = this._view.model.attachment.metadata.value(value);
+        if (Array.isArray(metadata) && metadata.length > 0) {
+            this.addSection('Metadata');
+            for (const argument of metadata) {
+                this.addArgument(argument.name, argument, 'attribute');
+            }
+        }
+        const metrics = this._view.model.attachment.metrics.value(value);
+        if (Array.isArray(metrics) && metrics.length > 0) {
+            this.addSection('Metrics');
+            for (const argument of metrics) {
+                this.addArgument(argument.name, argument, 'attribute');
+            }
+        }
     }
 
-    addArgument(name, argument) {
-        const value = new view.ParameterView(this._host, argument);
-        value.toggle();
-        const item = new view.NameValueView(this._host, name, value);
-        this._container.appendChild(item.render());
+    addNodeList(name, list) {
+        const entry = new view.NodeListView(this._view, list);
+        entry.on('focus', (sender, value) => {
+            this.emit('focus', value);
+            this._focused = this._focused || new Set();
+            this._focused.add(value);
+        });
+        entry.on('blur', (sender, value) => {
+            this.emit('blur', value);
+            this._focused = this._focused || new Set();
+            this._focused.delete(value);
+        });
+        entry.on('select', (sender, value) => this.emit('select', value));
+        entry.on('activate', (sender, value) => this.emit('activate', value));
+        this.addEntry(name, entry);
+    }
+
+    activate() {
+        this.emit('select', this._value);
+    }
+
+    deactivate() {
+        this.emit('select', null);
+        if (this._focused) {
+            for (const value of this._focused) {
+                this.emit('blur', value);
+            }
+            this._focused.clear();
+        }
+    }
+};
+
+view.TensorSidebar = class extends view.ObjectSidebar {
+
+    constructor(context, value) {
+        super(context);
+        this._value = value;
+    }
+
+    get identifier() {
+        return 'tensor';
+    }
+
+    render() {
+        const [value] = this._value.value;
+        const tensor = value.initializer;
+        const name = tensor && tensor.name ? tensor.name : value.name.split('\n')[0];
+        if (name) {
+            this.addProperty('name', name);
+        }
+        if (tensor) {
+            const category = tensor.category;
+            if (category) {
+                this.addProperty('category', category);
+            }
+            const description = tensor.description;
+            if (description) {
+                this.addProperty('description', description);
+            }
+            const type = tensor.type;
+            if (type) {
+                const dataType = type.dataType;
+                this.addProperty('type', `${dataType}`, 'code');
+                const shape = type.shape && Array.isArray(type.shape.dimensions) ? type.shape.dimensions.toString(', ') : '?';
+                if (shape) {
+                    this.addProperty('shape', shape, 'code');
+                }
+                const denotation = type.denotation;
+                if (denotation) {
+                    this.addProperty('denotation', denotation, 'code');
+                }
+                const layout = type.layout;
+                if (layout) {
+                    this.addProperty('layout', layout.replace('.', ' '));
+                }
+            }
+            const location = tensor.location;
+            if (location) {
+                this.addProperty('location', tensor.location);
+            }
+            const stride = tensor.stride;
+            if (Array.isArray(stride) && stride.length > 0) {
+                this.addProperty('stride', stride.join(','), 'code');
+            }
+            const value = new view.TensorView(this._view, tensor, this._tensor);
+            this.addEntry('value', value);
+            const attributes = tensor.attributes;
+            if (Array.isArray(attributes) && attributes.length > 0) {
+                this.addSection('Attributes');
+                for (const attribute of attributes) {
+                    this.addArgument(attribute.name, attribute, 'attribute');
+                }
+            }
+            const metadata = this._view.model.attachment.metadata.tensor(tensor);
+            if (Array.isArray(metadata) && metadata.length > 0) {
+                this.addSection('Metadata');
+                for (const argument of metadata) {
+                    this.addArgument(argument.name, argument, 'attribute');
+                }
+            }
+        }
+        // Metrics
+        if (value.initializer) {
+            const tensor = value.initializer;
+            const promise = tensor.peek && !tensor.peek() ? tensor.read() : Promise.resolve();
+            promise.then(() => {
+                this._tensor = new base.Tensor(tensor);
+                if (!this._tensor.empty) {
+                    if (!this._metrics) {
+                        const tensor = new metrics.Tensor(this._tensor);
+                        this._metrics = this._view.model.attachment.metrics.tensor(tensor);
+                    }
+                    if (this._metrics.length > 0) {
+                        this.addSection('Metrics');
+                        for (const metric of this._metrics) {
+                            const value = metric.type === 'percentage' ? `${(metric.value * 100).toFixed(1)}%` : metric.value;
+                            const argument = new metadata.Argument(metric.name, value, metric.type);
+                            this.addArgument(metric.name, argument, 'attribute');
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    activate() {
+        this.emit('select', this._value);
+    }
+
+    deactivate() {
+        this.emit('select', null);
+    }
+};
+
+view.ModelSidebar = class extends view.ObjectSidebar {
+
+    constructor(context, model) {
+        super(context);
+        this._model = model;
+    }
+
+    get identifier() {
+        return 'model';
+    }
+
+    render() {
+        const model = this._model;
+        if (model.format) {
+            this.addProperty('format', model.format);
+        }
+        if (model.producer) {
+            this.addProperty('producer', model.producer);
+        }
+        if (model.name) {
+            this.addProperty('name', model.name);
+        }
+        if (model.version) {
+            this.addProperty('version', model.version);
+        }
+        if (model.description) {
+            this.addProperty('description', model.description);
+        }
+        if (model.domain) {
+            this.addProperty('domain', model.domain);
+        }
+        if (model.imports) {
+            this.addProperty('imports', model.imports);
+        }
+        if (model.runtime) {
+            this.addProperty('runtime', model.runtime);
+        }
+        if (model.source) {
+            this.addProperty('source', model.source);
+        }
+        const metadata = this._view.model.attachment.metadata.model(model);
+        if (Array.isArray(metadata) && metadata.length > 0) {
+            this.addSection('Metadata');
+            for (const argument of metadata) {
+                this.addArgument(argument.name, argument, 'attribute');
+            }
+        }
+        const metrics = this.metrics;
+        if (Array.isArray(metrics) && metrics.length > 0) {
+            this.addSection('Metrics');
+            for (const argument of metrics) {
+                this.addArgument(argument.name, argument, 'attribute');
+            }
+        }
+    }
+
+    get metrics() {
+        const model = new metrics.Model(this._model);
+        return this._view.model.attachment.metrics.model(model);
+    }
+};
+
+view.TargetSidebar = class extends view.ObjectSidebar {
+
+    constructor(context, target, signature) {
+        super(context);
+        this._target = target;
+        this._signature = signature;
+    }
+
+    render() {
+        const target = this._target;
+        const signature = this._signature;
+        if (target.name) {
+            const item = this.addProperty('name', target.name);
+            if (target.type === 'function') {
+                item.action('\u0192', 'Show Function Documentation', () => {
+                    this.emit('show-definition', null);
+                });
+            }
+        }
+        if (signature && signature.name) {
+            this.addProperty('signature', signature.name);
+        }
+        if (target.version) {
+            this.addProperty('version', target.version);
+        }
+        if (target.description) {
+            this.addProperty('description', target.description);
+        }
+        const attributes = signature ? signature.attributes : target.attributes;
+        const inputs = signature ? signature.inputs : target.inputs;
+        const outputs = signature ? signature.outputs : target.outputs;
+        if (Array.isArray(attributes) && attributes.length > 0) {
+            this.addSection('Attributes');
+            for (const attribute of attributes) {
+                this.addProperty(attribute.name, attribute.value);
+            }
+        }
+        if (Array.isArray(inputs) && inputs.length > 0) {
+            this.addSection('Inputs');
+            for (const input of inputs) {
+                const value = this.addArgument(input.name, input);
+                value.toggle();
+            }
+        }
+        if (Array.isArray(outputs) && outputs.length > 0) {
+            this.addSection('Outputs');
+            for (const output of outputs) {
+                const value = this.addArgument(output.name, output);
+                value.toggle();
+            }
+        }
+        const metadata = this._view.model.attachment.metadata.graph(target);
+        if (Array.isArray(metadata) && metadata.length > 0) {
+            this.addSection('Metadata');
+            for (const argument of metadata) {
+                this.addArgument(argument.name, argument, 'attribute');
+            }
+        }
+        const metrics = this.metrics;
+        if (Array.isArray(metrics) && metrics.length > 0) {
+            this.addSection('Metrics');
+            for (const argument of metrics) {
+                this.addArgument(argument.name, argument, 'attribute');
+            }
+        }
+    }
+
+    get metrics() {
+        const target = new metrics.Target(this._target);
+        return this._view.model.attachment.metrics.graph(target);
+    }
+
+    get identifier() {
+        return 'target';
     }
 };
 
 view.DocumentationSidebar = class extends view.Control {
 
-    constructor(host, type) {
-        super();
-        this._host = host;
+    constructor(context, type) {
+        super(context);
         this._type = type;
+        this._escapeReplacementsMap = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+        this._escapeTestNoEncodeRegExp = /[<>"']|&(?!#?\w+;)/;
+        this._escapeReplaceNoEncodeRegExp = /[<>"']|&(?!#?\w+;)/g;
+    }
+
+    get identifier() {
+        return 'documentation';
     }
 
     render() {
-        if (!this._elements) {
-            this._elements = [];
-
-            const type = view.Documentation.format(this._type);
-
-            const element = this._host.document.createElement('div');
-            element.setAttribute('class', 'sidebar-documentation');
-
-            this._append(element, 'h1', type.name);
-
+        if (!this.element) {
+            this.element = this.createElement('div', 'sidebar-documentation');
+            const type = view.Documentation.open(this._type);
+            this._append(this.element, 'h1', type.name);
             if (type.summary) {
-                this._append(element, 'p', type.summary);
+                this._append(this.element, 'p', type.summary);
             }
-
             if (type.description) {
-                this._append(element, 'p', type.description);
+                this._append(this.element, 'p', type.description);
             }
-
             if (Array.isArray(type.attributes) && type.attributes.length > 0) {
-                this._append(element, 'h2', 'Attributes');
-                const attributes = this._append(element, 'dl');
+                this._append(this.element, 'h2', 'Attributes');
+                const attributes = this._append(this.element, 'dl');
                 for (const attribute of type.attributes) {
-                    this._append(attributes, 'dt', attribute.name + (attribute.type ? ': <tt>' + attribute.type + '</tt>' : ''));
+                    this._append(attributes, 'dt', attribute.name + (attribute.type ? `: <tt>${this._escape(attribute.type)}</tt>` : ''));
                     this._append(attributes, 'dd', attribute.description);
                 }
-                element.appendChild(attributes);
+                this.element.appendChild(attributes);
             }
-
             if (Array.isArray(type.inputs) && type.inputs.length > 0) {
-                this._append(element, 'h2', 'Inputs' + (type.inputs_range ? ' (' + type.inputs_range + ')' : ''));
-                const inputs = this._append(element, 'dl');
+                this._append(this.element, 'h2', `Inputs${type.inputs_range ? ` (${type.inputs_range})` : ''}`);
+                const inputs = this._append(this.element, 'dl');
                 for (const input of type.inputs) {
-                    this._append(inputs, 'dt', input.name + (input.type ? ': <tt>' + input.type + '</tt>' : '') + (input.option ? ' (' + input.option + ')' : ''));
+                    this._append(inputs, 'dt', input.name + (input.type ? `: <tt>${this._escape(input.type)}</tt>` : '') + (input.option ? ` (${input.option})` : ''));
                     this._append(inputs, 'dd', input.description);
                 }
             }
-
             if (Array.isArray(type.outputs) && type.outputs.length > 0) {
-                this._append(element, 'h2', 'Outputs' + (type.outputs_range ? ' (' + type.outputs_range + ')' : ''));
-                const outputs = this._append(element, 'dl');
+                this._append(this.element, 'h2', `Outputs${type.outputs_range ? ` (${type.outputs_range})` : ''}`);
+                const outputs = this._append(this.element, 'dl');
                 for (const output of type.outputs) {
-                    this._append(outputs, 'dt', output.name + (output.type ? ': <tt>' + output.type + '</tt>' : '') + (output.option ? ' (' + output.option + ')' : ''));
+                    this._append(outputs, 'dt', output.name + (output.type ? `: <tt>${this._escape(output.type)}</tt>` : '') + (output.option ? ` (${output.option})` : ''));
                     this._append(outputs, 'dd', output.description);
                 }
             }
-
             if (Array.isArray(type.type_constraints) && type.type_constraints.length > 0) {
-                this._append(element, 'h2', 'Type Constraints');
-                const type_constraints = this._append(element, 'dl');
+                this._append(this.element, 'h2', 'Type Constraints');
+                const type_constraints = this._append(this.element, 'dl');
                 for (const type_constraint of type.type_constraints) {
-                    this._append(type_constraints, 'dt', type_constraint.type_param_str + ': ' + type_constraint.allowed_type_strs.map((item) => '<tt>' + item + '</tt>').join(', '));
+                    this._append(type_constraints, 'dt', `${type_constraint.type_param_str}: ${type_constraint.allowed_type_strs.map((item) => `<tt>${item}</tt>`).join(', ')}`);
                     this._append(type_constraints, 'dd', type_constraint.description);
                 }
             }
-
             if (Array.isArray(type.examples) && type.examples.length > 0) {
-                this._append(element, 'h2', 'Examples');
+                this._append(this.element, 'h2', 'Examples');
                 for (const example of type.examples) {
-                    this._append(element, 'h3', example.summary);
-                    this._append(element, 'pre', example.code);
+                    this._append(this.element, 'h3', example.summary);
+                    this._append(this.element, 'pre', example.code);
                 }
             }
-
             if (Array.isArray(type.references) && type.references.length > 0) {
-                this._append(element, 'h2', 'References');
-                const references = this._append(element, 'ul');
+                this._append(this.element, 'h2', 'References');
+                const references = this._append(this.element, 'ul');
                 for (const reference of type.references) {
                     this._append(references, 'li', reference.description);
                 }
             }
-
-            if (type.domain && type.version && type.support_level) {
-                this._append(element, 'h2', 'Support');
-                this._append(element, 'dl', 'In domain <tt>' + type.domain + '</tt> since version <tt>' + type.version + '</tt> at support level <tt>' + type.support_level + '</tt>.');
-            }
-
             if (this._host.type === 'Electron') {
-                element.addEventListener('click', (e) => {
+                this.element.addEventListener('click', (e) => {
                     if (e.target && e.target.href) {
                         const url = e.target.href;
                         if (url.startsWith('http://') || url.startsWith('https://')) {
@@ -2901,47 +4810,58 @@ view.DocumentationSidebar = class extends view.Control {
                     }
                 });
             }
-
-            this._elements = [ element ];
         }
-        return this._elements;
     }
 
     _append(parent, type, content) {
-        const element = this._host.document.createElement(type);
+        const element = this.createElement(type);
         if (content) {
             element.innerHTML = content;
         }
         parent.appendChild(element);
         return element;
     }
+
+    _escape(content) {
+        if (this._escapeTestNoEncodeRegExp.test(content)) {
+            return content.replace(this._escapeReplaceNoEncodeRegExp, (ch) => this._escapeReplacementsMap[ch]);
+        }
+        return content;
+    }
+
+    error(error, fatal) {
+        super.error(error, fatal);
+        const element = this.createElement('span');
+        const title = this.createElement('b');
+        title.textContent = 'ERROR: ';
+        element.appendChild(title);
+        const message = this.createTextNode(error.message);
+        element.appendChild(message);
+        this.element.appendChild(element);
+    }
 };
 
 view.FindSidebar = class extends view.Control {
 
-    constructor(host, graph) {
-        super();
-        this._host = host;
-        this._graph = graph;
-        this._table = new Map();
-        this._searchElement = this._host.document.createElement('input');
-        this._searchElement.setAttribute('class', 'sidebar-find-search');
-        this._searchElement.setAttribute('id', 'search');
-        this._searchElement.setAttribute('type', 'text');
-        this._searchElement.setAttribute('spellcheck', 'false');
-        this._searchElement.setAttribute('placeholder', 'Search');
-        this._searchElement.addEventListener('input', (e) => {
-            this.update(e.target.value);
-            this.emit('search-text-changed', e.target.value);
-        });
-        this._contentElement = this._host.document.createElement('ol');
-        this._contentElement.setAttribute('class', 'sidebar-find-content');
-        this._contentElement.addEventListener('click', (e) => {
-            const identifier = e.target.getAttribute('data');
-            if (this._table.has(identifier)) {
-                this.emit('select', this._table.get(identifier));
-            }
-        });
+    constructor(context, state, graph, signature) {
+        super(context);
+        this._target = graph;
+        this._signature = signature;
+        this._state = state || {
+            query: '',
+            node: true,
+            connection: true,
+            weight: true
+        };
+        this._toggles = {
+            node: { hide: 'Hide Nodes', show: 'Show Nodes' },
+            connection: { hide: 'Hide Connections', show: 'Show Connections' },
+            weight: { hide: 'Hide Weights', show: 'Show Weights' }
+        };
+    }
+
+    get identifier() {
+        return 'find';
     }
 
     on(event, callback) {
@@ -2951,616 +4871,468 @@ view.FindSidebar = class extends view.Control {
     }
 
     emit(event, data) {
-        if (this._events && this._events[event]) {
-            for (const callback of this._events[event]) {
-                callback(this, data);
+        try {
+            if (this._events && this._events[event]) {
+                for (const callback of this._events[event]) {
+                    callback(this, data);
+                }
             }
+        } catch (error) {
+            this.error(error, false);
         }
     }
 
-    focus(searchText) {
-        this._searchElement.focus();
-        this._searchElement.value = '';
-        this._searchElement.value = searchText;
-        this.update(searchText);
-    }
-
-    update(searchText) {
-        while (this._contentElement.lastChild) {
-            this._contentElement.removeChild(this._contentElement.lastChild);
-        }
+    _reset() {
+        this._focus(null);
         this._table.clear();
-        let index = 0;
-        const add = (value, content) => {
-            const key = index.toString();
-            index++;
-            this._table.set(key, value);
-            const element = this._host.document.createElement('li');
-            element.innerText = content;
-            element.setAttribute('data', key);
-            element.addEventListener('pointerover', (e) => {
-                const identifier = e.target.getAttribute('data');
-                if (this._table.has(identifier)) {
-                    this.emit('focus', this._table.get(identifier));
-                }
-            });
-            element.addEventListener('pointerleave', (e) => {
-                const identifier = e.target.getAttribute('data');
-                if (this._table.has(identifier)) {
-                    this.emit('blur', this._table.get(identifier));
-                }
-            });
-            this._contentElement.appendChild(element);
-        };
-        let terms = null;
-        let match = null;
-        const unquote = searchText.match(new RegExp(/^'(.*)'|"(.*)"$/));
+        this._content.replaceChildren();
+        this._edges.clear();
+        for (const value of Object.values(this._toggles)) {
+            delete value.template;
+        }
+        const unquote = this._state.query.match(new RegExp(/^'(.*)'|"(.*)"$/));
         if (unquote) {
+            this._exact = true;
             const term = unquote[1] || unquote[2];
-            terms = [ term ];
-            match = (name) => {
-                return term == name;
-            };
+            this._terms = [term];
         } else {
-            terms = searchText.trim().toLowerCase().split(' ').map((term) => term.trim()).filter((term) => term.length > 0);
-            match = (name) => {
-                return terms.every((term) => name.toLowerCase().indexOf(term) !== -1);
-            };
+            this._exact = false;
+            this._terms = this._state.query.trim().toLowerCase().split(' ').map((term) => term.trim()).filter((term) => term.length > 0);
         }
-        const edges = new Set();
-        const arg = (argument) => {
-            if (terms.length === 0) {
-                return true;
-            }
-            let match = false;
-            for (const term of terms) {
-                if (argument.name && argument.name.toLowerCase().indexOf(term) !== -1) {
-                    match = true;
-                    break;
+    }
+
+    _term(value) {
+        if (this._exact) {
+            return value === this._terms[0];
+        }
+        value = value.toLowerCase();
+        return this._terms.every((term) => value.indexOf(term) !== -1);
+    }
+
+    _value(value) {
+        if (this._terms.length === 0) {
+            return true;
+        }
+        if (value.name && this._term(value.name.split('\n').shift())) {
+            return true;
+        }
+        if (value.identifier && this._term(value.identifier)) {
+            return true;
+        }
+        if (value.type && !this._exact) {
+            for (const term of this._terms) {
+                if (value.type.dataType && term === value.type.dataType.toLowerCase()) {
+                    return true;
                 }
-                if (argument.type) {
-                    if (argument.type.dataType && term === argument.type.dataType.toLowerCase()) {
-                        match = true;
-                        break;
+                if (value.type.shape) {
+                    if (term === value.type.shape.toString().toLowerCase()) {
+                        return true;
                     }
-                    if (argument.type.shape) {
-                        if (term === argument.type.shape.toString().toLowerCase()) {
-                            match = true;
-                            break;
+                    if (value.type.shape && Array.isArray(value.type.shape.dimensions)) {
+                        const dimensions = value.type.shape.dimensions.map((dimension) => dimension ? dimension.toString().toLowerCase() : '');
+                        if (term === dimensions.join(',')) {
+                            return true;
                         }
-                        if (argument.type.shape && Array.isArray(argument.type.shape.dimensions)) {
-                            const dimensions = argument.type.shape.dimensions.map((dimension) => dimension ? dimension.toString().toLowerCase() : '');
-                            if (term === dimensions.join(',')) {
-                                match = true;
-                                break;
-                            }
-                            if (dimensions.some((dimension) => term === dimension)) {
-                                match = true;
-                                break;
-                            }
+                        if (dimensions.some((dimension) => term === dimension)) {
+                            return true;
                         }
                     }
                 }
-            }
-            return match;
-        };
-        const edge = (argument) => {
-            if (argument.name && !edges.has(argument.name) && arg(argument)) {
-                add(argument, '\u2192 ' + argument.name.split('\n').shift()); // split custom argument id
-                edges.add(argument.name);
-            }
-        };
-        for (const input of this._graph.inputs) {
-            for (const value of input.value) {
-                edge(value);
             }
         }
-        for (const node of this._graph.nodes) {
-            const initializers = [];
-            for (const input of node.inputs) {
-                for (const value of input.value) {
-                    if (value.initializer) {
-                        initializers.push(value);
-                    } else {
-                        edge(value);
+        return false;
+    }
+
+    _edge(value) {
+        if (value.name && !this._edges.has(value.name) && this._value(value)) {
+            const content = `${value.name.split('\n').shift()}`;
+            this._add(value, content, 'connection'); // split custom argument id
+            this._edges.add(value.name);
+        }
+    }
+
+    _node(node) {
+        if (this._state.connection) {
+            const inputs = node.inputs;
+            if (Array.isArray(inputs)) {
+                for (const input of node.inputs) {
+                    if (!input.type || input.type.endsWith('*')) {
+                        for (const value of input.value) {
+                            if (value !== null && !value.initializer) {
+                                this._edge(value);
+                            }
+                        }
                     }
                 }
             }
+        }
+        if (this._state.node) {
             const name = node.name;
             const type = node.type.name;
-            if ((name && match(name)) || (type && match(type))) {
-                add(node, '\u25A2 ' + (name || '[' + type + ']'));
+            const identifier = node.identifier;
+            if ((name && this._term(name)) || (type && this._term(type)) || (identifier && this._term(identifier))) {
+                const content = `${name || `[${type}]`}`;
+                this._add(node, content, 'node');
             }
-            for (const value of initializers) {
-                if (value.name && !edges.has(value.name) && arg(value)) {
-                    add(node, '\u25A0 ' + value.name.split('\n').shift()); // split custom argument id
+        }
+        if (this._state.weight) {
+            const inputs = node.inputs;
+            if (Array.isArray(inputs)) {
+                for (const argument of node.inputs) {
+                    if (!argument.type || argument.type.endsWith('*')) {
+                        for (const value of argument.value) {
+                            if (value !== null && value.initializer && this._value(value)) {
+                                let content = null;
+                                if (value.name) {
+                                    content = `${value.name.split('\n').shift()}`; // split custom argument id
+                                } else if (Array.isArray(argument.value) && argument.value.length === 1 && argument.name.indexOf('.') !== -1) {
+                                    content = argument.name;
+                                } else if (value.type && value.type.shape && Array.isArray(value.type.shape.dimensions) && value.type.shape.dimensions.length > 0) {
+                                    content = `${value.type.shape.dimensions.map((d) => (d !== null && d !== undefined) ? d : '?').join('\u00D7')}`;
+                                }
+                                if (content) {
+                                    const target = argument.value.length === 1 ? argument : node;
+                                    this._add(target, content, 'weight');
+                                }
+                            }
+                        }
+                    } else if (argument.type === 'object') {
+                        this._node(argument.value);
+                    } else if (argument.type === 'object[]') {
+                        for (const value of argument.value) {
+                            this._node(value);
+                        }
+                    }
                 }
             }
         }
-        for (const output of this._graph.outputs) {
-            for (const value of output.value) {
-                edge(value);
-            }
+    }
+
+    _add(value, content, type) {
+        if (!this._toggles[type].template) {
+            const element = this.createElement('li');
+            element.innerHTML = `<svg class='sidebar-find-content-icon'><use href="#sidebar-icon-${type}"></use></svg>`;
+            this._toggles[type].template = element;
         }
-        this._contentElement.style.display = this._contentElement.childNodes.length != 0 ? 'block' : 'none';
+        const element = this._toggles[type].template.cloneNode(true);
+        const text = this._host.document.createTextNode(content);
+        element.appendChild(text);
+        this._table.set(element, value);
+        this._content.appendChild(element);
+    }
+
+    _focus(element, event) {
+        if (this._cursor === element) {
+            return;
+        }
+        if (this._cursor) {
+            this._cursor.classList.remove('focus');
+            this.emit('blur', this._table.get(this._cursor));
+        }
+        this._cursor = element;
+        if (element) {
+            element.classList.add('focus');
+            this.emit(event || 'focus', this._table.get(element));
+            element.scrollIntoView({ block: 'nearest' });
+        }
+    }
+
+    _move(delta) {
+        const forward = delta > 0;
+        let count = Math.abs(delta);
+        let current = this._cursor;
+        let target = null;
+        while (count > 0) {
+            let sibling = null;
+            if (current) {
+                sibling = forward ? current.nextElementSibling : current.previousElementSibling;
+            } else {
+                sibling = forward ? this._content.firstElementChild : this._content.lastElementChild;
+            }
+            if (!sibling) {
+                break;
+            }
+            current = sibling;
+            target = sibling;
+            count--;
+        }
+        if (target) {
+            this._keyboard = true;
+            this._focus(target, 'select');
+        }
+    }
+
+    _page() {
+        const child = this._content.firstElementChild;
+        const height = child ? child.offsetHeight : 0;
+        return height > 0 ? Math.max(1, Math.floor(this._content.clientHeight / height)) : 1;
+    }
+
+    _update() {
+        try {
+            this._reset();
+            const inputs = this._signature ? this._signature.inputs : this._target.inputs;
+            if (this._state.connection) {
+                for (const input of inputs) {
+                    for (const value of input.value) {
+                        this._edge(value);
+                    }
+                }
+            }
+            for (const node of this._target.nodes) {
+                this._node(node);
+            }
+            if (this._state.connection) {
+                const outputs = this._signature ? this._signature.outputs : this._target.outputs;
+                for (const output of outputs) {
+                    if (!output.type || output.type.endsWith('*')) {
+                        for (const value of output.value) {
+                            this._edge(value);
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            this.error(error, false);
+        }
     }
 
     render() {
-        return [ this._searchElement, this._contentElement ];
+        this._table = new Map();
+        this._cursor = null;
+        this._active = null;
+        this._edges = new Set();
+        this._keyboard = false;
+        this._search = this.createElement('div', 'sidebar-find-search');
+        this._query = this.createElement('input', 'sidebar-find-query');
+        this._search.appendChild(this._query);
+        this._content = this.createElement('ol', 'sidebar-find-content');
+        this._content.setAttribute('tabindex', '-1');
+        this._elements = [this._query, this._content];
+        this._query.setAttribute('id', 'search');
+        this._query.setAttribute('type', 'text');
+        this._query.setAttribute('spellcheck', 'false');
+        this._query.setAttribute('placeholder', 'Search');
+        this._query.addEventListener('input', (e) => {
+            this._state.query = e.target.value;
+            this.emit('state-changed', this._state);
+            this._update();
+        });
+        this._query.addEventListener('keydown', (e) => {
+            if (e.keyCode === 0x08 && !e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+                e.stopPropagation();
+            } else if (e.keyCode === 0x28 && this._content.children.length > 0) { // Down
+                e.preventDefault();
+                e.stopPropagation();
+                this._focus(null);
+                this._content.focus();
+                this._move(1);
+            }
+        });
+        for (const [name, toggle] of Object.entries(this._toggles)) {
+            toggle.element = this.createElement('label', 'sidebar-find-toggle');
+            toggle.element.innerHTML = `<svg class='sidebar-find-toggle-icon'><use href="#sidebar-icon-${name}"></use></svg>`;
+            toggle.element.setAttribute('title', this._state[name] ? toggle.hide : toggle.show);
+            toggle.checkbox = this.createElement('input');
+            toggle.checkbox.setAttribute('type', 'checkbox');
+            toggle.checkbox.setAttribute('data', name);
+            toggle.checkbox.addEventListener('change', (e) => {
+                const name = e.target.getAttribute('data');
+                this._state[name] = e.target.checked;
+                const toggle = this._toggles[name];
+                toggle.element.setAttribute('title', e.target.checked ? toggle.hide : toggle.show);
+                this.emit('state-changed', this._state);
+                this._update();
+            });
+            toggle.element.insertBefore(toggle.checkbox, toggle.element.firstChild);
+            this._search.appendChild(toggle.element);
+        }
+        this._content.addEventListener('keydown', (e) => {
+            if (e.keyCode === 0x28) { // Down
+                e.preventDefault();
+                e.stopPropagation();
+                this._move(1);
+            } else if (e.keyCode === 0x26) { // Up
+                e.preventDefault();
+                e.stopPropagation();
+                if (!this._cursor || this._cursor === this._content.firstChild) {
+                    this._focus(null);
+                    this._query.focus();
+                } else {
+                    this._move(-1);
+                }
+            } else if (e.keyCode === 0x22) { // Page Down
+                e.preventDefault();
+                e.stopPropagation();
+                this._move(this._page());
+            } else if (e.keyCode === 0x21) { // Page Up
+                e.preventDefault();
+                e.stopPropagation();
+                this._move(-this._page());
+            } else if (e.keyCode === 0x0D && this._cursor) { // Enter
+                e.preventDefault();
+                e.stopPropagation();
+                this._active = this._table.get(this._cursor);
+                this.emit('activate', this._active);
+            }
+        });
+        this._content.addEventListener('click', (e) => {
+            if (this._table.has(e.target)) {
+                this._keyboard = false;
+                this.emit('select', this._table.get(e.target));
+            }
+        });
+        this._content.addEventListener('dblclick', (e) => {
+            if (this._table.has(e.target)) {
+                this._keyboard = false;
+                this._active = this._table.get(e.target);
+                this.emit('activate', this._active);
+            }
+        });
+        this._content.addEventListener('pointermove', (e) => {
+            this._keyboard = false;
+            if (this._table.has(e.target)) {
+                this._focus(e.target);
+            }
+        });
+        this._content.addEventListener('pointerover', (e) => {
+            if (!this._keyboard && this._table.has(e.target)) {
+                this._focus(e.target);
+            }
+        });
+        this._content.addEventListener('pointerleave', () => {
+            this._keyboard = false;
+            if (this._host.document.activeElement !== this._content) {
+                this._focus(null);
+            }
+        });
+    }
+
+    get element() {
+        return [this._search, this._content];
+    }
+
+    activate() {
+        this._query.value = '';
+        this._query.value = this._state.query;
+        for (const [name, toggle] of Object.entries(this._toggles)) {
+            toggle.checkbox.checked = this._state[name];
+            toggle.element.setAttribute('title', this._state[name] ? toggle.hide : toggle.show);
+        }
+        this._update();
+        let cursor = null;
+        if (this._active) {
+            for (const [element, value] of this._table) {
+                if (value === this._active) {
+                    cursor = element;
+                    break;
+                }
+            }
+        }
+        if (cursor) {
+            this._keyboard = true;
+            this._content.focus();
+            this._focus(cursor, 'select');
+        } else {
+            this._query.focus();
+        }
+        this._host.event('open_sidebar', {
+            sidebar_identifier: this.identifier,
+            sidebar_size: this._table.size
+        });
+    }
+
+    deactivate() {
+        this._reset();
+    }
+
+    error(error, fatal) {
+        super.error(error, fatal);
+        const element = this.createElement('li');
+        const title = this.createElement('b');
+        title.textContent = 'ERROR: ';
+        element.appendChild(title);
+        const message = this.createTextNode(` ${error.message}`);
+        element.appendChild(message);
+        this._content.appendChild(element);
     }
 };
 
-view.Tensor = class {
+view.Quantization = class {
 
-    constructor(tensor) {
-        this._tensor = tensor;
-        this._type = tensor.type;
-        this._stride = tensor.stride;
-        switch (tensor.layout) {
-            case undefined:
-            case '':
-            case '<': {
-                this._data = this._tensor.values;
-                this._layout = '<';
-                this._littleEndian = true;
-                break;
-            }
-            case '>': {
-                this._data = this._tensor.values;
-                this._layout = '>';
-                this._littleEndian = false;
-                break;
-            }
-            case '|': {
-                this._values = this._tensor.values;
-                this._layout = '|';
-                break;
-            }
-            case 'sparse': {
-                this._indices = this._tensor.indices;
-                this._values = this._tensor.values;
-                this._layout = 'sparse';
-                break;
-            }
-            case 'sparse.coo': {
-                this._indices = this._tensor.indices;
-                this._values = this._tensor.values;
-                this._layout = 'sparse.coo';
-                break;
-            }
-            default: {
-                this._layout = tensor.layout;
-                break;
-            }
-        }
-        view.Tensor.dataTypes = view.Tensor.dataTypeSizes || new Map([
-            [ 'boolean', 1 ],
-            [ 'qint8', 1 ], [ 'qint16', 2 ], [ 'qint32', 4 ],
-            [ 'quint8', 1 ], [ 'quint16', 2 ], [ 'quint32', 4 ],
-            [ 'int8', 1 ], [ 'int16', 2 ], [ 'int32', 4 ], [ 'int64', 8 ],
-            [ 'uint8', 1 ], [ 'uint16', 2 ], [ 'uint32', 4, ], [ 'uint64', 8 ],
-            [ 'float16', 2 ], [ 'float32', 4 ], [ 'float64', 8 ], [ 'bfloat16', 2 ],
-            [ 'complex64', 8 ], [ 'complex128', 16 ],
-            [ 'float8e4m3fn', 1 ], [ 'float8e4m3fnuz', 1 ], [ 'float8e5m2', 1 ], [ 'float8e5m2fnuz', 1 ]
-        ]);
-    }
-
-    get type() {
-        return this._type;
-    }
-
-    get layout() {
-        return this._layout;
-    }
-
-    get stride() {
-        return this._stride;
-    }
-
-    get empty() {
-        switch (this._layout) {
-            case '<':
-            case '>': {
-                return !(Array.isArray(this._data) || this._data instanceof Uint8Array || this._data instanceof Int8Array) || this._data.length === 0;
-            }
-            case '|': {
-                return !(Array.isArray(this._values) || ArrayBuffer.isView(this._values)) || this._values.length === 0;
-            }
-            case 'sparse':
-            case 'sparse.coo': {
-                return !this._values || this.indices || this._values.values.length === 0;
-            }
-            default: {
-                throw new Error("Unsupported tensor format '" + this._format + "'.");
-            }
-        }
-    }
-
-    get value() {
-        const context = this._context();
-        context.limit = Number.MAX_SAFE_INTEGER;
-        switch (context.layout) {
-            case '<':
-            case '>': {
-                return this._decodeData(context, 0);
-            }
-            case '|': {
-                return this._decodeValues(context, 0);
-            }
-            default: {
-                throw new Error("Unsupported tensor format '" + this._format + "'.");
-            }
-        }
+    constructor(quantization) {
+        Object.assign(this, quantization);
     }
 
     toString() {
-        const context = this._context();
-        context.limit = 10000;
-        switch (context.layout) {
-            case '<':
-            case '>': {
-                const value = this._decodeData(context, 0);
-                return view.Tensor._stringify(value, '', '    ');
+        if (this.type === 'linear' || /^quant\d\d?_.*$/.test(this.type)) {
+            const content = [];
+            const scale = this.scale || [];
+            const offset = this.offset || [];
+            const bias = this.bias || [];
+            const max = this.max || [];
+            const min = this.min || [];
+            const length = Math.max(scale.length, offset.length, bias.length, min.length, max.length);
+            const size = length.toString().length;
+            for (let i = 0; i < length; i++) {
+                let s = 'q';
+                let bracket = false;
+                if (i < offset.length && offset[i] !== undefined && offset[i] !== 0 && offset[i] !== 0n) {
+                    const value = offset[i];
+                    s = value > 0 ? `${s} - ${value}` : `${s} + ${-value}`;
+                    bracket = true;
+                }
+                if (i < scale.length && scale[i] !== undefined && scale[i] !== 1 && scale[i] !== 1n) {
+                    const value = scale[i];
+                    s = bracket ? `(${s})` : s;
+                    s = `${value} * ${s}`;
+                    bracket = true;
+                }
+                if (i < bias.length && bias[i] !== undefined && bias[i] !== 0 && bias[i] !== 0n) {
+                    const value = bias[i];
+                    s = bracket ? `(${s})` : s;
+                    s = value < 0 ? `${s} - ${-value}` : `${s} + ${value}`;
+                }
+                if (i < min.length && min[i] !== undefined && min[i] !== 0 && min[i] !== 0n) {
+                    s = `${min[i]} \u2264 ${s}`;
+                }
+                if (i < max.length && max[i] !== undefined && max[i] !== 0 && max[i] !== 0n) {
+                    s = `${s} \u2264 ${max[i]}`;
+                }
+                content.push(length > 1 ? `${i.toString().padStart(size, ' ')}: ${s}` : `${s}`);
             }
-            case '|': {
-                const value = this._decodeValues(context, 0);
-                return view.Tensor._stringify(value, '', '    ');
-            }
-            default: {
-                throw new Error("Unsupported tensor format '" + this._format + "'.");
-            }
+            return content.join('\n');
+        } else if (this.type === 'lookup') {
+            const size = this.value.length.toString().length;
+            return this.value.map((value, index) => `${index.toString().padStart(size, ' ')}: ${value}`).join('\n');
+        } else if (this.type === 'annotation') {
+            return Array.from(this.value).map(([name, value]) => `${name} = ${value}`).join('\n');
+        } else if (/^q\d_[01k]$/.test(this.type) || /^iq\d_[xsnlm]+$/.test(this.type) || this.type === 'mxfp4') {
+            return '';
         }
-    }
-
-    _context() {
-        if (this._layout !== '<' && this._layout !== '>' && this._layout !== '|' && this._layout !== 'sparse' && this._layout !== 'sparse.coo') {
-            throw new Error("Tensor layout '" + this._layout + "' is not supported.");
-        }
-        const dataType = this._type.dataType;
-        const context = {};
-        context.layout = this._layout;
-        context.dimensions = this._type.shape.dimensions.map((value) => !Number.isInteger(value) && value.toNumber ? value.toNumber() : value);
-        context.dataType = dataType;
-        const size = context.dimensions.reduce((a, b) => a * b, 1);
-        switch (this._layout) {
-            case '<':
-            case '>': {
-                context.data = (this._data instanceof Uint8Array || this._data instanceof Int8Array) ? this._data : this._data.peek();
-                context.view = new DataView(context.data.buffer, context.data.byteOffset, context.data.byteLength);
-                if (view.Tensor.dataTypes.has(dataType)) {
-                    context.itemsize = view.Tensor.dataTypes.get(dataType);
-                    if (context.data.length < (context.itemsize * size)) {
-                        throw new Error('Invalid tensor data size.');
-                    }
-                } else if (dataType.startsWith('uint') && !isNaN(parseInt(dataType.substring(4), 10))) {
-                    context.dataType = 'uint';
-                    context.bits = parseInt(dataType.substring(4), 10);
-                    context.itemsize = 1;
-                } else if (dataType.startsWith('int') && !isNaN(parseInt(dataType.substring(3), 10))) {
-                    context.dataType = 'int';
-                    context.bits = parseInt(dataType.substring(3), 10);
-                    context.itemsize = 1;
-                } else {
-                    throw new Error("Tensor data type '" + dataType + "' is not implemented.");
-                }
-                break;
-            }
-            case '|': {
-                context.data = this._values;
-                if (!view.Tensor.dataTypes.has(dataType) && dataType !== 'string' && dataType !== 'object') {
-                    throw new Error("Tensor data type '" + dataType + "' is not implemented.");
-                }
-                if (size !== this._values.length) {
-                    throw new Error('Invalid tensor data length.');
-                }
-                break;
-            }
-            case 'sparse': {
-                const indices = new view.Tensor(this._indices).value;
-                const values = new view.Tensor(this._values).value;
-                context.data = this._decodeSparse(dataType, context.dimensions, indices, values);
-                context.layout = '|';
-                break;
-            }
-            case 'sparse.coo': {
-                const values = new view.Tensor(this._values).value;
-                const data = new view.Tensor(this._indices).value;
-                const dimensions = context.dimensions.length;
-                let stride = 1;
-                const strides = context.dimensions.slice().reverse().map((dim) => {
-                    const value = stride;
-                    stride *= dim;
-                    return value;
-                }).reverse();
-                const indices = new Uint32Array(values.length);
-                for (let i = 0; i < dimensions; i++) {
-                    const stride = strides[i];
-                    const dimension = data[i];
-                    for (let i = 0; i < indices.length; i++) {
-                        indices[i] += dimension[i] * stride;
-                    }
-                }
-                context.data = this._decodeSparse(dataType, context.dimensions, indices, values);
-                context.layout = '|';
-                break;
-            }
-            default: {
-                throw new view.Tensor("Unsupported tensor layout '" + this._layout + "'.");
-            }
-        }
-        context.index = 0;
-        context.count = 0;
-        return context;
-    }
-
-    _decodeSparse(dataType, dimensions, indices, values) {
-        const size = dimensions.reduce((a, b) => a * b, 1);
-        const array = new Array(size);
-        switch (dataType) {
-            case 'boolean':
-                array.fill(false);
-                break;
-            default:
-                array.fill(0);
-                break;
-        }
-        if (indices.length > 0) {
-            if (Object.prototype.hasOwnProperty.call(indices[0], 'low')) {
-                for (let i = 0; i < indices.length; i++) {
-                    const index = indices[i];
-                    array[index.high === 0 ? index.low : index.toNumber()] = values[i];
-                }
-            } else {
-                for (let i = 0; i < indices.length; i++) {
-                    array[indices[i]] = values[i];
-                }
-            }
-        }
-        return array;
-    }
-
-    _decodeData(context, dimension) {
-        const results = [];
-        const dimensions = (context.dimensions.length == 0) ? [ 1 ] : context.dimensions;
-        const size = dimensions[dimension];
-        const dataType = context.dataType;
-        const view = context.view;
-        if (dimension == dimensions.length - 1) {
-            const ellipsis = (context.count + size) > context.limit;
-            const length = ellipsis ? context.limit - context.count : size;
-            let i = context.index;
-            const max = i + (length * context.itemsize);
-            switch (dataType) {
-                case 'boolean':
-                    for (; i < max; i += 1) {
-                        results.push(view.getUint8(i) === 0 ? false : true);
-                    }
-                    break;
-                case 'qint8':
-                case 'int8':
-                    for (; i < max; i++) {
-                        results.push(view.getInt8(i));
-                    }
-                    break;
-                case 'qint16':
-                case 'int16':
-                    for (; i < max; i += 2) {
-                        results.push(view.getInt16(i, this._littleEndian));
-                    }
-                    break;
-                case 'qint32':
-                case 'int32':
-                    for (; i < max; i += 4) {
-                        results.push(view.getInt32(i, this._littleEndian));
-                    }
-                    break;
-                case 'int64':
-                    for (; i < max; i += 8) {
-                        results.push(view.getInt64(i, this._littleEndian));
-                    }
-                    break;
-                case 'int':
-                    for (; i < size; i++) {
-                        results.push(view.getIntBits(i, context.bits));
-                    }
-                    break;
-                case 'quint8':
-                case 'uint8':
-                    for (; i < max; i++) {
-                        results.push(view.getUint8(i));
-                    }
-                    break;
-                case 'quint16':
-                case 'uint16':
-                    for (; i < max; i += 2) {
-                        results.push(view.getUint16(i, true));
-                    }
-                    break;
-                case 'quint32':
-                case 'uint32':
-                    for (; i < max; i += 4) {
-                        results.push(view.getUint32(i, true));
-                    }
-                    break;
-                case 'uint64':
-                    for (; i < max; i += 8) {
-                        results.push(view.getUint64(i, true));
-                    }
-                    break;
-                case 'uint':
-                    for (; i < max; i++) {
-                        results.push(view.getUintBits(i, context.bits));
-                    }
-                    break;
-                case 'float16':
-                    for (; i < max; i += 2) {
-                        results.push(view.getFloat16(i, this._littleEndian));
-                    }
-                    break;
-                case 'float32':
-                    for (; i < max; i += 4) {
-                        results.push(view.getFloat32(i, this._littleEndian));
-                    }
-                    break;
-                case 'float64':
-                    for (; i < max; i += 8) {
-                        results.push(view.getFloat64(i, this._littleEndian));
-                    }
-                    break;
-                case 'bfloat16':
-                    for (; i < max; i += 2) {
-                        results.push(view.getBfloat16(i, this._littleEndian));
-                    }
-                    break;
-                case 'complex64':
-                    for (; i < max; i += 8) {
-                        results.push(view.getComplex64(i, this._littleEndian));
-                        context.index += 8;
-                    }
-                    break;
-                case 'complex128':
-                    for (; i < size; i += 16) {
-                        results.push(view.getComplex128(i, this._littleEndian));
-                    }
-                    break;
-                case 'float8e4m3fn':
-                    for (; i < size; i++) {
-                        results.push(view.getFloat8e4m3(i, true, false));
-                    }
-                    break;
-                case 'float8e4m3fnuz':
-                    for (; i < size; i++) {
-                        results.push(view.getFloat8e4m3(i, true, true));
-                    }
-                    break;
-                case 'float8e5m2':
-                    for (; i < size; i++) {
-                        results.push(view.getFloat8e5m2(i, false, false));
-                    }
-                    break;
-                case 'float8e5m2fnuz':
-                    for (; i < size; i++) {
-                        results.push(view.getFloat8e5m2(i, true, true));
-                    }
-                    break;
-                default:
-                    throw new Error("Unsupported tensor data type '" + dataType + "'.");
-            }
-            context.index = i;
-            context.count += length;
-            if (ellipsis) {
-                results.push('...');
-            }
-        } else {
-            for (let j = 0; j < size; j++) {
-                if (context.count >= context.limit) {
-                    results.push('...');
-                    return results;
-                }
-                results.push(this._decodeData(context, dimension + 1));
-            }
-        }
-        if (context.dimensions.length == 0) {
-            return results[0];
-        }
-        return results;
-    }
-
-    _decodeValues(context, dimension) {
-        const results = [];
-        const dimensions = (context.dimensions.length == 0) ? [ 1 ] : context.dimensions;
-        const size = dimensions[dimension];
-        const dataType = context.dataType;
-        if (dimension == dimensions.length - 1) {
-            for (let i = 0; i < size; i++) {
-                if (context.count > context.limit) {
-                    results.push('...');
-                    return results;
-                }
-                switch (dataType) {
-                    case 'boolean':
-                        results.push(context.data[context.index] === 0 ? false : true);
-                        break;
-                    default:
-                        results.push(context.data[context.index]);
-                        break;
-                }
-                context.index++;
-                context.count++;
-            }
-        } else {
-            for (let j = 0; j < size; j++) {
-                if (context.count > context.limit) {
-                    results.push('...');
-                    return results;
-                }
-                results.push(this._decodeValues(context, dimension + 1));
-            }
-        }
-        if (context.dimensions.length == 0) {
-            return results[0];
-        }
-        return results;
-    }
-
-    static _stringify(value, indentation, indent) {
-        if (Array.isArray(value)) {
-            const result = [];
-            result.push(indentation + '[');
-            const items = value.map((item) => view.Tensor._stringify(item, indentation + indent, indent));
-            if (items.length > 0) {
-                result.push(items.join(',\n'));
-            }
-            result.push(indentation + ']');
-            return result.join('\n');
-        }
-        if (value === null) {
-            return indentation + 'null';
-        }
-        switch (typeof value) {
-            case 'boolean':
-                return indentation + value.toString();
-            case 'string':
-                return indentation + '"' + value + '"';
-            case 'number':
-                if (value == Infinity) {
-                    return indentation + 'Infinity';
-                }
-                if (value == -Infinity) {
-                    return indentation + '-Infinity';
-                }
-                if (isNaN(value)) {
-                    return indentation + 'NaN';
-                }
-                return indentation + value.toString();
-            default:
-                if (value && value.toString) {
-                    return indentation + value.toString();
-                }
-                return indentation + '(undefined)';
-        }
+        throw new view.Error(`Unknown quantization type '${this.type}'.`);
     }
 };
 
 view.Documentation = class {
 
-    static format(source) {
+    static open(source) {
         if (source) {
-            const generator = new markdown.Generator();
+            const generator = markdown.Generator.open();
             const target = {};
-            if (source.name !== undefined) {
+            if (source.name) {
                 target.name = source.name;
             }
-            if (source.module !== undefined) {
+            if (source.module) {
                 target.module = source.module;
             }
-            if (source.category !== undefined) {
+            if (source.category) {
                 target.category = source.category;
             }
-            if (source.summary !== undefined) {
+            if (source.summary) {
                 target.summary = generator.html(source.summary);
             }
-            if (source.description !== undefined) {
+            if (source.description) {
                 target.description = generator.html(source.description);
             }
             if (Array.isArray(source.attributes)) {
@@ -3568,7 +5340,7 @@ view.Documentation = class {
                     const target = {};
                     target.name = source.name;
                     if (source.type !== undefined) {
-                        target.type = source.type;
+                        target.type = source.type === null || typeof source.type === 'string' ? source.type : source.type.toString();
                     }
                     if (source.option !== undefined) {
                         target.option = source.option;
@@ -3588,7 +5360,7 @@ view.Documentation = class {
                     if (source.src_type !== undefined) {
                         target.src_type = source.src_type;
                     }
-                    if (source.description !== undefined) {
+                    if (source.description) {
                         target.description = generator.html(source.description);
                     }
                     if (source.default !== undefined) {
@@ -3605,9 +5377,9 @@ view.Documentation = class {
                     const target = {};
                     target.name = source.name;
                     if (source.type !== undefined) {
-                        target.type = source.type;
+                        target.type = source.type === null || typeof source.type === 'string' ? source.type : source.type.toString();
                     }
-                    if (source.description !== undefined) {
+                    if (source.description) {
                         target.description = generator.html(source.description);
                     }
                     if (source.default !== undefined) {
@@ -3648,9 +5420,9 @@ view.Documentation = class {
                     const target = {};
                     target.name = source.name;
                     if (source.type) {
-                        target.type = source.type;
+                        target.type = source.type === null || typeof source.type === 'string' ? source.type : source.type.toString();
                     }
-                    if (source.description !== undefined) {
+                    if (source.description) {
                         target.description = generator.html(source.description);
                     }
                     if (source.list !== undefined) {
@@ -3660,7 +5432,7 @@ view.Documentation = class {
                         target.typeAttr = source.typeAttr;
                     }
                     if (source.typeListAttr !== undefined) {
-                        target.typeListAttr = source.typeAttr;
+                        target.typeListAttr = source.typeListAttr;
                     }
                     if (source.numberAttr !== undefined) {
                         target.numberAttr = source.numberAttr;
@@ -3694,8 +5466,8 @@ view.Documentation = class {
             if (source.package !== undefined) {
                 target.package = source.package;
             }
-            if (source.support_level !== undefined) {
-                target.support_level = source.support_level;
+            if (source.status !== undefined) {
+                target.status = source.status;
             }
             if (source.min_input !== undefined) {
                 target.min_input = source.min_input;
@@ -3706,7 +5478,7 @@ view.Documentation = class {
             if (source.min_output !== undefined) {
                 target.min_output = source.min_output;
             }
-            if (source.max_input !== undefined) {
+            if (source.max_output !== undefined) {
                 target.max_output = source.max_output;
             }
             if (source.inputs_range !== undefined) {
@@ -3726,7 +5498,7 @@ view.Documentation = class {
             }
             return target;
         }
-        return '';
+        return null;
     }
 };
 
@@ -3744,17 +5516,16 @@ view.Formatter = class {
     }
 
     _format(value, type, quote) {
-
         if (value && value.__class__ && value.__class__.__module__ === 'builtins' && value.__class__.__name__ === 'type') {
-            return value.__module__ + '.' + value.__name__;
+            return `${value.__module__}.${value.__name__}`;
         }
         if (value && value.__class__ && value.__class__.__module__ === 'builtins' && value.__class__.__name__ === 'function') {
-            return value.__module__ + '.' + value.__name__;
+            return `${value.__module__}.${value.__name__}`;
         }
         if (typeof value === 'function') {
             return value();
         }
-        if (value && (value instanceof base.Int64 || value instanceof base.Uint64)) {
+        if (value !== null && value !== undefined && (typeof value === 'bigint' || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')) {
             return value.toString();
         }
         if (Number.isNaN(value)) {
@@ -3765,56 +5536,71 @@ view.Formatter = class {
                 return value ? value.toString() : '(null)';
             case 'shape[]':
                 if (value && !Array.isArray(value)) {
-                    throw new Error("Invalid shape '" + JSON.stringify(value) + "'.");
+                    throw new Error(`Invalid shape '${JSON.stringify(value)}'.`);
                 }
                 return value ? value.map((item) => item.toString()).join(', ') : '(null)';
             case 'graph':
                 return value ? value.name : '(null)';
             case 'graph[]':
                 return value ? value.map((graph) => graph.name).join(', ') : '(null)';
-            case 'tensor':
-                if (value && value.type && value.type.shape && value.type.shape.dimensions && value.type.shape.dimensions.length == 0) {
-                    return value.toString();
+            case 'tensor': {
+                if (value === null) {
+                    return '(null)';
                 }
-                return '[...]';
-            case 'function':
+                return view.Formatter.tensor(value);
+            }
+            case 'object':
                 return value.type.name;
+            case 'function':
+                return value.name;
+            case 'object[]':
             case 'function[]':
                 return value ? value.map((item) => item.type.name).join(', ') : '(null)';
             case 'type':
                 return value ? value.toString() : '(null)';
             case 'type[]':
                 return value ? value.map((item) => item.toString()).join(', ') : '(null)';
+            case 'complex':
+                return value ? value.toString() : '(null)';
             default:
                 break;
         }
-        if (typeof value === 'string' && (!type || type != 'string')) {
-            return quote ? '"' + value + '"' : value;
+        if (typeof value === 'string' && (!type || type !== 'string')) {
+            if (quote) {
+                return `"${value}"`;
+            }
+            if (value.trim().length === 0) {
+                return value;
+            }
+            return value;
         }
         if (Array.isArray(value)) {
-            if (value.length == 0) {
+            if (value.length === 0) {
                 return quote ? '[]' : '';
             }
             let ellipsis = false;
-            if (value.length > 1000) {
-                value = value.slice(0, 1000);
+            if (value.length > 2000) {
+                value = value.slice(0, 2000);
                 ellipsis = true;
             }
             const itemType = (type && type.endsWith('[]')) ? type.substring(0, type.length - 2) : null;
-            const array = value.map((item) => {
-                if (item && (item instanceof base.Int64 || item instanceof base.Uint64)) {
-                    return item.toString();
+            const array = value.map((value) => {
+                if (value && typeof value === 'bigint') {
+                    return value.toString();
                 }
-                if (Number.isNaN(item)) {
+                if (Number.isNaN(value)) {
                     return 'NaN';
                 }
+                if (value && value.constructor && value.constructor.name === 'Value' && value.name) {
+                    return `{${value.name}}`;
+                }
                 const quote = !itemType || itemType === 'string';
-                return this._format(item, itemType, quote);
+                return this._format(value, itemType, quote);
             });
             if (ellipsis) {
                 array.push('\u2026');
             }
-            return quote ? [ '[', array.join(', '), ']' ].join(' ') : array.join(', ');
+            return quote ? ['[', array.join(', '), ']'].join(' ') : array.join(', ');
         }
         if (value === null) {
             return quote ? 'null' : '';
@@ -3830,22 +5616,19 @@ view.Formatter = class {
         }
         this._values.add(value);
         let list = null;
-        const entries = Object.entries(value).filter((entry) => !entry[0].startsWith('__') && !entry[0].endsWith('__'));
-        if (entries.length == 1) {
-            list = [ this._format(entries[0][1], null, true) ];
+        const map = value instanceof Map ? Array.from(value) : Object.entries(value);
+        const entries = map.filter(([name]) => typeof name === 'string' && !name.startsWith('__') && !name.endsWith('__'));
+        if (entries.length === 1) {
+            list = [this._format(entries[0][1], null, true)];
         } else {
-            list = new Array(entries.length);
-            for (let i = 0; i < entries.length; i++) {
-                const entry = entries[i];
-                list[i] = entry[0] + ': ' + this._format(entry[1], null, true);
-            }
+            list = entries.map(([name, value]) => `${name}: ${this._format(value, null, true)}`);
         }
         let objectType = value.__type__;
         if (!objectType && value.constructor.name && value.constructor.name !== 'Object') {
             objectType = value.constructor.name;
         }
         if (objectType) {
-            return objectType + (list.length == 0 ? '()' : [ '(', list.join(', '), ')' ].join(''));
+            return objectType + (list.length === 0 ? '()' : ['(', list.join(', '), ')'].join(''));
         }
         switch (list.length) {
             case 0:
@@ -3853,14 +5636,39 @@ view.Formatter = class {
             case 1:
                 return list[0];
             default:
-                return quote ? [ '(', list.join(', '), ')' ].join(' ') : list.join(', ');
+                return quote ? ['(', list.join(', '), ')'].join(' ') : list.join(', ');
         }
+    }
+
+    static tensor(value) {
+        const type = value.type;
+        if (type && type.shape && type.shape.dimensions && Array.isArray(type.shape.dimensions)) {
+            if (type.shape.dimensions.length === 0 && (!value.peek || value.peek() === true)) {
+                const tensor = new base.Tensor(value);
+                const encoding = tensor.encoding;
+                if ((encoding === '<' || encoding === '>' || encoding === '|') && !tensor.empty && tensor.type.dataType !== '?') {
+                    let content = tensor.toString();
+                    if (content && content.length > 10) {
+                        content = `${content.substring(0, 10)}\u2026`;
+                    }
+                    return content;
+                }
+            }
+            const content = type.shape.dimensions.map((d) => (d !== null && d !== undefined) ? d : '?').join('\u00D7');
+            return `\u3008${content}\u3009`;
+        }
+        return '\u3008\u2026\u3009';
     }
 };
 
-const markdown = {};
-
 markdown.Generator = class {
+
+    static open() {
+        if (!markdown.Generator.generator) {
+            markdown.Generator.generator = new markdown.Generator();
+        }
+        return markdown.Generator.generator;
+    }
 
     constructor() {
         this._newlineRegExp = /^\n+/;
@@ -3910,16 +5718,24 @@ markdown.Generator = class {
         this._escapeTestNoEncodeRegExp = /[<>"']|&(?!#?\w+;)/;
         this._escapeReplaceNoEncodeRegExp = /[<>"']|&(?!#?\w+;)/g;
         this._escapeReplacementsMap = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+        this._cache = new Map();
     }
 
     html(source) {
+        if (this._cache.has(source)) {
+            return this._cache.get(source);
+        }
         const tokens = [];
         const links = new Map();
         source = source.replace(/\r\n|\r/g, '\n').replace(/\t/g, '    ');
         this._tokenize(source, tokens, links, true);
         this._tokenizeBlock(tokens, links);
-        const result = this._render(tokens, true);
-        return result;
+        const target = this._render(tokens, true);
+        if (this._cache.size > 256) {
+            this._cache.delete(this._cache.keys().next().value);
+        }
+        this._cache.set(source, target);
+        return target;
     }
 
     _tokenize(source, tokens, links, top) {
@@ -3938,10 +5754,10 @@ markdown.Generator = class {
                 source = source.substring(match[0].length);
                 const lastToken = tokens[tokens.length - 1];
                 if (lastToken && lastToken.type === 'paragraph') {
-                    lastToken.text += '\n' + match[0].trimRight();
+                    lastToken.text += `\n${match[0].trimRight()}`;
                 } else {
                     const text = match[0].replace(/^ {4}/gm, '').replace(/\n*$/, '');
-                    tokens.push({ type: 'code', text: text });
+                    tokens.push({ type: 'code', text });
                 }
                 continue;
             }
@@ -3952,13 +5768,13 @@ markdown.Generator = class {
                 let content = match[3] || '';
                 const matchIndent = match[0].match(/^(\s+)(?:```)/);
                 if (matchIndent !== null) {
-                    const indent = matchIndent[1];
-                    content = content.split('\n').map(node => {
+                    const [, indent] = matchIndent;
+                    content = content.split('\n').map((node) => {
                         const match = node.match(/^\s+/);
                         return (match !== null && match[0].length >= indent.length) ? node.slice(indent.length) : node;
                     }).join('\n');
                 }
-                tokens.push({ type: 'code', language: language, text: content });
+                tokens.push({ type: 'code', language, text: content });
                 continue;
             }
             match = this._headingRegExp.exec(source);
@@ -3973,7 +5789,7 @@ markdown.Generator = class {
                 const align = match[2].replace(/^ *|\| *$/g, '').split(/ *\| */);
                 if (header.length === align.length) {
                     const cells = match[3] ? match[3].replace(/\n$/, '').split('\n') : [];
-                    const token = { type: 'table', header: header, align: align, cells: cells, raw: match[0] };
+                    const token = { type: 'table', header, align, cells, raw: match[0] };
                     for (let i = 0; i < token.align.length; i++) {
                         if (/^ *-+: *$/.test(token.align[i])) {
                             token.align[i] = 'right';
@@ -4001,17 +5817,17 @@ markdown.Generator = class {
             if (match) {
                 source = source.substring(match[0].length);
                 const text = match[0].replace(/^ *> ?/gm, '');
-                tokens.push({ type: 'blockquote', text: text, tokens: this._tokenize(text, [], links, top) });
+                tokens.push({ type: 'blockquote', text, tokens: this._tokenize(text, [], links, top) });
                 continue;
             }
             match = this._listRegExp.exec(source);
             if (match) {
-                let raw = match[0];
-                const bull = match[2];
+                const [value, , bull] = match;
                 const ordered = bull.length > 1;
                 const parent = bull[bull.length - 1] === ')';
-                const list = { type: 'list', raw: raw, ordered: ordered, start: ordered ? +bull.slice(0, -1) : '', loose: false, items: [] };
-                const itemMatch = match[0].match(this._itemRegExp);
+                let raw = value;
+                const list = { type: 'list', raw, ordered, start: ordered ? Number(bull.slice(0, -1)) : '', loose: false, items: [] };
+                const itemMatch = value.match(this._itemRegExp);
                 let next = false;
                 const length = itemMatch.length;
                 for (let i = 0; i < length; i++) {
@@ -4019,12 +5835,12 @@ markdown.Generator = class {
                     raw = item;
                     let space = item.length;
                     item = item.replace(/^ *([*+-]|\d+[.)]) ?/, '');
-                    if (~item.indexOf('\n ')) {
+                    if (item.indexOf('\n ') !== -1) {
                         space -= item.length;
-                        item = item.replace(new RegExp('^ {1,' + space + '}', 'gm'), '');
+                        item = item.replace(new RegExp(`^ {1,${space}}`, 'gm'), '');
                     }
                     if (i !== length - 1) {
-                        const bullet = this._bulletRegExp.exec(itemMatch[i + 1])[0];
+                        const [bullet] = this._bulletRegExp.exec(itemMatch[i + 1]);
                         if (ordered ? bullet.length === 1 || (!parent && bullet[bullet.length - 1] === ')') : (bullet.length > 1)) {
                             const addBack = itemMatch.slice(i + 1).join('\n');
                             list.raw = list.raw.substring(0, list.raw.length - addBack.length);
@@ -4042,12 +5858,12 @@ markdown.Generator = class {
                         list.loose = true;
                     }
                     const task = /^\[[ xX]\] /.test(item);
-                    let checked = undefined;
+                    let checked = false;
                     if (task) {
                         checked = item[1] !== ' ';
                         item = item.replace(/^\[[ xX]\] +/, '');
                     }
-                    list.items.push({ type: 'list_item', raw, task: task, checked: checked, loose: loose, text: item });
+                    list.items.push({ type: 'list_item', raw, task, checked, loose, text: item });
                 }
                 source = source.substring(list.raw.length);
                 for (const item of list.items) {
@@ -4080,7 +5896,7 @@ markdown.Generator = class {
                 const align = match[2].replace(/^ *|\| *$/g, '').split(/ *\| */);
                 if (header.length === align.length) {
                     const cells = match[3] ? match[3].replace(/\n$/, '').split('\n') : [];
-                    const token = { type: 'table', header: header, align: align, cells: cells, raw: match[0] };
+                    const token = { type: 'table', header, align, cells, raw: match[0] };
                     for (let i = 0; i < token.align.length; i++) {
                         if (/^ *-+: *$/.test(token.align[i])) {
                             token.align[i] = 'right';
@@ -4117,13 +5933,13 @@ markdown.Generator = class {
                 source = source.substring(match[0].length);
                 const lastToken = tokens[tokens.length - 1];
                 if (lastToken && lastToken.type === 'text') {
-                    lastToken.text += '\n' + match[0];
+                    lastToken.text += `\n${match[0]}`;
                 } else {
                     tokens.push({ type: 'text', text: match[0] });
                 }
                 continue;
             }
-            throw new Error("Unexpected '" + source.charCodeAt(0) + "'.");
+            throw new Error(`Unexpected '${source.charCodeAt(0)}'.`);
         }
         return tokens;
     }
@@ -4136,7 +5952,7 @@ markdown.Generator = class {
                 const match = this._reflinkSearchRegExp.exec(maskedSource);
                 if (match) {
                     if (links.has(match[0].slice(match[0].lastIndexOf('[') + 1, -1))) {
-                        maskedSource = maskedSource.slice(0, match.index) + '[' + 'a'.repeat(match[0].length - 2) + ']' + maskedSource.slice(this._reflinkSearchRegExp.lastIndex);
+                        maskedSource = `${maskedSource.slice(0, match.index)}[${'a'.repeat(match[0].length - 2)}]${maskedSource.slice(this._reflinkSearchRegExp.lastIndex)}`;
                     }
                     continue;
                 }
@@ -4146,7 +5962,7 @@ markdown.Generator = class {
         while (maskedSource) {
             const match = this._blockSkipRegExp.exec(maskedSource);
             if (match) {
-                maskedSource = maskedSource.slice(0, match.index) + '[' + 'a'.repeat(match[0].length - 2) + ']' + maskedSource.slice(this._blockSkipRegExp.lastIndex);
+                maskedSource = `${maskedSource.slice(0, match.index)}[${'a'.repeat(match[0].length - 2)}]${maskedSource.slice(this._blockSkipRegExp.lastIndex)}`;
                 continue;
             }
             break;
@@ -4177,7 +5993,7 @@ markdown.Generator = class {
             match = this._linkRegExp.exec(source);
             if (match) {
                 let index = -1;
-                const ref = match[2];
+                const [, , ref] = match;
                 if (ref.indexOf(')') !== -1) {
                     let level = 0;
                     for (let i = 0; i < ref.length; i++) {
@@ -4223,7 +6039,7 @@ markdown.Generator = class {
                 if (!link || !link.href) {
                     const text = match[0].charAt(0);
                     source = source.substring(text.length);
-                    tokens.push({ type: 'text', text: text });
+                    tokens.push({ type: 'text', text });
                 } else {
                     source = source.substring(match[0].length);
                     const token = this._outputLink(match, link);
@@ -4239,8 +6055,8 @@ markdown.Generator = class {
                 const masked = maskedSource.slice(-1 * source.length);
                 const endReg = match[0] === '**' ? this._strongEndAstRegExp : this._strongEndUndRegExp;
                 endReg.lastIndex = 0;
-                let cap;
-                while ((match = endReg.exec(masked)) != null) {
+                let cap = '';
+                while ((match = endReg.exec(masked)) !== null) {
                     cap = this._strongMiddleRegExp.exec(masked.slice(0, match.index + 3));
                     if (cap) {
                         break;
@@ -4249,7 +6065,7 @@ markdown.Generator = class {
                 if (cap) {
                     const text = source.substring(2, cap[0].length - 2);
                     source = source.substring(cap[0].length);
-                    tokens.push({ type: 'strong', text: text, tokens: this._tokenizeInline(text, links, inLink, inRawBlock, '') });
+                    tokens.push({ type: 'strong', text, tokens: this._tokenizeInline(text, links, inLink, inRawBlock, '') });
                     continue;
                 }
             }
@@ -4258,8 +6074,8 @@ markdown.Generator = class {
                 const masked = maskedSource.slice(-1 * source.length);
                 const endReg = match[0] === '*' ? this._emEndAstRegExp : this._emEndUndRegExp;
                 endReg.lastIndex = 0;
-                let cap;
-                while ((match = endReg.exec(masked)) != null) {
+                let cap = '';
+                while ((match = endReg.exec(masked)) !== null) {
                     cap = this._emMiddleRegExp.exec(masked.slice(0, match.index + 2));
                     if (cap) {
                         break;
@@ -4268,7 +6084,7 @@ markdown.Generator = class {
                 if (cap) {
                     const text = source.slice(1, cap[0].length - 1);
                     source = source.substring(cap[0].length);
-                    tokens.push({ type: 'em', text: text, tokens: this._tokenizeInline(text, links, inLink, inRawBlock, '') });
+                    tokens.push({ type: 'em', text, tokens: this._tokenizeInline(text, links, inLink, inRawBlock, '') });
                     continue;
                 }
             }
@@ -4290,34 +6106,40 @@ markdown.Generator = class {
             }
             match = this._delRegExp.exec(source);
             if (match) {
-                source = source.substring(match[0].length);
-                const text = match[1];
-                tokens.push({ type: 'del', text: text, tokens: this._tokenizeInline(text, links, inLink, inRawBlock, '') });
+                const [value, text] = match;
+                source = source.substring(value.length);
+                tokens.push({ type: 'del', text, tokens: this._tokenizeInline(text, links, inLink, inRawBlock, '') });
                 continue;
             }
             match = this._autolinkRegExp.exec(source);
             if (match) {
                 source = source.substring(match[0].length);
                 const text = this._escape(match[1]);
-                const href = match[2] === '@' ? 'mailto:' + text : text;
-                tokens.push({ type: 'link', text: text, href: href, tokens: [ { type: 'text', raw: text, text } ] });
+                const href = match[2] === '@' ? `mailto:${text}` : text;
+                tokens.push({ type: 'link', text, href, tokens: [{ type: 'text', raw: text, text }] });
                 continue;
             }
             if (!inLink) {
                 match = this._urlRegExp.exec(source);
                 if (match) {
                     const email = match[2] === '@';
+                    let [value] = match;
                     if (!email) {
-                        let prevCapZero;
+                        let prevCapZero = '';
                         do {
-                            prevCapZero = match[0];
-                            match[0] = this._backpedalRegExp.exec(match[0])[0];
-                        } while (prevCapZero !== match[0]);
+                            prevCapZero = value;
+                            [value] = this._backpedalRegExp.exec(value);
+                        } while (prevCapZero !== value);
                     }
-                    const text = this._escape(match[0]);
-                    const href = email ? ('mailto:' + text) : (match[1] === 'www.' ? 'http://' + text : text);
-                    source = source.substring(match[0].length);
-                    tokens.push({ type: 'link', text: text, href: href, tokens: [ { type: 'text', text: text } ] });
+                    const text = this._escape(value);
+                    let href = text;
+                    if (email) {
+                        href = `mailto:${text}`;
+                    } else if (text.startsWith('www.')) {
+                        href = `http://${text}`;
+                    }
+                    source = source.substring(value.length);
+                    tokens.push({ type: 'link', text, href, tokens: [{ type: 'text', text }] });
                     continue;
                 }
             }
@@ -4328,7 +6150,7 @@ markdown.Generator = class {
                 tokens.push({ type: 'text' , text: inRawBlock ? match[0] : this._escape(match[0]) });
                 continue;
             }
-            throw new Error("Unexpected '" + source.charCodeAt(0) + "'.");
+            throw new Error(`Unexpected '${source.charCodeAt(0)}'.`);
         }
         return tokens;
     }
@@ -4379,13 +6201,13 @@ markdown.Generator = class {
                 }
                 case 'heading': {
                     const level = token.depth;
-                    html += '<h' + level + '">' + this._renderInline(token.tokens) + '</h' + level + '>\n';
+                    html += `<h${level}">${this._renderInline(token.tokens)}</h${level}>\n`;
                     continue;
                 }
                 case 'code': {
                     const code = token.text;
-                    const language = (token.language || '').match(/\S*/)[0];
-                    html += '<pre><code' + (language ? ' class="' + 'language-' + this._encode(language) + '"' : '') + '>' + (token.escaped ? code : this._encode(code)) + '</code></pre>\n';
+                    const [language] = (token.language || '').match(/\S*/);
+                    html += `<pre><code${language ? ` class="language-${this._encode(language)}"` : ''}>${token.escaped ? code : this._encode(code)}</code></pre>\n`;
                     continue;
                 }
                 case 'table': {
@@ -4394,9 +6216,9 @@ markdown.Generator = class {
                     for (let j = 0; j < token.header.length; j++) {
                         const content = this._renderInline(token.tokens.header[j]);
                         const align = token.align[j];
-                        cell += '<th' + (align ? ' align="' + align + '"' : '') + '>' + content + '</th>\n';
+                        cell += `<th${align ? ` align="${align}"` : ''}>${content}</th>\n`;
                     }
-                    header += '<tr>\n' + cell + '</tr>\n';
+                    header += `<tr>\n${cell}</tr>\n`;
                     let body = '';
                     for (let j = 0; j < token.cells.length; j++) {
                         const row = token.tokens.cells[j];
@@ -4404,15 +6226,15 @@ markdown.Generator = class {
                         for (let k = 0; k < row.length; k++) {
                             const content = this._renderInline(row[k]);
                             const align = token.align[k];
-                            cell += '<td' + (align ? ' align="' + align + '"' : '') + '>' + content + '</td>\n';
+                            cell += `<td${align ? ` align="${align}"` : ''}>${content}</td>\n`;
                         }
-                        body += '<tr>\n' + cell + '</tr>\n';
+                        body += `<tr>\n${cell}</tr>\n`;
                     }
-                    html += '<table>\n<thead>\n' + header + '</thead>\n' + (body ? '<tbody>' + body + '</tbody>' : body) + '</table>\n';
+                    html += `<table>\n<thead>\n${header}</thead>\n${body ? `<tbody>${body}</tbody>` : body}</table>\n`;
                     continue;
                 }
                 case 'blockquote': {
-                    html += '<blockquote>\n' + this._render(token.tokens, true) + '</blockquote>\n';
+                    html += `<blockquote>\n${this._render(token.tokens, true)}</blockquote>\n`;
                     continue;
                 }
                 case 'list': {
@@ -4423,12 +6245,12 @@ markdown.Generator = class {
                     for (const item of token.items) {
                         let itemBody = '';
                         if (item.task) {
-                            const checkbox = '<input ' + (item.checked ? 'checked="" ' : '') + 'disabled="" type="checkbox"' + '> ';
+                            const checkbox = `<input ${item.checked ? 'checked="" ' : ''}disabled="" type="checkbox"> `;
                             if (loose) {
                                 if (item.tokens.length > 0 && item.tokens[0].type === 'text') {
-                                    item.tokens[0].text = checkbox + ' ' + item.tokens[0].text;
+                                    item.tokens[0].text = `${checkbox} ${item.tokens[0].text}`;
                                     if (item.tokens[0].tokens && item.tokens[0].tokens.length > 0 && item.tokens[0].tokens[0].type === 'text') {
-                                        item.tokens[0].tokens[0].text = checkbox + ' ' + item.tokens[0].tokens[0].text;
+                                        item.tokens[0].tokens[0].text = `${checkbox} ${item.tokens[0].tokens[0].text}`;
                                     }
                                 } else {
                                     item.tokens.unshift({ type: 'text', text: checkbox });
@@ -4438,10 +6260,10 @@ markdown.Generator = class {
                             }
                         }
                         itemBody += this._render(item.tokens, loose);
-                        body += '<li>' + itemBody + '</li>\n';
+                        body += `<li>${itemBody}</li>\n`;
                     }
                     const type = (ordered ? 'ol' : 'ul');
-                    html += '<' + type + (ordered && start !== 1 ? (' start="' + start + '"') : '') + '>\n' + body + '</' + type + '>\n';
+                    html += `<${type}${ordered && start !== 1 ? (` start="${start}"`) : ''}>\n${body}</${type}>\n`;
                     continue;
                 }
                 case 'html': {
@@ -4449,7 +6271,7 @@ markdown.Generator = class {
                     continue;
                 }
                 case 'paragraph': {
-                    html += '<p>' + this._renderInline(token.tokens) + '</p>\n';
+                    html += `<p>${this._renderInline(token.tokens)}</p>\n`;
                     continue;
                 }
                 case 'text': {
@@ -4457,13 +6279,13 @@ markdown.Generator = class {
                     html += token.tokens ? this._renderInline(token.tokens) : token.text;
                     while (tokens.length > 0 && tokens[0].type === 'text') {
                         const token = tokens.shift();
-                        html += '\n' + (token.tokens ? this._renderInline(token.tokens) : token.text);
+                        html += `\n${token.tokens ? this._renderInline(token.tokens) : token.text}`;
                     }
                     html += top ? '</p>\n' : '';
                     continue;
                 }
                 default: {
-                    throw new Error("Unexpected token type '" + token.type + "'.");
+                    throw new Error(`Unexpected token type '${token.type}'.`);
                 }
             }
         }
@@ -4482,25 +6304,25 @@ markdown.Generator = class {
                 }
                 case 'link': {
                     const text = this._renderInline(token.tokens);
-                    html += '<a href="' + token.href + '"' + (token.title ? ' title="' + token.title + '"' : '') + ' target="_blank">' + text + '</a>';
+                    html += `<a href="${token.href}"${token.title ? ` title="${token.title}"` : ''} target="_blank">${text}</a>`;
                     break;
                 }
                 case 'image': {
-                    html += '<img src="' + token.href + '" alt="' + token.text + '"' + (token.title ? ' title="' + token.title + '"' : '') + '>';
+                    html += `<img src="${token.href}" alt="${token.text}"${token.title ? ` title="${token.title}"` : ''}>`;
                     break;
                 }
                 case 'strong': {
                     const text = this._renderInline(token.tokens);
-                    html += '<strong>' + text + '</strong>';
+                    html += `<strong>${text}</strong>`;
                     break;
                 }
                 case 'em': {
                     const text = this._renderInline(token.tokens);
-                    html += '<em>' + text + '</em>';
+                    html += `<em>${text}</em>`;
                     break;
                 }
                 case 'codespan': {
-                    html += '<code>' + token.text + '</code>';
+                    html += `<code>${token.text}</code>`;
                     break;
                 }
                 case 'br': {
@@ -4509,11 +6331,11 @@ markdown.Generator = class {
                 }
                 case 'del': {
                     const text = this._renderInline(token.tokens);
-                    html += '<del>' + text + '</del>';
+                    html += `<del>${text}</del>`;
                     break;
                 }
                 default: {
-                    throw new Error("Unexpected token type '" + token.type + "'.");
+                    throw new Error(`Unexpected token type '${token.type}'.`);
                 }
             }
         }
@@ -4523,9 +6345,9 @@ markdown.Generator = class {
     _outputLink(match, href, title) {
         title = title ? this._escape(title) : null;
         const text = match[1].replace(/\\([[\]])/g, '$1');
-        return match[0].charAt(0) !== '!' ?
-            { type: 'link', href: href, title: title, text: text } :
-            { type: 'image', href: href, title: title, text: this._escape(text) };
+        return match[0].charAt(0) === '!' ?
+            { type: 'image', href, title, text: this._escape(text) } :
+            { type: 'link', href, title, text };
     }
 
     _splitCells(tableRow, count) {
@@ -4563,174 +6385,627 @@ markdown.Generator = class {
     }
 };
 
-view.ModelContext = class {
+png.Encoder = class {
 
-    constructor(context) {
+    constructor(window, width, height) {
+        this.width = width;
+        this.height = height;
+        const compressor = new window.CompressionStream('deflate');
+        this.writer = compressor.writable.getWriter();
+        this.response = new window.Response(compressor.readable).blob();
+    }
+
+    async write(data, rows) {
+        const bytesPerRow = this.width * 4;
+        const filtered = new Uint8Array(rows * (1 + bytesPerRow));
+        let offset = 0;
+        let dataOffset = 0;
+        for (let i = 0; i < rows; i++) {
+            filtered[offset++] = 0;
+            filtered.set(data.subarray(dataOffset, dataOffset + bytesPerRow), offset);
+            offset += bytesPerRow;
+            dataOffset += bytesPerRow;
+        }
+        await this.writer.write(filtered);
+    }
+
+    async toBuffer() {
+        await this.writer.close();
+        const blob = await this.response;
+        const arrayBuffer = await blob.arrayBuffer();
+        const compressed = new Uint8Array(arrayBuffer);
+        const crc32Table = new Uint32Array(256);
+        for (let i = 0; i < 256; i++) {
+            let c = i;
+            for (let j = 0; j < 8; j++) {
+                c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+            }
+            crc32Table[i] = c;
+        }
+        const crc32 = (buffer, offset, length) => {
+            let crc = 0xFFFFFFFF;
+            for (let i = 0; i < length; i++) {
+                crc = crc32Table[(crc ^ buffer[offset + i]) & 0xFF] ^ (crc >>> 8);
+            }
+            return (crc ^ 0xFFFFFFFF) >>> 0;
+        };
+        const buffer = new Uint8Array(57 + compressed.length);
+        const view = new DataView(buffer.buffer);
+        // Signature
+        buffer.set([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], 0);
+        // IHDR
+        view.setUint32(8, 13, false);
+        buffer.set([0x49, 0x48, 0x44, 0x52], 12);
+        view.setUint32(16, this.width, false);
+        view.setUint32(20, this.height, false);
+        buffer.set([8, 6, 0, 0, 0], 24);
+        view.setUint32(29, crc32(buffer, 12, 17), false);
+        // IDAT
+        view.setUint32(33, compressed.length, false);
+        buffer.set([0x49, 0x44, 0x41, 0x54], 37);
+        buffer.set(compressed, 41);
+        view.setUint32(41 + compressed.length, crc32(buffer, 37, 4 + compressed.length), false);
+        // IEND
+        buffer.set([0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82], 45 + compressed.length);
+        return buffer;
+    }
+};
+
+metadata.Attachment = class {
+
+    constructor() {
+        this.metadata = new metadata.Attachment.Container('metadata');
+        this.metrics = new metadata.Attachment.Container('metrics');
+    }
+
+    async open(context) {
+        context = new view.Context(context);
+        if (context.identifier.toLowerCase().endsWith('.json')) {
+            const data = await context.peek('json');
+            if (data && data.signature === 'netron:attachment') {
+                const containers = [this.metadata, this.metrics];
+                for (const container of containers) {
+                    container.open(data[container.name]);
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+};
+
+metadata.Attachment.Container = class {
+
+    constructor(name) {
+        this._name = name;
+        this._entries = new Map();
+    }
+
+    get name() {
+        return this._name;
+    }
+
+    open(data) {
+        this._entries.clear();
+        if (Array.isArray(data)) {
+            for (const item of data) {
+                if (item.kind && ('target' in item || 'identifier' in item)) {
+                    const key = 'target' in item ? `${item.kind}::${item.target}` : `${item.kind}[${item.identifier}]`;
+                    if (!this._entries.has(key)) {
+                        this._entries.set(key, new Map());
+                    }
+                    const entries = this._entries.get(key);
+                    entries.set(item.name, { value: item.value, type: item.type });
+                }
+            }
+        }
+    }
+
+    model(value) {
+        return this._list(value, 'model');
+    }
+
+    graph(value) {
+        return this._list(value, 'graph');
+    }
+
+    node(value) {
+        return this._list(value, 'node');
+    }
+
+    value(value) {
+        return this._list(value, 'value');
+    }
+
+    tensor(value) {
+        return this._list(value, 'tensor');
+    }
+
+    _list(value, kind) {
+        const category = this._name;
+        const entries = value[category] || [];
+        const result = new Map(entries.map((entry) => [entry.name, entry]));
+        if (value.name || kind === 'model' || kind === 'graph') {
+            const key = `${kind}::${(value.name || '').split('\n').shift()}`;
+            if (this._entries.has(key)) {
+                for (const [name, entry] of this._entries.get(key)) {
+                    const argument = new metadata.Argument(name, entry.value, entry.type || 'attribute');
+                    result.set(name, argument);
+                }
+            }
+        }
+        if (value.identifier) {
+            const key = `${kind}[${value.identifier}]`;
+            if (this._entries.has(key)) {
+                for (const [name, entry] of this._entries.get(key)) {
+                    const argument = new metadata.Argument(name, entry.value, entry.type || 'attribute');
+                    result.set(name, argument);
+                }
+            }
+        }
+        return Array.from(result.values());
+    }
+};
+
+metadata.Argument = class {
+
+    constructor(name, value, type = null) {
+        this.name = name;
+        this.value = value;
+        this.type = type;
+    }
+};
+
+metrics.Model = class {
+
+    constructor(model) {
+        this._model = model;
+        this._metrics = null;
+    }
+
+    get metrics() {
+        if (this._metrics === null) {
+            this._metrics = [];
+            this._metrics = Array.from(this._model.metrics || []);
+            const keys = new Set(this._metrics.map((metric) => metric.name));
+            if (!keys.has('parameters')) {
+                let parameters = 0;
+                for (const graph of this._model.graphs || []) {
+                    const map = new Map((new metrics.Target(graph).metrics || []).map((metric) => [metric.name, metric]));
+                    parameters = map.has('parameters') ? parameters + map.get('parameters').value : NaN;
+                }
+                for (const func of this._model.functions || []) {
+                    const map = new Map((new metrics.Target(func).metrics || []).map((metric) => [metric.name, metric]));
+                    parameters = map.has('parameters') ? parameters + map.get('parameters').value : NaN;
+                }
+                if (!Number.isNaN(parameters) && parameters > 0) {
+                    this._metrics.push(new metadata.Argument('parameters', parameters, 'attribute'));
+                }
+            }
+        }
+        return this._metrics;
+    }
+};
+
+metrics.Target = class {
+
+    constructor(target) {
+        this._target = target;
+        this._metrics = null;
+    }
+
+    get metrics() {
+        if (this._metrics === null) {
+            this._metrics = [];
+            this._metrics = Array.from(this._target.metrics || []);
+            const keys = new Set(this._metrics.map((metrics) => metrics.name));
+            if (!keys.has('parameters')) {
+                let parameters = 0;
+                const initializers = new Set();
+                if (this._target && Array.isArray(this._target.nodes)) {
+                    for (const node of this._target.nodes) {
+                        for (const argument of node.inputs || []) {
+                            if (argument && Array.isArray(argument.value)) {
+                                for (const value of argument.value) {
+                                    if (value && value.initializer) {
+                                        initializers.add(value.initializer);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                for (const tensor of initializers) {
+                    const shape = tensor && tensor.type && tensor.type.shape && Array.isArray(tensor.type.shape.dimensions) ? tensor.type.shape.dimensions : [];
+                    if (!shape.every((dim) => typeof dim === 'number' || typeof dim === 'bigint')) {
+                        parameters = 0;
+                        break;
+                    }
+                    parameters += shape.reduce((a, b) => BigInt(a) * BigInt(b), 1n).toNumber();
+                }
+                if (parameters > 0) {
+                    this._metrics.push(new metadata.Argument('parameters', parameters, 'attribute'));
+                }
+            }
+        }
+        return this._metrics;
+    }
+};
+
+metrics.Tensor = class {
+
+    constructor(tensor) {
+        this._tensor = tensor;
+        this._metrics = null;
+    }
+
+    get name() {
+        return this._tensor.name || '';
+    }
+
+    get metrics() {
+        if (this._metrics === null) {
+            this._metrics = [];
+            this._metrics = Array.from(this._tensor.metrics || []);
+            const keys = new Set(this._metrics.map((metrics) => metrics.name));
+            const type = this._tensor.type;
+            const shape = type.shape.dimensions;
+            const size = shape.reduce((a, b) => BigInt(a) * BigInt(b), 1n).toNumber();
+            if (size < 0x800000 &&
+                (type.dataType.startsWith('float') || type.dataType.startsWith('bfloat')) &&
+                (!keys.has('sparsity') || !keys.has('min') || !keys.has('max') && !keys.has('mean') || !keys.has('max') || !keys.has('std'))) {
+                const data = this._tensor.value;
+                let zeros = 0;
+                let min = null;
+                let max = null;
+                let sum = 0;
+                let count = 0;
+                const stack = [data];
+                while (stack.length > 0) {
+                    const data = stack.pop();
+                    if (Array.isArray(data)) {
+                        for (const element of data) {
+                            stack.push(element);
+                        }
+                    } else {
+                        zeros += data === 0 || data === 0n || data === '';
+                        min = Math.min(data, min === null ? data : min);
+                        max = Math.max(data, max === null ? data : max);
+                        sum += data;
+                        count += 1;
+                    }
+                }
+                const mean = sum / count;
+                if (!keys.has('sparsity')) {
+                    this._metrics.push(new metadata.Argument('min', min, type.dataType));
+                }
+                if (!keys.has('max')) {
+                    this._metrics.push(new metadata.Argument('max', max, type.dataType));
+                }
+                if (!keys.has('mean')) {
+                    this._metrics.push(new metadata.Argument('mean', mean, type.dataType));
+                }
+                if (!keys.has('std')) {
+                    let variance = 0;
+                    const stack = [data];
+                    while (stack.length > 0) {
+                        const data = stack.pop();
+                        if (Array.isArray(data)) {
+                            for (const element of data) {
+                                stack.push(element);
+                            }
+                        } else {
+                            variance += Math.pow(data - mean, 2);
+                        }
+                    }
+                    this._metrics.push(new metadata.Argument('std', Math.sqrt(variance / count)));
+                }
+                if (!keys.has('sparsity')) {
+                    this._metrics.push(new metadata.Argument('sparsity', count > 0 ? zeros / count : 0, 'percentage'));
+                }
+            }
+        }
+        return this._metrics;
+    }
+};
+
+view.Context = class {
+
+    constructor(context, identifier, stream) {
         this._context = context;
         this._tags = new Map();
         this._content = new Map();
-        let stream = context.stream;
-        const entries = context.entries;
-        if (!stream && entries && entries.size > 0) {
-            this._entries = entries;
-            this._format = '';
-        } else {
-            this._entries = new Map();
-            const entry = context instanceof view.EntryContext;
-            try {
-                const archive = zip.Archive.open(stream, 'gzip');
-                if (archive) {
-                    this._entries = archive.entries;
-                    this._format = 'gzip';
-                    if (this._entries.size === 1) {
-                        stream = this._entries.values().next().value;
-                    }
-                }
-            } catch (error) {
-                if (!entry) {
-                    throw error;
-                }
-            }
-            try {
-                const formats = new Map([ [ 'zip', zip ], [ 'tar', tar ] ]);
-                for (const pair of formats) {
-                    const format = pair[0];
-                    const module = pair[1];
-                    const archive = module.Archive.open(stream);
-                    if (archive) {
-                        this._entries = archive.entries;
-                        this._format = format;
-                        break;
-                    }
-                }
-            } catch (error) {
-                if (!entry) {
-                    throw error;
-                }
-            }
-        }
+        this._stream = stream || context.stream;
+        identifier = typeof identifier === 'string' ? identifier : context.identifier;
+        const index = Math.max(identifier.lastIndexOf('/'), identifier.lastIndexOf('\\'));
+        this._base = index === -1 ? undefined : identifier.substring(0, index);
+        this._identifier = index === -1 ? identifier : identifier.substring(index + 1);
     }
 
     get identifier() {
-        return this._context.identifier;
+        return this._identifier;
     }
 
     get stream() {
-        return this._context.stream;
+        return this._stream;
     }
 
-    request(file, encoding, base) {
-        return this._context.request(file, encoding, base);
+    get container() {
+        if (this._context instanceof view.Container) {
+            return this._context;
+        }
+        return null;
     }
 
-    require(id) {
+    async asset(file) {
+        return this._context.asset(file);
+    }
+
+    async fetch(file) {
+        const stream = await this._context.fetch(file, null, this._base);
+        return new view.Context(this._context, file, stream);
+    }
+
+    context(identifier, stream, entries) {
+        if (stream instanceof Uint8Array) {
+            stream = new base.BinaryStream(stream);
+        }
+        const context = entries instanceof Map ? new view.Container(this._context, this._identifier, entries) : this._context;
+        return new view.Context(context, identifier, stream);
+    }
+
+    async require(id) {
         return this._context.require(id);
     }
 
-    exception(error, fatal) {
+    error(error, fatal) {
         if (error && this.identifier) {
-            error.context = this.identifier;
+            error.context = this.container ? this.container.identifier : this.identifier;
         }
-        this._context.exception(error, fatal);
+        this._context.error(error, fatal);
     }
 
-    entries(format) {
-        if (format !== undefined && format !== this._format) {
-            return new Map();
-        }
-        return this._entries;
+    set(type, value) {
+        this.type = type;
+        this.value = value;
+        return type;
     }
 
-    open(type) {
+    async peek(type) {
         if (!this._content.has(type)) {
             this._content.set(type, undefined);
             const stream = this.stream;
             if (stream) {
                 const position = stream.position;
-                const signatures = [
-                    [ 0x80, undefined, 0x8a, 0x0a, 0x6c, 0xfc, 0x9c, 0x46, 0xf9, 0x20, 0x6a, 0xa8, 0x50, 0x19 ] // PyTorch
-                ];
+                const match = (buffer, signature) => {
+                    return signature.length <= buffer.length && buffer.every((value, index) => signature[index] === undefined || signature[index] === value);
+                };
+                const buffer = stream.peek(Math.min(stream.length, 16));
                 const skip =
-                    signatures.some((signature) => signature.length <= stream.length && stream.peek(signature.length).every((value, index) => signature[index] === undefined || signature[index] === value)) ||
-                    Array.from(this._tags).some((pair) => pair[0] !== 'flatbuffers' && pair[1].size > 0) ||
+                    match(buffer, [0x80, undefined, 0x8a, 0x0a, 0x6c, 0xfc, 0x9c, 0x46, 0xf9, 0x20, 0x6a, 0xa8, 0x50, 0x19]) || // PyTorch
+                    (type !== 'npz' && type !== 'zip' && match(buffer, [0x50, 0x4B, 0x03, 0x04])) || // ZIP
+                    (type !== 'hdf5' && match(buffer, [0x89, 0x48, 0x44, 0x46, 0x0D, 0x0A, 0x1A, 0x0A])) || // \x89HDF\r\n\x1A\n
+                    Array.from(this._tags).some(([key, value]) => key !== 'flatbuffers' && key !== 'xml' && value.size > 0) ||
                     Array.from(this._content.values()).some((obj) => obj !== undefined);
                 if (!skip) {
                     switch (type) {
                         case 'json': {
                             try {
-                                const reader = json.TextReader.open(this.stream);
-                                if (reader) {
-                                    const obj = reader.read();
-                                    this._content.set(type, obj);
-                                }
-                            } catch (err) {
-                                // continue regardless of error
-                            }
-                            break;
-                        }
-                        case 'json.gz': {
-                            try {
-                                const archive = zip.Archive.open(this.stream, 'gzip');
-                                if (archive && archive.entries.size === 1) {
-                                    const stream = archive.entries.values().next().value;
+                                const buffer = stream.peek(Math.min(stream.length, 0x1000));
+                                if (stream.length < 0x7ffff000 &&
+                                    (buffer.length < 8 || String.fromCharCode.apply(null, buffer.slice(0, 8)) !== '\x89HDF\r\n\x1A\n') &&
+                                    (buffer.some((v) => v === 0x22 || v === 0x5b || v === 0x5d || v === 0x7b || v === 0x7d))) {
+                                    const json = await import('./json.js');
                                     const reader = json.TextReader.open(stream);
                                     if (reader) {
                                         const obj = reader.read();
                                         this._content.set(type, obj);
                                     }
                                 }
-                            } catch (err) {
+                            } catch {
+                                // continue regardless of error
+                            }
+                            break;
+                        }
+                        case 'json.gz': {
+                            try {
+                                const entries = await this.peek('gzip');
+                                if (entries && entries.size === 1) {
+                                    const stream = entries.values().next().value;
+                                    const json = await import('./json.js');
+                                    const reader = json.TextReader.open(stream);
+                                    if (reader) {
+                                        const obj = reader.read();
+                                        this._content.set(type, obj);
+                                    }
+                                }
+                            } catch {
+                                // continue regardless of error
+                            }
+                            break;
+                        }
+                        case 'xml': {
+                            try {
+                                const buffer = stream.peek(Math.min(this.stream.length, 0x1000));
+                                const content = String.fromCharCode.apply(null, buffer);
+                                if (stream.length < 0x7ffff000 && content.indexOf('<') !== -1 && content.indexOf('</') !== -1) {
+                                    const xml = await import('./xml.js');
+                                    const reader = xml.TextReader.open(this._stream);
+                                    if (reader) {
+                                        const obj = reader.read();
+                                        this._content.set(type, obj);
+                                    }
+                                }
+                            } catch {
                                 // continue regardless of error
                             }
                             break;
                         }
                         case 'pkl': {
                             let unpickler = null;
+                            const types = new Set();
                             try {
+                                const zip = await import('./zip.js');
                                 const archive = zip.Archive.open(stream, 'zlib');
                                 const data = archive ? archive.entries.get('') : stream;
                                 let condition = false;
-                                if (data.length > 2) {
-                                    const head = data.peek(2);
+                                if (data.length > 4) {
+                                    const head = data.peek(4);
                                     condition = head[0] === 0x80 && head[1] < 7;
                                     if (!condition) {
                                         data.seek(-1);
                                         const tail = data.peek(1);
                                         data.seek(0);
-                                        condition = tail[0] === 0x2e;
+                                        if (tail[0] === 0x2e) {
+                                            const size = Math.min(data.length, 256);
+                                            const buffer = data.peek(size);
+                                            condition =
+                                                (buffer[0] === 0x28 && buffer[1] === 0x64 && buffer[2] === 0x70) ||
+                                                (buffer[0] === 0x28 && buffer[1] === 0x63 && buffer.indexOf(0x0a) !== -1);
+                                            if (!condition) {
+                                                const content = String.fromCharCode.apply(null, buffer);
+                                                const list = ['ccopy_reg', 'cnumpy.core.multiarray', '(dp0'];
+                                                condition = list.some((value) => content.indexOf(value) !== -1);
+                                            }
+                                        }
                                     }
                                 }
                                 if (condition) {
-                                    const signature = [ 0x80, undefined, 0x63, 0x5F, 0x5F, 0x74, 0x6F, 0x72, 0x63, 0x68, 0x5F, 0x5F, 0x2E]; // __torch__.
-                                    const torch = signature.length <= data.length && data.peek(signature.length).every((value, index) => signature[index] === undefined || signature[index] === value);
+                                    const python = await import('./python.js');
                                     const execution = new python.Execution();
-                                    execution.on('resolve', (_, name) => {
-                                        if (!torch || !name.startsWith('__torch__.')) {
-                                            this.exception(new view.Error("Unknown type name '" + name + "'."));
-                                        }
-                                    });
+                                    execution.on('resolve', (sender, name) => types.add(name));
                                     const pickle = execution.__import__('pickle');
                                     unpickler = new pickle.Unpickler(data);
                                 }
-                            } catch (err) {
+                            } catch {
                                 // continue regardless of error
                             }
                             if (unpickler) {
-                                unpickler.persistent_load = (saved_id) => saved_id;
-                                const obj = unpickler.load();
-                                this._content.set(type, obj);
+                                const storages = new Map();
+                                unpickler.persistent_load = (saved_id) => {
+                                    if (Array.isArray(saved_id) && saved_id.length > 3) {
+                                        switch (saved_id[0]) {
+                                            case 'storage': {
+                                                const [, storage_type, key, , size] = saved_id;
+                                                if (!storages.has(key)) {
+                                                    const storage = new storage_type(size);
+                                                    storages.set(key, storage);
+                                                }
+                                                return storages.get(key);
+                                            }
+                                            default: {
+                                                throw new view.Error(`Unsupported persistent load type '${saved_id[0]}'.`);
+                                            }
+                                        }
+                                    }
+                                    throw new view.Error("Unsupported 'persistent_load'.");
+                                };
+                                try {
+                                    const obj = unpickler.load();
+                                    this._content.set(type, obj);
+                                } catch (error) {
+                                    this._content.set(type, error);
+                                }
+                                if (Array.from(types).every((name) => !name.startsWith('__torch__.'))) {
+                                    for (const name of types) {
+                                        this.error(new view.Error(`Unknown type name '${name}'.`));
+                                    }
+                                }
                             }
                             break;
                         }
                         case 'hdf5': {
+                            const hdf5 = await import('./hdf5.js');
                             const file = hdf5.File.open(stream);
-                            if (file && file.rootGroup && file.rootGroup.attributes) {
-                                this._content.set(type, file.rootGroup);
+                            if (file) {
+                                try {
+                                    this._content.set(type, file.read());
+                                } catch (error) {
+                                    this._content.set(type, error);
+                                }
+                            }
+                            break;
+                        }
+                        case 'zip':
+                        case 'tar':
+                        case 'gzip': {
+                            this._content.set('zip', undefined);
+                            this._content.set('tar', undefined);
+                            this._content.set('gzip', undefined);
+                            let stream = this._stream;
+                            try {
+                                const zip = await import('./zip.js');
+                                const archive = zip.Archive.open(this._stream, 'gzip');
+                                if (archive) {
+                                    let entries = archive.entries;
+                                    if (entries.size === 1) {
+                                        const key = entries.keys().next().value;
+                                        stream = entries.values().next().value;
+                                        const name = key === '' ? this.identifier.replace(/\.gz$/, '') : key;
+                                        entries = new Map([[name, stream]]);
+                                    }
+                                    this._content.set('gzip', entries);
+                                }
+                            } catch (error) {
+                                this._content.set('gzip', error);
+                            }
+                            let skipTar = false;
+                            try {
+                                const zip = await import('./zip.js');
+                                const archive = zip.Archive.open(stream, 'zip');
+                                if (archive) {
+                                    this._content.set('zip', archive.entries);
+                                    skipTar = true;
+                                }
+                            } catch (error) {
+                                this._content.set('zip', error);
+                            }
+                            if (!skipTar) {
+                                try {
+                                    const tar = await import('./tar.js');
+                                    const archive = tar.Archive.open(stream);
+                                    if (archive) {
+                                        this._content.set('tar', archive.entries);
+                                    }
+                                } catch (error) {
+                                    this._content.set('tar', error);
+                                }
+                            }
+                            break;
+                        }
+                        case 'flatbuffers.binary': {
+                            try {
+                                const flatbuffers = await import('./flatbuffers.js');
+                                const reader = flatbuffers.BinaryReader.open(this._stream);
+                                if (reader) {
+                                    this._content.set('flatbuffers.binary', reader);
+                                }
+                            } catch (error) {
+                                this._content.set('flatbuffers.binary', error);
+                            }
+                            break;
+                        }
+                        case 'npz': {
+                            const content = new Map();
+                            const entries = await this.peek('zip');
+                            if (entries instanceof Map && entries.size > 0 &&
+                                Array.from(entries.keys()).every((name) => name.endsWith('.npy'))) {
+                                const python = await import('./python.js');
+                                const execution = new python.Execution();
+                                const io = execution.__import__('io');
+                                const numpy = execution.__import__('numpy');
+                                for (const [name, stream] of entries) {
+                                    const bytes = new io.BytesIO(stream);
+                                    const array = numpy.load(bytes);
+                                    content.set(name, array);
+                                }
+                                this._content.set(type, content);
                             }
                             break;
                         }
                         default: {
-                            throw new view.Error("Unsupported open format type '" + type + "'.");
+                            throw new view.Error(`Unsupported open format type '${type}'.`);
                         }
                     }
                 }
@@ -4742,68 +7017,148 @@ view.ModelContext = class {
         return this._content.get(type);
     }
 
-    tags(type) {
+    async read(type, ...args) {
+        if (!this._content.has(type)) {
+            switch (type) {
+                case 'json': {
+                    const json = await import('./json.js');
+                    const reader = json.TextReader.open(this._stream);
+                    if (reader) {
+                        const obj = reader.read();
+                        this._content.set('json', obj);
+                        return obj;
+                    }
+                    throw new view.Error('Invalid JSON content.');
+                }
+                case 'bson': {
+                    const json = await import('./json.js');
+                    const reader = json.BinaryReader.open(this._stream);
+                    if (reader) {
+                        return reader.read();
+                    }
+                    throw new view.Error('Invalid BSON content.');
+                }
+                case 'xml': {
+                    const xml = await import('./xml.js');
+                    const reader = xml.TextReader.open(this._stream);
+                    if (reader) {
+                        return reader.read();
+                    }
+                    throw new view.Error(`Invalid XML content.`);
+                }
+                case 'flatbuffers.binary': {
+                    const flatbuffers = await import('./flatbuffers.js');
+                    const reader = flatbuffers.BinaryReader.open(this._stream);
+                    if (reader) {
+                        this._content.set('flatbuffers.reader', reader);
+                        return reader;
+                    }
+                    throw new view.Error('Invalid FlatBuffers content.');
+                }
+                case 'flatbuffers.text': {
+                    const flatbuffers = await import('./flatbuffers.js');
+                    const obj = await this.peek('json');
+                    return flatbuffers.TextReader.open(obj);
+                }
+                case 'protobuf.binary': {
+                    const protobuf = await import('./protobuf.js');
+                    return protobuf.BinaryReader.open(this._stream);
+                }
+                case 'protobuf.text': {
+                    const protobuf = await import('./protobuf.js');
+                    return protobuf.TextReader.open(this._stream);
+                }
+                case 'binary.big-endian': {
+                    return base.BinaryReader.open(this._stream, false);
+                }
+                case 'binary': {
+                    return base.BinaryReader.open(this._stream);
+                }
+                case 'text': {
+                    const text = await import('./text.js');
+                    if (typeof args[0] === 'number') {
+                        const length = Math.min(this._stream.length, args[0]);
+                        const buffer = this._stream.peek(length);
+                        return text.Reader.open(buffer);
+                    }
+                    return text.Reader.open(this._stream);
+                }
+                case 'text.decoder': {
+                    const text = await import('./text.js');
+                    return text.Decoder.open(this._stream);
+                }
+                default: {
+                    break;
+                }
+            }
+        }
+        return this.peek(type);
+    }
+
+    async tags(type) {
         if (!this._tags.has(type)) {
             let tags = new Map();
             const stream = this.stream;
             if (stream) {
                 const position = stream.position;
                 const signatures = [
-                    [ 0x89, 0x48, 0x44, 0x46, 0x0D, 0x0A, 0x1A, 0x0A ], // HDF5
-                    [ 0x80, undefined, 0x8a, 0x0a, 0x6c, 0xfc, 0x9c, 0x46, 0xf9, 0x20, 0x6a, 0xa8, 0x50, 0x19 ], // PyTorch
-                    [ 0x50, 0x4b ], // Zip
-                    [ 0x1f, 0x8b ] // Gzip
+                    [0x89, 0x48, 0x44, 0x46, 0x0D, 0x0A, 0x1A, 0x0A], // HDF5
+                    [0x80, undefined, 0x8a, 0x0a, 0x6c, 0xfc, 0x9c, 0x46, 0xf9, 0x20, 0x6a, 0xa8, 0x50, 0x19], // PyTorch
+                    [0x50, 0x4b], // ZIP
+                    [0x1f, 0x8b] // gzip
                 ];
-                const skip =
-                    signatures.some((signature) => signature.length <= stream.length && stream.peek(signature.length).every((value, index) => signature[index] === undefined || signature[index] === value)) ||
-                    (Array.from(this._tags).some((pair) => pair[0] !== 'flatbuffers' && pair[1].size > 0) && type !== 'pb+') ||
-                    Array.from(this._content.values()).some((obj) => obj !== undefined);
-                if (!skip) {
+                let skip = false;
+                if (signatures.some((signature) => signature.length <= stream.length && stream.peek(signature.length).every((value, index) => signature[index] === undefined || signature[index] === value))) {
+                    skip = true;
+                } else if (Array.from(this._tags).some(([key, value]) => key !== 'flatbuffers' && value.size > 0) && type !== 'pb+') {
+                    skip = true;
+                } else if (Array.from(this._content.values()).some((obj) => obj !== undefined)) {
+                    skip = true;
+                } else if (stream.length < 0x7ffff000) {
+                    const json = await import('./json.js');
+                    if (json.TextReader.open(stream)) {
+                        skip = true;
+                    }
+                }
+                if (!skip && stream.length < 0x7ffff000) {
                     try {
                         switch (type) {
                             case 'pbtxt': {
+                                const protobuf = await import('./protobuf.js');
                                 const reader = protobuf.TextReader.open(stream);
                                 tags = reader ? reader.signature() : tags;
                                 break;
                             }
                             case 'pb': {
+                                const protobuf = await import('./protobuf.js');
                                 const reader = protobuf.BinaryReader.open(stream);
                                 tags = reader.signature();
                                 break;
                             }
                             case 'pb+': {
+                                const protobuf = await import('./protobuf.js');
                                 const reader = protobuf.BinaryReader.open(stream);
                                 tags = reader.decode();
                                 break;
                             }
-                            case 'flatbuffers': {
-                                if (stream.length >= 8) {
-                                    const buffer = stream.peek(Math.min(32, stream.length));
-                                    const reader = flatbuffers.BinaryReader.open(buffer);
-                                    const identifier = reader.identifier;
-                                    if (identifier.length > 0) {
-                                        tags.set('file_identifier', identifier);
-                                    }
-                                }
-                                break;
-                            }
                             case 'xml': {
+                                const xml = await import('./xml.js');
                                 const reader = xml.TextReader.open(stream);
                                 if (reader) {
-                                    const document = reader.peek();
+                                    const document = reader.read(1);
                                     const element = document.documentElement;
                                     const namespaceURI = element.namespaceURI;
                                     const localName = element.localName;
-                                    const name = namespaceURI ? namespaceURI + ':' + localName : localName;
+                                    const name = namespaceURI ? `${namespaceURI}:${localName}` : localName;
                                     tags.set(name, element);
                                 }
                                 break;
                             }
                             default: {
-                                throw new view.Error("Unsupported tags format type '" + type + "'.");
+                                throw new view.Error(`Unsupported tags format type '${type}'.`);
                             }
                         }
-                    } catch (error) {
+                    } catch {
                         tags.clear();
                     }
                 }
@@ -4816,58 +7171,54 @@ view.ModelContext = class {
         return this._tags.get(type);
     }
 
-    metadata(name) {
+    async metadata(name) {
         return view.Metadata.open(this, name);
     }
 };
 
-view.EntryContext = class {
+view.Container = class {
 
-    constructor(host, entries, rootFolder, identifier, stream) {
+    constructor(host, identifier, entries) {
         this._host = host;
-        this._entries = new Map();
-        if (entries) {
-            for (const entry of entries) {
-                if (entry[0].startsWith(rootFolder)) {
-                    const name = entry[0].substring(rootFolder.length);
-                    this._entries.set(name, entry[1]);
-                }
-            }
-        }
-        this._identifier = identifier.substring(rootFolder.length);
-        this._stream = stream;
+        this._identifier = identifier;
+        this._entries = entries;
     }
 
     get identifier() {
         return this._identifier;
     }
 
-    get stream() {
-        return this._stream;
+    async asset(file) {
+        return this._host.asset(file);
     }
 
-    async request(file, encoding, base) {
-        if (base === undefined) {
-            const stream = this._entries.get(file);
-            if (!stream) {
-                throw new view.Error('File not found.');
-            }
-            if (encoding) {
-                const decoder = new TextDecoder(encoding);
-                const buffer = stream.peek();
-                const value = decoder.decode(buffer);
-                return value;
-            }
-            return stream;
+    async fetch(file, encoding, base) {
+        let stream = null;
+        if (typeof base === 'string') {
+            stream = this._entries.get(`${base}/${file}`) || this._entries.get(`${base}\\${file}`);
+        } else {
+            stream = this._entries.get(file);
         }
-        return this._host.request(file, encoding, base);
+        if (!stream) {
+            throw new view.Error('File not found.');
+        }
+        if (encoding) {
+            const decoder = new TextDecoder(encoding);
+            const buffer = stream.peek();
+            return decoder.decode(buffer);
+        }
+        return stream;
     }
 
-    require(id) {
+    async require(id) {
         return this._host.require(id);
     }
 
-    exception(error, fatal) {
+    get entries() {
+        return this._entries;
+    }
+
+    error(error, fatal) {
         this._host.exception(error, fatal);
     }
 };
@@ -4884,104 +7235,167 @@ view.ModelFactoryService = class {
 
     constructor(host) {
         this._host = host;
-        this._extensions = new Set([ '.zip', '.tar', '.tar.gz', '.tgz', '.gz' ]);
+        this._patterns = new Set(['.zip', '.tar', '.tar.gz', '.tgz', '.gz']);
         this._factories = [];
-        this.register('./server', [ '.netron']);
-        this.register('./pytorch', [ '.pt', '.pth', '.ptl', '.pt1', '.pyt', '.pyth', '.pkl', '.pickle', '.h5', '.t7', '.model', '.dms', '.tar', '.ckpt', '.chkpt', '.tckpt', '.bin', '.pb', '.zip', '.nn', '.torchmodel', '.torchscript', '.pytorch', '.ot', '.params', '.trt', '.ff', '.ptmf' ], [ '.model' ]);
-        this.register('./onnx', [ '.onnx', '.onn', '.pb', '.onnxtxt', '.pbtxt', '.prototxt', '.txt', '.model', '.pt', '.pth', '.pkl', '.ort', '.ort.onnx', 'onnxmodel', 'ngf' ]);
-        this.register('./mxnet', [ '.json', '.params' ], [ '.mar']);
-        this.register('./coreml', [ '.mlmodel', '.bin', 'manifest.json', 'metadata.json', 'featuredescriptions.json', '.pb' ], [ '.mlpackage' ]);
-        this.register('./caffe', [ '.caffemodel', '.pbtxt', '.prototxt', '.pt', '.txt' ]);
-        this.register('./caffe2', [ '.pb', '.pbtxt', '.prototxt' ]);
-        this.register('./torch', [ '.t7', '.net' ]);
-        this.register('./tflite', [ '.tflite', '.lite', '.tfl', '.bin', '.pb', '.tmfile', '.h5', '.model', '.json', '.txt' ]);
-        this.register('./circle', [ '.circle' ]);
-        this.register('./tf', [ '.pb', '.meta', '.pbtxt', '.prototxt', '.txt', '.pt', '.json', '.index', '.ckpt', '.graphdef', '.pbmm', /.data-[0-9][0-9][0-9][0-9][0-9]-of-[0-9][0-9][0-9][0-9][0-9]$/, /^events.out.tfevents./ ], [ '.zip' ]);
-        this.register('./mediapipe', [ '.pbtxt' ]);
-        this.register('./uff', [ '.uff', '.pb', '.pbtxt', '.uff.txt', '.trt', '.engine' ]);
-        this.register('./tensorrt', [ '.trt', '.trtmodel', '.engine', '.model', '.txt', '.uff', '.pb', '.tmfile', '.onnx', '.pth', '.dnn', '.plan' ]);
-        this.register('./numpy', [ '.npz', '.npy', '.pkl', '.pickle', '.model', '.model2', '.mge' ]);
-        this.register('./lasagne', [ '.pkl', '.pickle', '.joblib', '.model', '.pkl.z', '.joblib.z' ]);
-        this.register('./lightgbm', [ '.txt', '.pkl', '.model' ]);
-        this.register('./keras', [ '.h5', '.hd5', '.hdf5', '.keras', '.json', '.cfg', '.model', '.pb', '.pth', '.weights', '.pkl', '.lite', '.tflite', '.ckpt' ], [ '.zip' ]);
-        this.register('./sklearn', [ '.pkl', '.pickle', '.joblib', '.model', '.meta', '.pb', '.pt', '.h5', '.pkl.z', '.joblib.z' ]);
-        this.register('./megengine', [ '.tm', '.mge' ]);
-        this.register('./pickle', [ '.pkl', '.pickle', '.joblib', '.model', '.meta', '.pb', '.pt', '.h5', '.pkl.z', '.joblib.z', '.pdstates', '.mge' ]);
-        this.register('./cntk', [ '.model', '.cntk', '.cmf', '.dnn' ]);
-        this.register('./paddle', [ '.pdmodel', '.pdiparams', '.pdparams', '.pdopt', '.paddle', '__model__', '.__model__', '.pbtxt', '.txt', '.tar', '.tar.gz', '.nb' ]);
-        this.register('./bigdl', [ '.model', '.bigdl' ]);
-        this.register('./darknet', [ '.cfg', '.model', '.txt', '.weights' ]);
-        this.register('./weka', [ '.model' ]);
-        this.register('./rknn', [ '.rknn', '.nb', '.onnx' ]);
-        this.register('./dlc', [ '.dlc', 'model', '.params' ]);
-        this.register('./armnn', [ '.armnn', '.json' ]);
+        /* eslint-disable no-control-regex */
+        this.register('./message', ['.message', '.netron', '.maxviz']);
+        this.register('./pytorch', ['.pt', '.pth', '.ptl', '.pt1', '.pt2', '.pyt', '.pyth', '.pkl', '.pickle', '.h5', '.t7', '.model', '.dms', '.tar', '.ckpt', '.chkpt', '.tckpt', '.bin', '.pb', '.zip', '.nn', '.torchmodel', '.torchscript', '.pytorch', '.ot', '.params', '.trt', '.ff', '.ptmf', '.jit', '.bin.index.json', 'model.json', '.ir', 'serialized_exported_program.json', 'serialized_state_dict.json', 'archive_format'], ['.model', '.pt2'], [/^\x80.\x8a\x0a\x6c\xfc\x9c\x46\xf9\x20\x6a\xa8\x50\x19/]);
+        this.register('./onnx', ['.onnx', '.onnx.data', '.onnx.meta', '.onn', '.pb', '.onnxtxt', '.pbtxt', '.prototxt', '.txt', '.model', '.pt', '.pth', '.pkl', '.ort', '.ort.onnx', '.ngf', '.json', '.bin', 'onnxmodel'], [], [/^\x08[\x00-\x10]\x12[\x00-\x20]\w\w/, /^\x08[\x00-\x10]\x12\x00\x1A/, /^\x08[\x00-\x10]\x3A/, /^\s*ir_version:\s\d+/, /^....ORTM/]);
+        this.register('./litertlm', ['.litertlm'], [], [/^LITERTLM/]);
+        this.register('./tflite', ['.tflite', '.lite', '.tfl', '.bin', '.pb', '.tmfile', '.h5', '.model', '.json', '.txt', '.dat', '.nb', '.ckpt', '.onnx'], [], [/^....TFL3/]);
+        this.register('./mxnet', ['.json', '.params'], ['.mar']);
+        this.register('./coreml', ['.mlmodel', '.bin', 'manifest.json', 'metadata.json', 'featuredescriptions.json', '.pb', '.pbtxt', '.mil'], ['.mlpackage', '.mlmodelc']);
+        this.register('./caffe', ['.caffemodel', '.pbtxt', '.prototxt', '.pt', '.txt']);
+        this.register('./caffe2', ['.pb', '.pbtxt', '.prototxt']);
+        this.register('./torch', ['.t7', '.net']);
+        this.register('./tf', ['.pb', '.meta', '.pbtxt', '.prototxt', '.txt', '.pt', '.json', '.index', '.ckpt', '.graphdef', '.pbmm', /.data-[0-9][0-9][0-9][0-9][0-9]-of-[0-9][0-9][0-9][0-9][0-9]$/, /^events.out.tfevents./, /^.*group\d+-shard\d+of\d+(\.bin)?$/], ['.zip']);
+        this.register('./tensorrt', ['.trt', '.trtmodel', '.engine', '.model', '.txt', '.uff', '.pb', '.tmfile', '.onnx', '.pth', '.dnn', '.plan', '.pt', '.dat', '.bin'], [], [/^ptrt/, /^ftrt/]);
+        this.register('./keras', ['.h5', '.hd5', '.hdf5', '.keras', '.json', '.cfg', '.model', '.pb', '.pth', '.weights', '.pkl', '.lite', '.tflite', '.ckpt', '.pb', 'model.weights.npz', /^.*group\d+-shard\d+of\d+(\.bin)?$/], ['.zip'], [/^\x89HDF\r\n\x1A\n/]);
+        this.register('./safetensors', ['.safetensors', '.safetensors.index.json', 'safetensors-index.json']);
+        this.register('./numpy', ['.npz', '.npy', '.pkl', '.pickle', '.model', '.model2', '.mge', '.joblib'], [], [/^\x93NUMPY/, /^PK\x03\x04/]);
+        this.register('./lasagne', ['.pkl', '.pickle', '.joblib', '.model', '.pkl.z', '.joblib.z']);
+        this.register('./lightgbm', ['.txt', '.pkl', '.model']);
+        this.register('./sklearn', ['.pkl', '.pickle', '.joblib', '.model', '.meta', '.pb', '.pt', '.h5', '.pkl.z', '.joblib.z', '.pickle.dat', '.bin']);
+        this.register('./megengine', ['.tm', '.mge', '.pkl']);
+        this.register('./pickle', ['.pkl', '.pickle', '.joblib', '.model', '.meta', '.pb', '.pt', '.h5', '.pkl.z', '.joblib.z', '.pdstates', '.mge', '.bin', '.npy', '.pth']);
+        this.register('./cntk', ['.model', '.cntk', '.cmf', '.dnn']);
+        this.register('./uff', ['.uff', '.pb', '.pbtxt', '.uff.txt', '.trt', '.engine']);
+        this.register('./paddle', ['.pdmodel', '.pdiparams', '.pdparams', '.pdopt', '.paddle', '__model__', '.__model__', '.pbtxt', '.txt', '.tar', '.tar.gz', '.nb', '.json']);
+        this.register('./bigdl', ['.model', '.bigdl']);
+        this.register('./darknet', ['.cfg', '.model', '.txt', '.weights']);
+        this.register('./mediapipe', ['.pbtxt']);
+        this.register('./executorch', ['.pte'], [], [/^....ET12/]);
+        this.register('./rknn', ['.rknn', '.nb', '.onnx', '.json', '.bin', /^model$/], [], [/^RKNN/, /^VPMN/], /^....RKNN/);
+        this.register('./dlc', ['.dlc', /^model$/, '.params']);
+        this.register('./armnn', ['.armnn', '.json']);
         this.register('./mnn', ['.mnn']);
-        this.register('./ncnn', [ '.param', '.bin', '.cfg.ncnn', '.weights.ncnn', '.ncnnmodel' ]);
-        this.register('./tnn', [ '.tnnproto', '.tnnmodel' ]);
+        this.register('./ncnn', ['.param', '.bin', '.cfg.ncnn', '.weights.ncnn', '.ncnnmodel']);
+        this.register('./tnn', ['.tnnproto', '.tnnmodel']);
         this.register('./tengine', ['.tmfile']);
-        this.register('./mslite', [ '.ms']);
-        this.register('./barracuda', [ '.nn' ]);
-        this.register('./dnn', [ '.dnn' ]);
-        this.register('./xmodel', [ '.xmodel' ]);
-        this.register('./kmodel', [ '.kmodel' ]);
-        this.register('./flux', [ '.bson' ]);
-        this.register('./dl4j', [ '.json', '.bin' ]);
-        this.register('./compass', [ '.def', '.txt', '.bin']);
-        this.register('./openvino', [ '.xml', '.bin' ]);
-        this.register('./mlnet', [ '.zip', '.mlnet' ]);
-        this.register('./acuity', [ '.json' ]);
-        this.register('./imgdnn', [ '.dnn', 'params', '.json' ]);
-        this.register('./flax', [ '.msgpack' ]);
-        this.register('./om', [ '.om', '.onnx', '.pb', '.engine' ]);
-        this.register('./nnabla', [ '.nntxt' ], [ '.nnp' ]);
-        this.register('./hickle', [ '.h5', '.hkl' ]);
-        this.register('./nnef', [ '.nnef', '.dat' ]);
-        this.register('./cambricon', [ '.cambricon' ]);
-        this.register('./onednn', [ '.json']);
-        this.register('./mlir', [ '.mlir']);
-        this.register('./hailo', [ '.hn', '.har' ]);
-        this.register('./safetensors', [ '.safetensors' ]);
+        this.register('./mslite', ['.ms', '.bin'], [], [/^....MSL0/, /^....MSL1/, /^....MSL2/]);
+        this.register('./mindir', ['.mindir']);
+        this.register('./barracuda', ['.nn']);
+        this.register('./circle', ['.circle'], [], [/^....CIR0/]);
+        this.register('./dnn', ['.dnn']);
+        this.register('./xmodel', ['.xmodel']);
+        this.register('./kmodel', ['.kmodel']);
+        this.register('./flux', ['.bson']);
+        this.register('./dl4j', ['.json', '.bin']);
+        this.register('./openvino', ['.xml', '.bin']);
+        this.register('./mlnet', ['.zip', '.mlnet']);
+        this.register('./acuity', ['.json']);
+        this.register('./imgdnn', ['.dnn', 'params', '.json']);
+        this.register('./flax', ['.msgpack']);
+        this.register('./om', ['.om', '.onnx', '.pb', '.engine', '.bin'], [], [/^IMOD/, /^PICO/]);
+        this.register('./gguf', ['.gguf', /^[^.]+$/], [], [/^GGUF/]);
+        this.register('./nnabla', ['.nntxt'], ['.nnp']);
+        this.register('./hickle', ['.h5', '.hkl']);
+        this.register('./nnef', ['.nnef', '.dat']);
+        this.register('./onednn', ['.json']);
+        this.register('./espresso', ['.espresso.net', '.espresso.shape', '.espresso.weights'], ['.mlmodelc']);
+        this.register('./mlir', ['.mlir', '.mlir.txt', '.mlirbc', '.txt']);
+        this.register('./sentencepiece', ['.model']);
+        this.register('./hailo', ['.hn', '.har', '.metadata.json']);
+        this.register('./tvm', ['.json', '.params']);
+        this.register('./dot', ['.dot'], [], [/^\s*(\/\*[\s\S]*?\*\/|\/\/.*|#.*)?\s*digraph\s*([A-Za-z][A-Za-z0-9-_]*|".*?")?\s*{/m]);
+        this.register('./jax', ['.jax', '.jax_export', '.jax_exported']);
+        this.register('./catboost', ['.cbm', '.pkl'], [], [/^CBM1/]);
+        this.register('./weka', ['.model']);
+        this.register('./qnn', ['.json', '.bin', '.serialized', '.dlc']);
+        this.register('./espdl', ['.espdl'], [], [/^EDL2/]);
+        this.register('./kann', ['.kann', '.bin', '.kgraph'], [], [/^....KaNN/]);
+        this.register('./xgboost', ['.xgb', '.xgboost', '.json', '.model', '.bin', '.txt', '.ubj'], [], [/^{L\x00\x00/, /^binf/, /^bs64/, /^\s*booster\[0\]:/]);
+        this.register('./tosa', ['.tosa', '.json'], [], [/^....TOSA/]);
+        this.register('./transformers', ['.json']);
+        this.register('', ['.cambricon', '.vnnmodel', '.nnc']);
+        /* eslint-enable no-control-regex */
     }
 
-    register(id, factories, containers) {
-        for (const extension of factories) {
-            this._factories.push({ extension: extension, id: id });
-            this._extensions.add(extension);
+    register(module, extensions, containers, contents) {
+        for (const extension of extensions) {
+            this._factories.push({ extension, module });
+            this._patterns.add(extension);
         }
-        for (const extension of containers || []) {
-            this._extensions.add(extension);
+        for (const content of contents || []) {
+            this._factories.push({ content, module });
+        }
+        for (const container of containers || []) {
+            this._patterns.add(container);
         }
     }
 
     async open(context) {
         try {
             await this._openSignature(context);
-            const modelContext = new view.ModelContext(context);
-            const model = await this._openContext(modelContext);
+            const content = new view.Context(context);
+            let model = await this._openContext(content);
             if (!model) {
-                const entries = modelContext.entries();
-                if (!entries || entries.size === 0) {
-                    this._unsupported(modelContext);
+                const check = (obj) => {
+                    if (obj instanceof Error) {
+                        throw obj;
+                    }
+                    return obj instanceof Map && obj.size > 0;
+                };
+                let entries = context.entries;
+                if (!check(entries)) {
+                    entries = await content.peek('zip');
+                    if (!check(entries)) {
+                        entries = await content.peek('tar');
+                        if (!check(entries)) {
+                            entries = await content.peek('gzip');
+                        }
+                    }
                 }
-                const context = await this._openEntries(entries);
-                if (!context) {
-                    this._unsupported(modelContext);
+                if (!check(entries)) {
+                    await this._unsupported(content);
                 }
-                return this._openContext(context);
+                const container = await this._openEntries(entries, context.identifier);
+                if (!container) {
+                    await this._unsupported(content);
+                }
+                model = await this._openContext(container);
+            }
+            if (!model.format || typeof model.format !== 'string' || model.format.length === 0) {
+                throw new view.Error('Invalid model format name.');
+            }
+            if (!/^[a-zA-Z][a-zA-Z0-9-.]*( [a-zA-Z][a-zA-Z0-9-.]*)*( v\d+(\.\d+)*(b\d+)?([.+-][a-zA-Z0-9]+)?)?$/.test(model.format) || model.format.includes('undefined')) {
+                throw new view.Error(`Invalid model format name '${model.format}'.`);
+            }
+            if (model.producer && /[^\x20-\x7E\u00C0-\u00FF\u0370-\u03FF]/.test(model.producer)) {
+                throw new view.Error(`Invalid model producer name '${model.producer}'.`);
             }
             return model;
         } catch (error) {
-            if (error && context.identifier) {
-                error.context = context.identifier;
+            if (!error.context && context) {
+                error.context = context.identifier || '';
+                const stream = context.stream;
+                if (stream) {
+                    try {
+                        const hex = (buffer) => Array.from(buffer).map((c) => (c < 16 ? '0' : '') + c.toString(16)).join('');
+                        const position = stream.position;
+                        stream.seek(0);
+                        const head = stream.peek(Math.min(16, stream.length));
+                        error.context += `|${hex(head)}`;
+                        if (stream.length > 16) {
+                            stream.seek(stream.length - 16);
+                            const tail = stream.peek(16);
+                            error.context += `|${hex(tail)}`;
+                        }
+                        stream.seek(position);
+                    } catch {
+                        // continue regardless of error
+                    }
+                }
             }
             throw error;
         }
     }
 
-    _unsupported(context) {
+    async _unsupported(context) {
         const identifier = context.identifier;
-        const extension = identifier.split('.').pop().toLowerCase();
         const stream = context.stream;
+        const zip = await import('./zip.js');
+        const tar = await import('./tar.js');
         const callbacks = [
             (stream) => zip.Archive.open(stream, 'zip'),
             (stream) => tar.Archive.open(stream),
@@ -4991,101 +7405,160 @@ view.ModelFactoryService = class {
             let archive = null;
             try {
                 archive = callback(stream);
-            } catch (error) {
+            } catch {
                 // continue regardless of error
             }
             if (archive) {
                 throw new view.Error("Archive contains no model files.");
             }
         }
-        const json = () => {
-            const obj = context.open('json');
+        const regex = async() => {
+            if (stream) {
+                const entries = [
+                    { name: 'Unity metadata', value: /fileFormatVersion:/ },
+                ];
+                const buffer = stream.peek(Math.min(4096, stream.length));
+                const content = String.fromCharCode.apply(null, buffer);
+                for (const entry of entries) {
+                    if (content.match(entry.value) && (!entry.identifier || context.identifier.match(entry.identifier))) {
+                        throw new view.Error(`Invalid file content. File contains ${entry.name}.`);
+                    }
+                }
+            }
+        };
+        const json = async () => {
+            const obj = await context.peek('json');
             if (obj) {
                 const formats = [
-                    { name: 'Netron metadata', tags: [ '[].name', '[].schema' ] },
-                    { name: 'Netron metadata', tags: [ '[].name', '[].attributes' ] },
-                    { name: 'Netron metadata', tags: [ '[].name', '[].category' ] },
-                    { name: 'Netron test data', tags: [ '[].type', '[].target', '[].source', '[].format', '[].link' ] },
-                    { name: 'Darkflow metadata', tags: [ 'net', 'type', 'model' ] },
-                    { name: 'keras-yolo2 configuration', tags: [ 'model', 'train', 'valid' ] },
-                    { name: 'Vulkan SwiftShader ICD manifest', tags: [ 'file_format_version', 'ICD' ] },
-                    { name: 'DeepLearningExamples configuration', tags: [ 'attention_probs_dropout_prob', 'hidden_act', 'hidden_dropout_prob', 'hidden_size', ] },
-                    { name: 'NuGet assets', tags: [ 'version', 'targets', 'packageFolders' ] },
-                    { name: 'NuGet data', tags: [ 'format', 'restore', 'projects' ] },
-                    { name: 'NPM package', tags: [ 'name', 'version', 'dependencies' ] },
-                    { name: 'NetworkX adjacency_data', tags: [ 'directed', 'graph', 'nodes' ] },
-                    { name: 'Waifu2x data', tags: [ 'name', 'arch_name', 'channels' ] },
-                    { name: 'Waifu2x data', tags: [ '[].nInputPlane', '[].nOutputPlane', '[].weight', '[].bias' ] },
-                    { name: 'Brain.js data', tags: [ 'type', 'sizes', 'layers' ] },
-                    { name: 'Custom Vision metadata', tags: [ 'CustomVision.Metadata.Version' ] },
-                    { name: 'W&B metadata', tags: [ 'program', 'host', 'executable' ] }
-
+                    { name: 'Netron metadata', tags: ['[].name', '[].schema'] },
+                    { name: 'Netron metadata', tags: ['[].name', '[].attributes'] },
+                    { name: 'Netron metadata', tags: ['[].name', '[].category'] },
+                    { name: 'Netron test data', tags: ['[].type', '[].target', '[].source', '[].format', '[].link'] },
+                    { name: 'Netron configuration', tags: ['recents', 'consent'] },
+                    { name: 'Netron metrics data', tags: ['signature', 'metrics'] },
+                    { name: 'Darkflow metadata', tags: ['net', 'type', 'model'] },
+                    { name: 'keras-yolo2 configuration', tags: ['model', 'train', 'valid'] },
+                    { name: 'Vulkan SwiftShader ICD manifest', tags: ['file_format_version', 'ICD'] },
+                    { name: 'DeepLearningExamples configuration', tags: ['attention_probs_dropout_prob', 'hidden_act', 'hidden_dropout_prob', 'hidden_size',] },
+                    { name: 'GitHub page data', tags: ['payload', 'title'] },
+                    { name: 'NuGet assets', tags: ['version', 'targets', 'packageFolders'] },
+                    { name: 'NuGet data', tags: ['format', 'restore', 'projects'] },
+                    { name: 'NPM package', tags: ['name', 'version', 'dependencies'] },
+                    { name: 'NPM package lock data', tags: ['name', 'version', 'lockfileVersion'] },
+                    { name: 'NetworkX adjacency_data', tags: ['directed', 'graph', 'nodes'] },
+                    { name: 'Waifu2x data', tags: ['name', 'arch_name', 'channels'] },
+                    { name: 'Waifu2x data', tags: ['[].nInputPlane', '[].nOutputPlane', '[].weight', '[].bias'] },
+                    { name: 'Brain.js data', tags: ['type', 'sizes', 'layers'] },
+                    { name: 'Custom Vision metadata', tags: ['CustomVision.Metadata.Version'] },
+                    { name: 'W&B metadata', tags: ['program', 'host', 'executable'] },
+                    { name: 'TypeScript configuration data', tags: ['compilerOptions'] },
+                    { name: 'CatBoost model', tags: ['features_info', 'model_info'] },
+                    { name: 'TPU-MLIR tensor location data', tags: ['file-line', 'subnet_id', 'core_id'] }, // https://github.com/sophgo/tpu-mlir/blob/master/lib/Dialect/Tpu/Transforms/Codegen/TensorLocation.cpp
+                    { name: 'HTTP Archive data', tags: ['log.version', 'log.creator', 'log.entries'] }, // https://w3c.github.io/web-performance/specs/HAR/Overview.html
+                    { name: 'Trace Event data', tags: ['traceEvents'] },
+                    { name: 'Trace Event data', tags: ['[].pid', '[].ph'] },
+                    { name: 'Diffusers configuration', tags: ['_class_name', '_diffusers_version'] },
+                    { name: 'ModelScope configuration', tags: ['framework', 'task'] }, // https://github.com/modelscope/modelscope
+                    { name: 'Tokenizer data', tags: ['<eos>', '<bos>'] },
+                    { name: 'Jupyter Notebook data', tags: ['cells', 'nbformat'] },
+                    { name: 'Kaggle credentials', tags: ['username','key'] },
+                    { name: '.NET runtime configuration', tags: ['runtimeOptions.configProperties'] },
+                    { name: '.NET dependency manifest', tags: ['runtimeTarget', 'targets', 'libraries'] },
+                    { name: 'GuitarML NeuralPi model data', tags: ['model_data', 'state_dict'] },
+                    { name: 'GuitarML SmartAmpPro model data', tags: ['conv1d', 'conv1d_stride'] },
+                    { name: 'GuitarML SmartAmp model data', tags: ['activation', 'output_channels', 'input_channels', 'residual_channels'] },
+                    { name: 'Keras configuration data', tags: ['floatx', 'epsilon', 'backend'] },
+                    { name: 'PIMCOMP-NN model data', tags: ['node_list', 'reshape_info'] },
+                    { name: 'AIMET encodings', tags: ['activation_encodings'] },
+                    { name: 'COCO annotations', tags: ['images', 'annotations', 'categories'] }, // https://cocodataset.org/
+                    { name: 'Sentence Transformers modules', tags: ['[].idx', '[].path', '[].type'] }, // https://www.sbert.net/
+                    { name: 'Sentence Transformers configuration', tags: ['__version__.sentence_transformers'] }, // https://www.sbert.net/
+                    { name: 'Lottie animation', tags: ['v', 'fr', 'ip', 'op', 'w', 'h', 'layers'] }, // https://lottiefiles.github.io/lottie-docs/
+                    { name: 'OCI image manifest', tags: ['schemaVersion', 'mediaType'] }, // https://github.com/opencontainers/image-spec
+                    { name: 'LabelMe annotation', tags: ['version', 'flags', 'shapes'] }, // https://github.com/labelmeai/labelme
+                    { name: 'Ollama model manifest', tags: ['model_format', 'model_family'] }, // https://github.com/ollama/ollama
                 ];
                 const match = (obj, tag) => {
                     if (tag.startsWith('[].')) {
                         tag = tag.substring(3);
                         return (Array.isArray(obj) && obj.some((item) => Object.prototype.hasOwnProperty.call(item, tag)));
                     }
-                    return Object.prototype.hasOwnProperty.call(obj, tag);
+                    tag = tag.split('.');
+                    while (tag.length > 1) {
+                        const key = tag.shift();
+                        obj = obj[key];
+                        if (!obj) {
+                            return false;
+                        }
+                    }
+                    return Object.prototype.hasOwnProperty.call(obj, tag[0]);
                 };
                 for (const format of formats) {
                     if (format.tags.every((tag) => match(obj, tag))) {
-                        throw new view.Error('Invalid file content. File contains ' + format.name + '.');
+                        throw new view.Error(`Invalid file content. File contains ${format.name}.`);
                     }
                 }
-                const content = JSON.stringify(obj).substring(0, 100).replace(/\s/, '').substring(0, 48) + '...';
-                throw new view.Error("Unsupported JSON content '" + (content.length > 64 ? content.substring(0, 100) + '...' : content) + "' for extension '." + extension + "'.");
+                const content = `${JSON.stringify(obj).substring(0, 100).replace(/\s/, '').substring(0, 48)}...`;
+                throw new view.Error(`Unsupported JSON content '${content.length > 64 ? `${content.substring(0, 100)}...` : content}'.`);
             }
         };
-        const pbtxt = () => {
+        const pbtxt = async () => {
             const formats = [
-                { name: 'ImageNet LabelMap data', tags: [ 'entry', 'entry.target_class' ] },
-                { name: 'StringIntLabelMapProto data', tags: [ 'item', 'item.id', 'item.name' ] },
-                { name: 'caffe.LabelMap data', tags: [ 'item', 'item.name', 'item.label' ] },
-                { name: 'Triton Inference Server configuration', tags: [ 'name', 'platform', 'input', 'output' ] },
-                { name: 'TensorFlow OpList data', tags: [ 'op', 'op.name', 'op.input_arg' ] },
-                { name: 'vitis.ai.proto.DpuModelParamList data', tags: [ 'model', 'model.name', 'model.kernel' ] },
-                { name: 'object_detection.protos.DetectionModel data', tags: [ 'model', 'model.ssd' ] },
-                { name: 'object_detection.protos.DetectionModel data', tags: [ 'model', 'model.faster_rcnn' ] },
-                { name: 'tensorflow.CheckpointState data', tags: [ 'model_checkpoint_path', 'all_model_checkpoint_paths' ] },
-                { name: 'apollo.perception.camera.traffic_light.detection.DetectionParam data', tags: [ 'min_crop_size', 'crop_method' ] },
-                { name: 'tidl_meta_arch.TIDLMetaArch data', tags: [ 'caffe_ssd' ] }, // https://github.com/TexasInstruments/edgeai-mmdetection/blob/master/mmdet/utils/proto/mmdet_meta_arch.proto
-                { name: 'tidl_meta_arch.TIDLMetaArch data', tags: [ 'tf_od_api_ssd' ] },
-                { name: 'tidl_meta_arch.TIDLMetaArch data', tags: [ 'tidl_ssd' ] },
-                { name: 'tidl_meta_arch.TIDLMetaArch data', tags: [ 'tidl_faster_rcnn' ] },
-                { name: 'tidl_meta_arch.TIDLMetaArch data', tags: [ 'tidl_yolo' ] },
-                { name: 'tidl_meta_arch.TIDLMetaArch data', tags: [ 'tidl_retinanet' ] },
-                { name: 'domi.InsertNewOps data', tags: [ 'aipp_op' ] } // https://github.com/Ascend/parser/blob/development/parser/proto/insert_op.proto
+                { name: 'ImageNet LabelMap data', tags: ['entry', 'entry.target_class'] },
+                { name: 'StringIntLabelMapProto data', tags: ['item', 'item.id', 'item.name'] },
+                { name: 'caffe.LabelMap data', tags: ['item', 'item.name', 'item.label'] },
+                { name: 'Triton Inference Server configuration', tags: ['input', 'output', 'name', 'platform'] }, // https://github.com/triton-inference-server/common/blob/main/protobuf/model_config.proto
+                { name: 'Triton Inference Server configuration', tags: ['input', 'output', 'backend'] },
+                { name: 'Triton Inference Server configuration', tags: ['input', 'output', 'max_batch_size'] },
+                { name: 'Triton Inference Server configuration', tags: ['input', 'output', 'instance_group'] },
+                { name: 'Triton Inference Server configuration', tags: ['default_model_filename', 'max_batch_size'] },
+                { name: 'TensorFlow OpList data', tags: ['op', 'op.name', 'op.input_arg'] },
+                { name: 'vitis.ai.proto.DpuModelParamList data', tags: ['model', 'model.name', 'model.kernel'] },
+                { name: 'object_detection.protos.DetectionModel data', tags: ['model', 'model.ssd'] },
+                { name: 'object_detection.protos.DetectionModel data', tags: ['model', 'model.faster_rcnn'] },
+                { name: 'tensorflow.CheckpointState data', tags: ['model_checkpoint_path', 'all_model_checkpoint_paths'] },
+                { name: 'apollo.perception.camera.traffic_light.detection.DetectionParam data', tags: ['min_crop_size', 'crop_method'] },
+                { name: 'tidl_meta_arch.TIDLMetaArch data', tags: ['caffe_ssd'] }, // https://github.com/TexasInstruments/edgeai-mmdetection/blob/master/mmdet/utils/proto/mmdet_meta_arch.proto
+                { name: 'tidl_meta_arch.TIDLMetaArch data', tags: ['tf_od_api_ssd'] },
+                { name: 'tidl_meta_arch.TIDLMetaArch data', tags: ['tidl_ssd'] },
+                { name: 'tidl_meta_arch.TIDLMetaArch data', tags: ['tidl_faster_rcnn'] },
+                { name: 'tidl_meta_arch.TIDLMetaArch data', tags: ['tidl_yolo'] },
+                { name: 'tidl_meta_arch.TIDLMetaArch data', tags: ['tidl_retinanet'] },
+                { name: 'domi.InsertNewOps data', tags: ['aipp_op'] } // https://github.com/Ascend/parser/blob/development/parser/proto/insert_op.proto
             ];
-            const tags = context.tags('pbtxt');
+            const tags = await context.tags('pbtxt');
             if (tags.size > 0) {
                 for (const format of formats) {
                     if (format.tags.every((tag) => tags.has(tag))) {
-                        const error = new view.Error('Invalid file content. File contains ' + format.name + '.');
+                        const error = new view.Error(`Invalid file content. File contains ${format.name}.`);
                         error.context = context.identifier;
                         throw error;
                     }
                 }
                 const entries = [];
-                entries.push(...Array.from(tags).filter((pair) => pair[0].toString().indexOf('.') === -1));
-                entries.push(...Array.from(tags).filter((pair) => pair[0].toString().indexOf('.') !== -1));
-                const content = entries.map((pair) => pair[1] === true ? pair[0] : pair[0] + ':' + JSON.stringify(pair[1])).join(',');
-                throw new view.Error("Unsupported Protocol Buffers text content '" + (content.length > 64 ? content.substring(0, 100) + '...' : content) + "' for extension '." + extension + "'.");
+                entries.push(...Array.from(tags).filter(([key]) => key.toString().indexOf('.') === -1));
+                entries.push(...Array.from(tags).filter(([key]) => key.toString().indexOf('.') !== -1));
+                const content = entries.map(([key, value]) => value === true ? key : `${key}:${JSON.stringify(value)}`).join(',');
+                throw new view.Error(`Unsupported Protocol Buffers text content '${content.length > 64 ? `${content.substring(0, 100)}...` : content}'.`);
             }
         };
-        const pb = () => {
-            const tags = context.tags('pb+');
+        const pb = async () => {
+            const tags = await context.tags('pb+');
             if (Object.keys(tags).length > 0) {
                 const formats = [
-                    { name: 'sentencepiece.ModelProto data', tags: [[1,[[1,2],[2,5],[3,0]]],[2,[[1,2],[2,2],[3,0],[4,0],[5,2],[6,0],[7,2],[10,5],[16,0],[40,0],[41,0],[42,0],[43,0]]],[3,[]],[4,[]],[5,[]]] },
-                    { name: 'mediapipe.BoxDetectorIndex data', tags: [[1,[[1,[[1,[[1,5],[2,5],[3,5],[4,5],[6,0],[7,5],[8,5],[10,5],[11,0],[12,0]]],[2,5],[3,[]]]],[2,false],[3,false],[4,false],[5,false]]],[2,false],[3,false]] },
+                    { name: 'sentencepiece.ModelProto data', tags: [[1,[[1,2],[2,5],[3,0]]],[2,[[1,2],[2,2],[3,0],[4,0],[5,2],[6,0],[7,2],[10,5],[16,0],[40,0],[41,0],[42,0],[43,0]]],[3,[]],[4,[]],[5,[]]] }, // https://github.com/google/sentencepiece/blob/master/src/sentencepiece_model.proto
+                    { name: 'mediapipe.BoxDetectorIndex data', tags: [[1,[[1,[[1,[[1,5],[2,5],[3,5],[4,5],[6,0],[7,5],[8,5],[10,5],[11,0],[12,0]]],[2,5],[3,[]]]],[2,false],[3,false],[4,false],[5,false]]],[2,false],[3,false]] }, // https://github.com/google-ai-edge/mediapipe/blob/2b5a50fff37f79db8103dbd88f552c1a9be31e51/mediapipe/util/tracking/box_detector.proto
                     { name: 'third_party.tensorflow.python.keras.protobuf.SavedMetadata data', tags: [[1,[[1,[[1,0],[2,0]]],[2,0],[3,2],[4,2],[5,2]]]] },
-                    { name: 'pblczero.Net data', tags: [[1,5],[2,2],[3,[[1,0],[2,0],[3,0]],[10,[[1,[]],[2,[]],[3,[]],[4,[]],[5,[]],[6,[]]]],[11,[]]]] } // https://github.com/LeelaChessZero/lczero-common/blob/master/proto/net.proto
+                    { name: 'pblczero.Net data', tags: [[1,5],[2,2],[3,[[1,0],[2,0],[3,0]],[10,[[1,[]],[2,[]],[3,[]],[4,[]],[5,[]],[6,[]]]],[11,[]]]] }, // https://github.com/LeelaChessZero/lczero-common/blob/master/proto/net.proto
+                    { name: 'chrome_browser_media.PreloadedData', tags: [[1,2]], identifier: 'preloaded_data.pb' }, // https://github.com/kiwibrowser/src/blob/86afd150b847c9dd6f9ad3faddee1a28b8c9b23b/chrome/browser/media/media_engagement_preload.proto#L9
+                    { name: 'mindspore.irpb.Checkpoint', tags: [[1,[[1,2],[2,[[1,0],[2,2],[3,2]]]]]] }, // https://github.com/mindspore-ai/mindspore/blob/master/mindspore/ccsrc/utils/checkpoint.proto
+                    { name: 'optimization_guide.proto.PageTopicsOverrideList data', tags: [[1,[[1,2],[2,[]]]]] }, // https://github.com/chromium/chromium/blob/main/components/optimization_guide/proto/page_topics_override_list.proto
+                    { name: 'optimization_guide.proto.ModelInfo data', tags: [[1,0],[2,0],[4,0],[6,false],[7,[]],[9,0]] }, // https://github.com/chromium/chromium/blob/22b0d711657b451b61d50dd2e242b3c6e38e6ef5/components/optimization_guide/proto/models.proto#L80
+                    { name: 'Horizon binary model', tags: [[1,0],[2,0],[5,[[7,2],[8,2]]],[6,[[1,[[1,2],[2,2]]]]]] }, // https://github.com/HorizonRDK/hobot_dnn
+                    { name: 'TensorFlow Profiler data', tags: [[1,[[2,2],[3,[]],[4,[]]]]] }, // https://github.com/tensorflow/tensorflow/blob/master/third_party/xla/third_party/tsl/tsl/profiler/protobuf/xplane.proto
                 ];
                 const match = (tags, schema) => {
-                    for (const pair of schema) {
-                        const key = pair[0];
-                        const inner = pair[1];
+                    for (const [key, inner] of schema) {
                         const value = tags[key];
                         if (value === undefined) {
                             continue;
@@ -5106,251 +7579,228 @@ view.ModelFactoryService = class {
                     }
                     return true;
                 };
-                const tags = context.tags('pb+');
                 for (const format of formats) {
-                    if (match(tags, format.tags)) {
-                        const error = new view.Error('Invalid file content. File contains ' + format.name + '.');
+                    if (match(tags, format.tags) && (!format.identifier || identifier === context.identifier)) {
+                        const error = new view.Error(`Invalid file content. File contains ${format.name}.`);
                         error.context = context.identifier;
                         throw error;
                     }
                 }
                 const format = (tags) => {
-                    const content = Object.entries(tags).map((pair) => {
-                        const key = pair[0];
-                        const value = pair[1];
-                        return key.toString() + ':' + (Object(value) === value ? '{' + format(value) + '}' : value.toString());
+                    const content = Object.entries(tags).map(([key, value]) => {
+                        return `${key}:${Object(value) === value ? `{${format(value)}}` : value}`;
                     });
                     return content.join(',');
                 };
                 const content = format(tags);
-                throw new view.Error("Unsupported Protocol Buffers content '" + (content.length > 64 ? content.substring(0, 100) + '...' : content) + "' for extension '." + extension + "'.");
+                const message = content.length > 64 ? `${content.substring(0, 100)}...` : content;
+                throw new view.Error(`Unsupported Protocol Buffers content or ambiguous file extension '${message}'.`);
             }
         };
-        const flatbuffers = () => {
-            const tags = context.tags('flatbuffers');
-            if (tags.has('file_identifier')) {
-                const file_identifier = tags.get('file_identifier');
-                const formats = [
-                    { name: 'onnxruntime.experimental.fbs.InferenceSession data', identifier: 'ORTM' },
-                    { name: 'tflite.Model data', identifier: 'TFL3' },
-                    { name: 'FlatBuffers ENNC data', identifier: 'ENNC' },
-                ];
-                for (const format of formats) {
-                    if (file_identifier === format.identifier) {
-                        throw new view.Error('Invalid file content. File contains ' + format.name + '.');
+        const flatbuffers = async () => {
+            const stream = context.stream;
+            if (stream && stream.length >= 8) {
+                let identifier = null;
+                const reader = await context.peek('flatbuffers.binary');
+                if (reader) {
+                    identifier = reader.identifier;
+                } else {
+                    const data = stream.peek(8);
+                    if (data[0] >= 8 && data[0] <= 0x28 && (data[0] & 3) === 0 && data[1] === 0x00 && data[2] === 0x00 && data[3] === 0x00) {
+                        identifier = String.fromCharCode.apply(null, data.slice(4, 8));
+                    }
+                }
+                if (identifier) {
+                    const formats = [
+                        { name: 'ONNX Runtime model data', identifier: 'ORTM' },
+                        { name: 'TensorFlow Lite model data', identifier: 'TFL3' },
+                        { name: 'ExecuTorch model data', identifier: 'ET12' },
+                        { name: 'NNC model data', identifier: 'ENNC' },
+                        { name: 'KaNN model data', identifier: 'KaNN' },
+                        { name: 'Circle model data', identifier: 'CIR0' },
+                        { name: 'MindSpore Lite model data', identifier: 'MSL0' },
+                        { name: 'MindSpore Lite model data', identifier: 'MSL1' },
+                        { name: 'MindSpore Lite model data', identifier: 'MSL2' },
+                        { name: 'MindSpore Lite model data', identifier: 'MSL3' },
+                        { name: 'NVDA model data', identifier: 'NVDA' },
+                        { name: 'BSTM model data', identifier: 'BSTM' },
+                        { name: 'onnu model data', identifier: 'onnu' },
+                        { name: 'ONNX Runtime On-Device Training Checkpoint', identifier: 'ODTC' },
+                        { name: 'TOSA model data', identifier: 'TOSA' }
+                    ];
+                    for (const format of formats) {
+                        if (identifier === format.identifier) {
+                            throw new view.Error(`Invalid file content. File contains ${format.name}.`);
+                        }
                     }
                 }
             }
         };
-        const xml = () => {
-            const tags = context.tags('xml');
-            if (tags.size > 0) {
+        const xml = async () => {
+            const document = await context.peek('xml');
+            if (document && document.documentElement) {
+                const tags = new Set();
+                const qualifiedName = (element) => {
+                    const namespaceURI = element.namespaceURI;
+                    const localName = element.localName;
+                    return namespaceURI ? `${namespaceURI}:${localName}` : localName;
+                };
+                const root = qualifiedName(document.documentElement);
+                tags.add(root);
+                for (const element of document.documentElement.childNodes) {
+                    const name = qualifiedName(element);
+                    tags.add(`${root}/${name}`);
+                }
                 const formats = [
-                    { name: 'OpenCV storage data', tags: [ 'opencv_storage' ] },
-                    { name: 'XHTML markup', tags: [ 'http://www.w3.org/1999/xhtml:html' ] }
+                    { name: 'OpenCV storage data', tags: ['opencv_storage'] },
+                    { name: 'XHTML markup', tags: ['http://www.w3.org/1999/xhtml:html'] },
+                    { name: '.NET XML documentation', tags: ['doc', 'doc/assembly'] },
+                    { name: '.NET XML documentation', tags: ['doc', 'doc/members'] }
                 ];
                 for (const format of formats) {
-                    if (format.tags.some((tag) => tags.has(tag))) {
-                        const error = new view.Error('Invalid file content. File contains ' + format.name + '.');
+                    if (format.tags.every((tag) => tags.has(tag))) {
+                        const error = new view.Error(`Invalid file content. File contains ${format.name}.`);
                         error.content = context.identifier;
                         throw error;
                     }
                 }
-                throw new view.Error("Unsupported XML content '" + tags.keys().next().value + "'.");
+                throw new view.Error(`Unsupported XML content '${tags.keys().next().value}'.`);
             }
         };
-        const unknown = () => {
+        const hdf5 = async () => {
+            const obj = await context.peek('hdf5');
+            if (obj instanceof Error) {
+                throw obj;
+            }
+            if (obj) {
+                throw new view.Error(`Invalid file content. File contains HDF5 content.`);
+            }
+        };
+        const unknown = async () => {
             if (stream) {
-                stream.seek(0);
-                const buffer = stream.peek(Math.min(16, stream.length));
-                const bytes = Array.from(buffer).map((c) => (c < 16 ? '0' : '') + c.toString(16)).join('');
-                const content = stream.length > 268435456 ? '(' + bytes + ') [' + stream.length.toString() + ']': '(' + bytes + ')';
-                throw new view.Error("Unsupported file content " + content + " for extension '." + extension + "'.");
+                throw new view.Error(`Unsupported file content.`);
             }
             throw new view.Error("Unsupported file directory.");
         };
-        json();
-        pbtxt();
-        pb();
-        flatbuffers();
-        xml();
-        unknown();
+        await regex();
+        await json();
+        await pbtxt();
+        await pb();
+        await flatbuffers();
+        await xml();
+        await hdf5();
+        await unknown();
+    }
+
+    async _require(id) {
+        const module = await this._host.require(id);
+        if (!module || !module.ModelFactory) {
+            throw new view.Error(`Failed to load module '${id}'.`);
+        }
+        return new module.ModelFactory();
     }
 
     async _openContext(context) {
         const modules = this._filter(context).filter((module) => module && module.length > 0);
         const errors = [];
-        let success = false;
-        const next = async () => {
-            if (modules.length > 0) {
+        for (const module of modules) {
+            // eslint-disable-next-line no-await-in-loop
+            const factory = await this._require(module);
+            // eslint-disable-next-line no-await-in-loop
+            const type = await factory.match(context);
+            if (context.stream && context.stream.position !== 0) {
+                throw new view.Error('Invalid stream position.');
+            }
+            if (type) {
                 try {
-                    const id = modules.shift();
-                    const module = await this._host.require(id);
-                    if (!module.ModelFactory) {
-                        throw new view.Error("Failed to load module '" + id + "'.");
+                    // eslint-disable-next-line no-await-in-loop
+                    const model = await factory.open(context);
+                    if (!model.identifier) {
+                        model.identifier = context.identifier;
                     }
-                    const modelFactory = new module.ModelFactory();
-                    const match = modelFactory.match(context);
-                    if (match) {
-                        success = true;
-                        const model = await modelFactory.open(context, match);
-                        if (!model.identifier) {
-                            model.identifier = context.identifier;
-                        }
-                        return model;
-                    }
+                    model.attachment = new metadata.Attachment();
+                    return model;
                 } catch (error) {
-                    if (context.stream && context.stream.position !== 0) {
-                        context.stream.seek(0);
+                    delete context.type;
+                    delete context.value;
+                    const stream = context.stream;
+                    if (stream && stream.position !== 0) {
+                        stream.seek(0);
                     }
                     errors.push(error);
                 }
-                return await next();
             }
-            if (success) {
-                if (errors.length === 1) {
-                    throw errors[0];
-                }
-                throw new view.Error(errors.map((err) => err.message).join('\n'));
+            if (context.stream && context.stream.position !== 0) {
+                throw new view.Error('Invalid stream position.');
             }
-            return null;
-        };
-        return await next();
+        }
+        if (errors.length > 0) {
+            if (errors.length === 1) {
+                throw errors[0];
+            }
+            throw new view.Error(errors.map((err) => err.message).join('\n'));
+        }
+        return null;
     }
 
-    async _openEntries(entries) {
+    async _openEntries(entries, identifier) {
         try {
             const rootFolder = (files) => {
                 const map = files.map((file) => file.split('/').slice(0, -1));
-                const at = index => list => list[index];
-                const rotate = list => list.length === 0 ? [] : list[0].map((item, index) => list.map(at(index)));
-                const equals = list => list.every((item) => item === list[0]);
+                const at = (index) => (list) => list[index];
+                const rotate = (list) => list.length === 0 ? [] : list[0].map((item, index) => list.map(at(index)));
+                const equals = (list) => list.every((item) => item === list[0]);
                 const folder = rotate(map).filter(equals).map(at(0)).join('/');
-                return folder.length === 0 ? folder : folder + '/';
+                return folder.length === 0 ? folder : `${folder}/`;
             };
-            const filter = async (queue) => {
+            const files = Array.from(entries).filter(([name]) => !(name.endsWith('/') || name.split('/').pop().startsWith('.') || (!name.startsWith('./') && name.startsWith('.'))));
+            const folder = rootFolder(files.map(([name]) => name));
+            const filter = async (queue, entries) => {
+                entries = new Map(Array.from(entries)
+                    .filter(([path]) => path.startsWith(folder))
+                    .map(([path, stream]) => [path.substring(folder.length), stream]));
+                const container = new view.Container(this._host, identifier, entries);
                 let matches = [];
-                const nextEntry = async () => {
-                    if (queue.length > 0) {
-                        const entry = queue.shift();
-                        const context = new view.ModelContext(new view.EntryContext(this._host, entries, folder, entry.name, entry.stream));
-                        const modules = this._filter(context);
-                        const nextModule = async () => {
-                            if (modules.length > 0) {
-                                const id = modules.shift();
-                                const module = await this._host.require(id);
-                                if (!module.ModelFactory) {
-                                    throw new view.ArchiveError("Failed to load module '" + id + "'.", null);
-                                }
-                                const modelFactory = new module.ModelFactory();
-                                if (modelFactory.match(context)) {
-                                    matches.push(context);
-                                    modules.splice(0, modules.length);
-                                }
-                                return await nextModule();
+                for (const [name, stream] of queue) {
+                    const identifier = name.substring(folder.length);
+                    const context = new view.Context(container, identifier, stream);
+                    const modules = this._filter(context);
+                    for (const module of modules) {
+                        // eslint-disable-next-line no-await-in-loop
+                        const factory = await this._require(module);
+                        // eslint-disable-next-line no-await-in-loop
+                        const type = await factory.match(context);
+                        if (context.stream && context.stream.position !== 0) {
+                            throw new view.Error('Invalid stream position.');
+                        }
+                        delete context.value;
+                        if (type) {
+                            matches = matches.filter((match) => !factory.filter || factory.filter(context, match));
+                            if (matches.every((match) => !match.factory.filter || match.factory.filter(match, context))) {
+                                context.factory = factory;
+                                matches.push(context);
                             }
-                            return await nextEntry();
-                        };
-                        return await nextModule();
+                            break;
+                        }
                     }
-                    if (matches.length === 0) {
-                        return null;
-                    }
-                    // MXNet
-                    if (matches.length === 2 &&
-                        matches.some((context) => context.identifier.toLowerCase().endsWith('.params')) &&
-                        matches.some((context) => context.identifier.toLowerCase().endsWith('-symbol.json'))) {
-                        matches = matches.filter((context) => context.identifier.toLowerCase().endsWith('.params'));
-                    }
-                    // TensorFlow.js
-                    if (matches.length > 0 &&
-                        matches.some((context) => context.identifier.toLowerCase().endsWith('.bin')) &&
-                        matches.some((context) => context.identifier.toLowerCase().endsWith('.json'))) {
-                        matches = matches.filter((context) => context.identifier.toLowerCase().endsWith('.json'));
-                    }
-                    // ncnn
-                    if (matches.length > 0 &&
-                        matches.some((context) => context.identifier.toLowerCase().endsWith('.bin')) &&
-                        matches.some((context) => context.identifier.toLowerCase().endsWith('.param'))) {
-                        matches = matches.filter((context) => context.identifier.toLowerCase().endsWith('.param'));
-                    }
-                    // ncnn
-                    if (matches.length > 0 &&
-                        matches.some((context) => context.identifier.toLowerCase().endsWith('.bin')) &&
-                        matches.some((context) => context.identifier.toLowerCase().endsWith('.param.bin'))) {
-                        matches = matches.filter((context) => context.identifier.toLowerCase().endsWith('.param.bin'));
-                    }
-                    //Compass
-                    if (matches.length > 0 &&
-                        matches.some((context) => context.identifier.toLowerCase().endsWith('.bin')) &&
-                        matches.some((context) => context.identifier.toLowerCase().endsWith('.def'))) {
-                        matches = matches.filter((context) => context.identifier.toLowerCase().endsWith('.def'));
-                    }
-                    //Compass
-                    if (matches.length > 0 &&
-                        matches.some((context) => context.identifier.toLowerCase().endsWith('.bin')) &&
-                        matches.some((context) => context.identifier.toLowerCase().endsWith('.txt'))) {
-                        matches = matches.filter((context) => context.identifier.toLowerCase().endsWith('.txt'));
-                    }
-                    // NNEF
-                    if (matches.length > 0 &&
-                        matches.some((context) => context.identifier.toLowerCase().endsWith('.nnef')) &&
-                        matches.some((context) => context.identifier.toLowerCase().endsWith('.dat'))) {
-                        matches = matches.filter((context) => context.identifier.toLowerCase().endsWith('.nnef'));
-                    }
-                    // Paddle
-                    if (matches.length > 0 &&
-                        matches.some((context) => context.identifier.toLowerCase().endsWith('.pdmodel')) &&
-                        (matches.some((context) => context.identifier.toLowerCase().endsWith('.pdparams')) ||
-                            matches.some((context) => context.identifier.toLowerCase().endsWith('.pdopt')) ||
-                            matches.some((context) => context.identifier.toLowerCase().endsWith('.pdiparams')))) {
-                        matches = matches.filter((context) => context.identifier.toLowerCase().endsWith('.pdmodel'));
-                    }
-                    // Paddle Lite
-                    if (matches.length > 0 &&
-                        matches.some((context) => context.identifier.toLowerCase().split('/').pop() === '__model__.nb') &&
-                        matches.some((context) => context.identifier.toLowerCase().split('/').pop() === 'param.nb')) {
-                        matches = matches.filter((context) => context.identifier.toLowerCase().split('/').pop() == '__model__.nb');
-                    }
-                    // TensorFlow Bundle
-                    if (matches.length > 1 &&
-                        matches.some((context) => context.identifier.toLowerCase().endsWith('.data-00000-of-00001'))) {
-                        matches = matches.filter((context) => !context.identifier.toLowerCase().endsWith('.data-00000-of-00001'));
-                    }
-                    // TensorFlow SavedModel
-                    if (matches.length === 2 &&
-                        matches.some((context) => context.identifier.toLowerCase().split('/').pop() === 'keras_metadata.pb')) {
-                        matches = matches.filter((context) => context.identifier.toLowerCase().split('/').pop() !== 'keras_metadata.pb');
-                    }
-                    if (matches.length > 1) {
-                        throw new view.ArchiveError('Archive contains multiple model files.');
-                    }
+                }
+                if (matches.length > 1) {
+                    const content = matches.map((context) => context.type).join(',');
+                    throw new view.ArchiveError(`Archive contains multiple model files '${content}'.`);
+                }
+                if (matches.length > 0) {
                     const match = matches.shift();
+                    delete match.type;
+                    delete match.factory;
                     return match;
-                };
-                return await nextEntry();
+                }
+                return null;
             };
-            const list = Array.from(entries).map((entry) => {
-                return { name: entry[0], stream: entry[1] };
-            });
-            const files = list.filter((entry) => {
-                if (entry.name.endsWith('/')) {
-                    return false;
-                }
-                if (entry.name.split('/').pop().startsWith('.')) {
-                    return false;
-                }
-                if (!entry.name.startsWith('./') && entry.name.startsWith('.')) {
-                    return false;
-                }
-                return true;
-            });
-            const folder = rootFolder(files.map((entry) => entry.name));
-            const queue = files.slice(0).filter((entry) => entry.name.substring(folder.length).indexOf('/') < 0);
-            const context = await filter(queue);
+            const queue = files.filter(([name]) => name.substring(folder.length).indexOf('/') < 0);
+            let context = await filter(queue, entries);
             if (!context) {
-                const queue = files.slice(0).filter((entry) => entry.name.substring(folder.length).indexOf('/') >= 0);
-                return await filter(queue);
+                const queue = files.filter(([name]) => name.substring(folder.length).indexOf('/') >= 0);
+                context = await filter(queue, entries);
             }
             return context;
         } catch (error) {
@@ -5362,8 +7812,11 @@ view.ModelFactoryService = class {
         const extension = identifier.indexOf('.') === -1 ? '' : identifier.split('.').pop().toLowerCase();
         identifier = identifier.toLowerCase().split('/').pop();
         let accept = false;
-        for (const extension of this._extensions) {
-            if ((typeof extension === 'string' && identifier.endsWith(extension)) || (extension instanceof RegExp && extension.exec(identifier))) {
+        for (const extension of this._patterns) {
+            if ((typeof extension === 'string' &&
+                    ((extension !== '' && identifier.endsWith(extension)) ||
+                     (extension === '' && identifier.indexOf('.') === -1))) ||
+                (extension instanceof RegExp && extension.exec(identifier))) {
                 accept = true;
                 break;
             }
@@ -5378,10 +7831,17 @@ view.ModelFactoryService = class {
 
     _filter(context) {
         const identifier = context.identifier.toLowerCase().split('/').pop();
-        const list = this._factories.filter((entry) =>
-            (typeof entry.extension === 'string' && identifier.endsWith(entry.extension)) ||
-            (entry.extension instanceof RegExp && entry.extension.exec(identifier)));
-        return Array.from(new Set(list.map((entry) => entry.id)));
+        const stream = context.stream;
+        if (stream) {
+            const buffer = stream.peek(Math.min(4096, stream.length));
+            const content = String.fromCharCode.apply(null, buffer);
+            const list = this._factories.filter((entry) =>
+                (typeof entry.extension === 'string' && identifier.endsWith(entry.extension)) ||
+                (entry.extension instanceof RegExp && entry.extension.test(identifier)) ||
+                (entry.content instanceof RegExp && entry.content.test(content)));
+            return Array.from(new Set(list.map((entry) => entry.module)));
+        }
+        return [];
     }
 
     async _openSignature(context) {
@@ -5403,36 +7863,73 @@ view.ModelFactoryService = class {
             }
             /* eslint-disable no-control-regex */
             const entries = [
-                { name: 'ELF executable', value: /^\x7FELF/ },
-                { name: 'PNG image', value: /^\x89PNG/ },
-                { name: 'Git LFS header', value: /^version https:\/\/git-lfs.github.com/ },
-                { name: 'Git LFS header', value: /^\s*oid sha256:/ },
-                { name: 'HTML markup', value: /^\s*<html>/ },
-                { name: 'HTML markup', value: /^\s*<!doctype\s*html>/ },
-                { name: 'HTML markup', value: /^\s*<!DOCTYPE\s*html>/ },
-                { name: 'HTML markup', value: /^\s*<!DOCTYPE\s*HTML>/ },
-                { name: 'HTML markup', value: /^\s*<!DOCTYPE\s*HTML\s+(PUBLIC|SYSTEM)?/ },
-                { name: 'Unity metadata', value: /^fileFormatVersion:/ },
-                { name: 'Python source code', value: /^\s*import[ ]+(os|sys|types|torch|argparse|onnx|numpy|tensorflow)(,|;|\s)/ },
-                { name: 'Python source code', value: /^\s*import[ ]+([a-z])+[ ]+as[ ]+/ },
-                { name: 'Python source code', value: /^\s*from[ ]+(torch)[ ]+import[ ]+/ },
-                { name: 'Python source code', value: /^\s*from[ ]+(keras)[ ]+import[ ]+/ },
-                { name: 'Bash script', value: /^#!\/usr\/bin\/env\s/ },
-                { name: 'Bash script', value: /^#!\/bin\/bash\s/ },
-                { name: 'TSD header', value: /^%TSD-Header-###%/ },
+                { name: 'AES Crypt data', value: /^AES[\x01|\x02]\x00/ },
                 { name: 'AppleDouble data', value: /^\x00\x05\x16\x07/ },
-                { name: 'TensorFlow Hub module', value: /^\x08\x03$/, identifier: 'tfhub_module.pb' },
+                { name: 'base64 data', value: /^gAAAAAB/ },
+                { name: 'Bash script', value: /^(#!\/usr\/bin\/env|#!\/bin\/bash)\s/ },
+                { name: 'BCNN model', value: /^BCNN/ },
+                { name: 'BModel data', value: /^\xEE\xAA\x55\xFF/ }, // https://github.com/sophgo/tpu-mlir/blob/master/include/tpu_mlir/Builder/BM168x/bmodel.fbs
+                { name: 'Cambricon model', value: /^\x7fMEF/ },
+                { name: 'Cambricon model', value: /^cambricon_offline/ },
+                { name: 'CviModel data', value: /^CviModel/ }, // https://github.com/sophgo/tpu-mlir/blob/master/include/tpu_mlir/Builder/CV18xx/proto/cvimodel.fbs
+                { name: 'DRTcrypt data', value: /^DRTcrypt/ },
+                { name: 'ELF executable', value: /^\x7FELF/ },
+                { name: 'encrypted data', value: /^ENCRYPTED_FILE|EV_ENCRYPTED/ },
+                { name: 'encrypted data', value: /^Salted__/ },
+                { name: 'encrypted data', value: /^KINGSOFTOFFICE/ },
+                { name: 'GGML data', value: /^lmgg|fmgg|tjgg|algg|fugg/ },
+                { name: 'Git LFS header', value: /^\s*oid sha256:/ },
+                { name: 'Git LFS header', value: /^version https:\/\/git-lfs.github.com/ },
+                { name: 'HTML markup', value: /^\s*<!(doctype|DOCTYPE)\s*(html|HTML)>/ },
+                { name: 'HTML markup', value: /^\s*<!DOCTYPE\s*HTML\s+(PUBLIC|SYSTEM)?/ },
+                { name: 'HTML markup', value: /^\s*<(html|HTML)(\s+[^>]+)?>/ },
+                { name: 'Keras Tokenizer data', value: /^"{\\"class_name\\":\s*\\"Tokenizer\\"/ },
+                { name: 'llama2.c checkpoint', value: /^..\x00\x00..\x00\x00..\x00\x00..\x00\x00..\x00\x00..\x00\x00..\x00\x00/, identifier: /^stories\d+[KM]\.bin/ },
+                { name: 'Mathematica Notebook data', value: /^\(\*\sContent-type:\sapplication\/vnd\.wolfram\.mathematica\s\*\)/ },
+                { name: 'Momentum Human Rig model', value: /^Momentum Model Definition/ }, // https://github.com/facebookresearch/MHR
+                { name: 'obfuscated data', value: /^obfs/ },
+                { name: 'Optimium model', value: /^EZMODEL/ }, // https://github.com/EZ-Optimium/Optimium,
+                { name: 'PNG image', value: /^\x89PNG/ },
+                { name: 'Python source code', value: /^((#.*(\n|\r\n))|('''.*'''(\n|\r\n))|("""[\s\S]*""")|(\n|\r\n))*(from[ ]+([a-zA-Z_]\w*(\.[a-zA-Z_]\w*)*)[ ]+import[ ]+[a-zA-Z]\w*)/ },
+                { name: 'Python source code', value: /^((#.*(\n|\r\n))|('''.*'''(\n|\r\n))|("""[\s\S]*""")|(\n|\r\n))*(import[ ]+[a-zA-Z_]\w*(\.[a-zA-Z_]\w*)*([ ]+as[ ]+[a-zA-Z]\w*)?[ ]*(,|;|\n|\r\n))/ },
+                { name: 'Python virtual environment configuration', value: /^home[ ]*=[ ]*/, identifier: /^pyvenv\.cfg/ },
+                { name: 'Rich Text Format data', value: /^{\\rtf/ },
+                { name: 'SenseTime model', value: /^STEF/ },
+                { name: 'SQLite data', value: /^SQLite format/ },
+                { name: 'Terraform configuration', value: /^(\s*#[^\n]*\n)*(resource\s+"[a-z]|provider\s+"[a-z]|module\s+"[a-z]|variable\s+"[a-z]|data\s+"[a-z]|terraform\s*\{|locals\s*\{|output\s+"[a-z])/ },
+                { name: 'TensorFlow Hub module', value: /^\x08\x03$/, identifier: /^tfhub_module\.pb/ },
+                { name: 'Tokenizer data', value: /^IQ== 0\n/ },
+                { name: 'TSD header', value: /^%TSD-Header-###%/ },
+                { name: 'undocumented HALCON model', value: /^HDLMODEL/ },
+                { name: 'undocumented license data', value: /^This model and the software may not be used or distributed in any manner except as authorized under a valid written agreemen/ },
+                { name: 'undocumented NNC data', value: /^((\xC0|\xBC)\x0F\x00\x00ENNC|NNC3)/ },
+                { name: 'undocumented RKNX data', value: /^RKNX\x00\x00\x00\x00/ },
+                { name: 'V8 context snapshot', value: /^.\x00\x00\x00.\x00\x00\x00/, identifier: /^v8_context_snapshot\.bin/ },
+                { name: 'V8 natives blob', value: /^./, identifier: /^natives_blob\.bin/ },
+                { name: 'V8 snapshot', value: /^.\x00\x00\x00.\x00\x00\x00/, identifier: /^snapshot_blob\.bin/ },
                 { name: 'ViSQOL model', value: /^svm_type\s/ },
-                { name: 'SenseTime model', value: /^STEF/ }
+                { name: 'VNN model', value: /^\x2F\x4E\x00\x00.\x00\x00\x00/, identifier: /.vnnmodel$/ },
+                { name: 'Windows executable', value: /^MZ[\s\S]*PE\x00\x00/ },
             ];
             /* eslint-enable no-control-regex */
             const buffer = stream.peek(Math.min(4096, stream.length));
             const content = String.fromCharCode.apply(null, buffer);
             for (const entry of entries) {
-                if (content.match(entry.value) && (!entry.identifier || entry.identifier === context.identifier)) {
-                    throw new view.Error('Invalid file content. File contains ' + entry.name + '.');
+                if (content.match(entry.value) && (!entry.identifier || context.identifier.match(entry.identifier))) {
+                    throw new view.Error(`Invalid file content. File contains ${entry.name}.`);
                 }
             }
+        }
+    }
+
+    async import() {
+        if (this._host.type === 'Browser' || this._host.type === 'Python') {
+            const modules = ['./message', './onnx', './pytorch', './tflite', './mlnet', './onnx-proto', './onnx-schema', './tflite-schema'];
+            const assets = ['onnx-metadata.json', 'pytorch-metadata.json', 'tflite-metadata.json'];
+            await Promise.all([
+                ...modules.map((module) => this._host.require(module).catch(() => {})),
+                ...assets.map((asset) => this._host.asset(asset).catch(() => {})),
+            ]);
         }
     }
 };
@@ -5441,31 +7938,32 @@ view.Metadata = class {
 
     static async open(context, name) {
         view.Metadata._metadata = view.Metadata._metadata || new Map();
-        if (view.Metadata._metadata.has(name)) {
-            return view.Metadata._metadata.get(name);
+        const metadata = view.Metadata._metadata;
+        if (!metadata.has(name)) {
+            let data = null;
+            try {
+                data = await context.asset(name);
+            } catch {
+                // continue regardless of error
+            }
+            const types = JSON.parse(data);
+            metadata.set(name, new view.Metadata(types));
         }
-        try {
-            const data = await context.request(name, 'utf-8', null);
-            const library = new view.Metadata(data);
-            view.Metadata._metadata.set(name, library);
-            return library;
-        } catch (error) {
-            const library = new view.Metadata(null);
-            view.Metadata._metadata.set(name, library);
-            return library;
-        }
+        return metadata.get(name);
     }
 
-    constructor(data) {
+    constructor(types) {
         this._types = new Map();
         this._attributes = new Map();
         this._inputs = new Map();
-        if (data) {
-            const metadata = JSON.parse(data);
-            for (const entry of metadata) {
-                this._types.set(entry.name, entry);
-                if (entry.identifier !== undefined) {
-                    this._types.set(entry.identifier, entry);
+        if (Array.isArray(types)) {
+            for (const type of types) {
+                if (this._types.has(type.name)) {
+                    // throw new view.Error(`Duplicate type metadata '${type.name}'.`);
+                }
+                this._types.set(type.name, type);
+                if (type.identifier !== undefined) {
+                    this._types.set(type.identifier, type);
                 }
             }
         }
@@ -5479,13 +7977,13 @@ view.Metadata = class {
     }
 
     attribute(type, name) {
-        const key = type + ':' + name;
+        const key = `${type}:${name}`;
         if (!this._attributes.has(key)) {
             this._attributes.set(key, null);
             const metadata = this.type(type);
             if (metadata && Array.isArray(metadata.attributes)) {
                 for (const attribute of metadata.attributes) {
-                    this._attributes.set(type + ':' + attribute.name, attribute);
+                    this._attributes.set(`${type}:${attribute.name}`, attribute);
                 }
             }
         }
@@ -5493,13 +7991,13 @@ view.Metadata = class {
     }
 
     input(type, name) {
-        const key = type + ':' + name;
+        const key = `${type}:${name}`;
         if (!this._inputs.has(key)) {
             this._inputs.set(key, null);
             const metadata = this.type(type);
             if (metadata && Array.isArray(metadata.inputs)) {
                 for (const input of metadata.inputs) {
-                    this._inputs.set(type + ':' + input.name, input);
+                    this._inputs.set(`${type}:${input.name}`, input);
                 }
             }
         }
@@ -5515,10 +8013,16 @@ view.Error = class extends Error {
     }
 };
 
-if (typeof module !== 'undefined' && typeof module.exports === 'object') {
-    module.exports.View = view.View;
-    module.exports.ModelFactoryService = view.ModelFactoryService;
-    module.exports.Documentation = view.Documentation;
-    module.exports.Formatter = view.Formatter;
-    module.exports.Tensor = view.Tensor;
+if (typeof window !== 'undefined' && window.exports) {
+    window.exports.view = view;
 }
+
+export const View = view.View;
+export const ModelFactoryService = view.ModelFactoryService;
+export const ModelSidebar = view.ModelSidebar;
+export const NodeSidebar = view.NodeSidebar;
+export const TensorSidebar = view.TensorSidebar;
+export const Documentation = view.Documentation;
+export const Formatter = view.Formatter;
+export const Tensor = view.Tensor;
+export const Quantization = view.Quantization;

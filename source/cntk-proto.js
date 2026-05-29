@@ -1,18 +1,17 @@
-var $root = protobuf.get('cntk');
 
-$root.CNTK = {};
+export const CNTK = {};
 
-$root.CNTK.proto = {};
+CNTK.proto = {};
 
-$root.CNTK.proto.NDShape = class NDShape {
+CNTK.proto.NDShape = class NDShape {
 
     constructor() {
         this.shape_dim = [];
     }
 
     static decode(reader, length) {
-        const message = new $root.CNTK.proto.NDShape();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new CNTK.proto.NDShape();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -28,14 +27,11 @@ $root.CNTK.proto.NDShape = class NDShape {
     }
 };
 
-$root.CNTK.proto.Axis = class Axis {
-
-    constructor() {
-    }
+CNTK.proto.Axis = class Axis {
 
     static decode(reader, length) {
-        const message = new $root.CNTK.proto.Axis();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new CNTK.proto.Axis();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -57,23 +53,20 @@ $root.CNTK.proto.Axis = class Axis {
     }
 };
 
-$root.CNTK.proto.Axis.prototype.static_axis_idx = 0;
-$root.CNTK.proto.Axis.prototype.name = "";
-$root.CNTK.proto.Axis.prototype.is_ordered_dynamic_axis = false;
+CNTK.proto.Axis.prototype.static_axis_idx = 0;
+CNTK.proto.Axis.prototype.name = "";
+CNTK.proto.Axis.prototype.is_ordered_dynamic_axis = false;
 
-$root.CNTK.proto.NDArrayView = class NDArrayView {
-
-    constructor() {
-    }
+CNTK.proto.NDArrayView = class NDArrayView {
 
     get values() {
-        $root.CNTK.proto.NDArrayView.valuesSet = $root.CNTK.proto.NDArrayView.valuesSet || new Set([ "float_values", "double_values", "bytes_value", "sint32_values"]);
-        return Object.keys(this).find((key) => $root.CNTK.proto.NDArrayView.valuesSet.has(key) && this[key] != null);
+        CNTK.proto.NDArrayView.valuesSet = CNTK.proto.NDArrayView.valuesSet || new Set(["float_values", "double_values", "bytes_value", "sint32_values"]);
+        return Object.keys(this).find((key) => CNTK.proto.NDArrayView.valuesSet.has(key) && this[key] !== null);
     }
 
     static decode(reader, length) {
-        const message = new $root.CNTK.proto.NDArrayView();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new CNTK.proto.NDArrayView();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -84,19 +77,19 @@ $root.CNTK.proto.NDArrayView = class NDArrayView {
                     message.storage_format = reader.int32();
                     break;
                 case 3:
-                    message.shape = $root.CNTK.proto.NDShape.decode(reader, reader.uint32());
+                    message.shape = CNTK.proto.NDShape.decode(reader, reader.uint32());
                     break;
                 case 4:
-                    message.float_values = $root.CNTK.proto.NDArrayView.FloatValues.decode(reader, reader.uint32());
+                    message.float_values = CNTK.proto.NDArrayView.FloatValues.decode(reader, reader.uint32());
                     break;
                 case 5:
-                    message.double_values = $root.CNTK.proto.NDArrayView.DoubleValues.decode(reader, reader.uint32());
+                    message.double_values = CNTK.proto.NDArrayView.DoubleValues.decode(reader, reader.uint32());
                     break;
                 case 6:
-                    message.bytes_value = $root.CNTK.proto.NDArrayView.BytesValue.decode(reader, reader.uint32());
+                    message.bytes_value = CNTK.proto.NDArrayView.BytesValue.decode(reader, reader.uint32());
                     break;
                 case 7:
-                    message.sint32_values = $root.CNTK.proto.NDArrayView.IntValues.decode(reader, reader.uint32());
+                    message.sint32_values = CNTK.proto.NDArrayView.IntValues.decode(reader, reader.uint32());
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -107,11 +100,11 @@ $root.CNTK.proto.NDArrayView = class NDArrayView {
     }
 };
 
-$root.CNTK.proto.NDArrayView.prototype.data_type = 0;
-$root.CNTK.proto.NDArrayView.prototype.storage_format = 0;
-$root.CNTK.proto.NDArrayView.prototype.shape = null;
+CNTK.proto.NDArrayView.prototype.data_type = 0;
+CNTK.proto.NDArrayView.prototype.storage_format = 0;
+CNTK.proto.NDArrayView.prototype.shape = null;
 
-$root.CNTK.proto.NDArrayView.DataType = {
+CNTK.proto.NDArrayView.DataType = {
     "Unknown": 0,
     "Float": 1,
     "Double": 2,
@@ -120,21 +113,21 @@ $root.CNTK.proto.NDArrayView.DataType = {
     "Int16": 6
 };
 
-$root.CNTK.proto.NDArrayView.StorageFormat = {
+CNTK.proto.NDArrayView.StorageFormat = {
     "Dense": 0,
     "SparseCSC": 1,
     "SparseBlockCol": 2
 };
 
-$root.CNTK.proto.NDArrayView.FloatValues = class FloatValues {
+CNTK.proto.NDArrayView.FloatValues = class FloatValues {
 
     constructor() {
         this.value = [];
     }
 
     static decode(reader, length) {
-        const message = new $root.CNTK.proto.NDArrayView.FloatValues();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new CNTK.proto.NDArrayView.FloatValues();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -150,15 +143,15 @@ $root.CNTK.proto.NDArrayView.FloatValues = class FloatValues {
     }
 };
 
-$root.CNTK.proto.NDArrayView.DoubleValues = class DoubleValues {
+CNTK.proto.NDArrayView.DoubleValues = class DoubleValues {
 
     constructor() {
         this.value = [];
     }
 
     static decode(reader, length) {
-        const message = new $root.CNTK.proto.NDArrayView.DoubleValues();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new CNTK.proto.NDArrayView.DoubleValues();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -174,14 +167,11 @@ $root.CNTK.proto.NDArrayView.DoubleValues = class DoubleValues {
     }
 };
 
-$root.CNTK.proto.NDArrayView.BytesValue = class BytesValue {
-
-    constructor() {
-    }
+CNTK.proto.NDArrayView.BytesValue = class BytesValue {
 
     static decode(reader, length) {
-        const message = new $root.CNTK.proto.NDArrayView.BytesValue();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new CNTK.proto.NDArrayView.BytesValue();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -197,17 +187,17 @@ $root.CNTK.proto.NDArrayView.BytesValue = class BytesValue {
     }
 };
 
-$root.CNTK.proto.NDArrayView.BytesValue.prototype.value = new Uint8Array([]);
+CNTK.proto.NDArrayView.BytesValue.prototype.value = new Uint8Array([]);
 
-$root.CNTK.proto.NDArrayView.IntValues = class IntValues {
+CNTK.proto.NDArrayView.IntValues = class IntValues {
 
     constructor() {
         this.value = [];
     }
 
     static decode(reader, length) {
-        const message = new $root.CNTK.proto.NDArrayView.IntValues();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new CNTK.proto.NDArrayView.IntValues();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -223,20 +213,20 @@ $root.CNTK.proto.NDArrayView.IntValues = class IntValues {
     }
 };
 
-$root.CNTK.proto.Vector = class Vector {
+CNTK.proto.Vector = class Vector {
 
     constructor() {
         this.value = [];
     }
 
     static decode(reader, length) {
-        const message = new $root.CNTK.proto.Vector();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new CNTK.proto.Vector();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
                 case 1:
-                    message.value.push($root.CNTK.proto.DictionaryValue.decode(reader, reader.uint32()));
+                    message.value.push(CNTK.proto.DictionaryValue.decode(reader, reader.uint32()));
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -247,15 +237,15 @@ $root.CNTK.proto.Vector = class Vector {
     }
 };
 
-$root.CNTK.proto.Dictionary = class Dictionary {
+CNTK.proto.Dictionary = class Dictionary {
 
     constructor() {
         this.data = {};
     }
 
     static decode(reader, length) {
-        const message = new $root.CNTK.proto.Dictionary();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new CNTK.proto.Dictionary();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -263,7 +253,7 @@ $root.CNTK.proto.Dictionary = class Dictionary {
                     message.version = reader.uint64();
                     break;
                 case 2:
-                    reader.entry(message.data, () => reader.string(), () => $root.CNTK.proto.DictionaryValue.decode(reader, reader.uint32()));
+                    reader.entry(message.data, () => reader.string(), () => CNTK.proto.DictionaryValue.decode(reader, reader.uint32()));
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -274,21 +264,18 @@ $root.CNTK.proto.Dictionary = class Dictionary {
     }
 };
 
-$root.CNTK.proto.Dictionary.prototype.version = protobuf.Uint64.create(0);
+CNTK.proto.Dictionary.prototype.version = 0n;
 
-$root.CNTK.proto.DictionaryValue = class DictionaryValue {
-
-    constructor() {
-    }
+CNTK.proto.DictionaryValue = class DictionaryValue {
 
     get value() {
-        $root.CNTK.proto.DictionaryValue.valueSet = $root.CNTK.proto.DictionaryValue.valueSet || new Set([ "bool_value", "int_value", "size_t_value", "float_value", "double_value", "string_value", "nd_shape_value", "axis_value", "vector_value", "dictionary_value", "nd_array_view_value"]);
-        return Object.keys(this).find((key) => $root.CNTK.proto.DictionaryValue.valueSet.has(key) && this[key] != null);
+        CNTK.proto.DictionaryValue.valueSet = CNTK.proto.DictionaryValue.valueSet || new Set(["bool_value", "int_value", "size_t_value", "float_value", "double_value", "string_value", "nd_shape_value", "axis_value", "vector_value", "dictionary_value", "nd_array_view_value"]);
+        return Object.keys(this).find((key) => CNTK.proto.DictionaryValue.valueSet.has(key) && this[key] !== null);
     }
 
     static decode(reader, length) {
-        const message = new $root.CNTK.proto.DictionaryValue();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new CNTK.proto.DictionaryValue();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -317,19 +304,19 @@ $root.CNTK.proto.DictionaryValue = class DictionaryValue {
                     message.string_value = reader.string();
                     break;
                 case 9:
-                    message.nd_shape_value = $root.CNTK.proto.NDShape.decode(reader, reader.uint32());
+                    message.nd_shape_value = CNTK.proto.NDShape.decode(reader, reader.uint32());
                     break;
                 case 10:
-                    message.axis_value = $root.CNTK.proto.Axis.decode(reader, reader.uint32());
+                    message.axis_value = CNTK.proto.Axis.decode(reader, reader.uint32());
                     break;
                 case 11:
-                    message.vector_value = $root.CNTK.proto.Vector.decode(reader, reader.uint32());
+                    message.vector_value = CNTK.proto.Vector.decode(reader, reader.uint32());
                     break;
                 case 12:
-                    message.dictionary_value = $root.CNTK.proto.Dictionary.decode(reader, reader.uint32());
+                    message.dictionary_value = CNTK.proto.Dictionary.decode(reader, reader.uint32());
                     break;
                 case 13:
-                    message.nd_array_view_value = $root.CNTK.proto.NDArrayView.decode(reader, reader.uint32());
+                    message.nd_array_view_value = CNTK.proto.NDArrayView.decode(reader, reader.uint32());
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -340,10 +327,10 @@ $root.CNTK.proto.DictionaryValue = class DictionaryValue {
     }
 };
 
-$root.CNTK.proto.DictionaryValue.prototype.version = protobuf.Uint64.create(0);
-$root.CNTK.proto.DictionaryValue.prototype.value_type = 0;
+CNTK.proto.DictionaryValue.prototype.version = 0n;
+CNTK.proto.DictionaryValue.prototype.value_type = 0;
 
-$root.CNTK.proto.DictionaryValue.Type = {
+CNTK.proto.DictionaryValue.Type = {
     "None": 0,
     "Bool": 1,
     "Int": 2,

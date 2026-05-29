@@ -1,20 +1,21 @@
 
-var host = {};
+import * as base from './base.js';
 
-host.BrowserHost = class {
+const browser = {};
+
+browser.Host = class {
 
     constructor() {
         this._window = window;
         this._navigator = window.navigator;
         this._document = window.document;
-        const base = require('./base');
         this._telemetry = new base.Telemetry(this._window);
         this._window.eval = () => {
             throw new Error('window.eval() not supported.');
         };
         this._meta = {};
         for (const element of Array.from(this._document.getElementsByTagName('meta'))) {
-            if (element.name !== undefined && element.content !== undefined) {
+            if (element.name !== undefined && element.name !== '' && element.content !== undefined) {
                 this._meta[element.name] = this._meta[element.name] || [];
                 this._meta[element.name].push(element.content);
             }
@@ -23,14 +24,14 @@ host.BrowserHost = class {
             name: this._document.title,
             type: this._meta.type ? this._meta.type[0] : 'Browser',
             version: this._meta.version ? this._meta.version[0] : null,
-            date: Array.isArray(this._meta.date) && this._meta.date.length > 0 && this._meta.date[0] ? new Date(this._meta.date[0].split(' ').join('T') + 'Z') : new Date(),
+            date: Array.isArray(this._meta.date) && this._meta.date.length > 0 && this._meta.date[0] ? new Date(`${this._meta.date[0].split(' ').join('T')}Z`) : new Date(),
             packaged: this._meta.version && this._meta.version[0] !== '0.0.0',
             platform: /(Mac|iPhone|iPod|iPad)/i.test(this._navigator.platform) ? 'darwin' : undefined,
             agent: this._navigator.userAgent.toLowerCase().indexOf('safari') !== -1 && this._navigator.userAgent.toLowerCase().indexOf('chrome') === -1 ? 'safari' : '',
             repository: this._element('logo-github').getAttribute('href'),
             menu: true
         };
-        if (!/^\d\.\d\.\d$/.test(this.version)) {
+        if (this.version && !/^\d+\.\d+\.\d+$/.test(this.version)) {
             throw new Error('Invalid version.');
         }
     }
@@ -52,16 +53,19 @@ host.BrowserHost = class {
     }
 
     async view(view) {
+        const window = this.window;
+        const document = this.document;
         this._view = view;
         const age = async () => {
             const days = (new Date() - new Date(this._environment.date)) / (24 * 60 * 60 * 1000);
             if (days > 180) {
-                this.document.body.classList.remove('spinner');
-                this.window.terminate('Please update to the newest version.', 'Download', () => {
-                    const link = this._element('logo-github').href;
+                const link = this._element('logo-github').href;
+                document.body.classList.remove('spinner');
+                for (;;) {
+                    // eslint-disable-next-line no-await-in-loop
+                    await this.message('Please update to the newest version.', null, 'Update');
                     this.openURL(link);
-                });
-                return new Promise(() => {});
+                }
             }
             return Promise.resolve();
         };
@@ -71,102 +75,67 @@ host.BrowserHost = class {
             }
             let consent = true;
             try {
-                const text = await this._request('https://ipinfo.io/json', { 'Content-Type': 'application/json' }, 'utf-8', null, 2000);
+                const text = await this._fetch('https://ipinfo.io/json', { 'Content-Type': 'application/json' }, 'utf-8', null, 2000);
                 const json = JSON.parse(text);
                 const countries = ['AT', 'BE', 'BG', 'HR', 'CZ', 'CY', 'DK', 'EE', 'FI', 'FR', 'DE', 'EL', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'NO', 'PL', 'PT', 'SK', 'ES', 'SE', 'GB', 'UK', 'GR', 'EU', 'RO'];
                 if (json && json.country && countries.indexOf(json.country) === -1) {
                     consent = false;
                 }
-            } catch (error) {
+            } catch {
                 // continue regardless of error
             }
             if (consent) {
-                this.document.body.classList.remove('spinner');
-                await this._message('This app uses cookies to report errors and anonymous usage information.', 'Accept');
+                document.body.classList.remove('spinner');
+                await this.message('This app uses cookies to report errors and anonymous usage information.', null, 'Accept');
             }
             this._setCookie('consent', Date.now().toString(), 30);
         };
         const telemetry = async () => {
             if (this._environment.packaged) {
-                this._window.addEventListener('error', (event) => {
-                    const error = event instanceof ErrorEvent && event.error && event.error instanceof Error ? event.error : new Error(event && event.message ? event.message : JSON.stringify(event));
-                    this.exception(error, true);
+                window.addEventListener('error', (event) => {
+                    if (event instanceof window.ErrorEvent && event.error && event.error instanceof Error) {
+                        this.exception(event.error, true);
+                    } else {
+                        const message = event && event.message ? event.message : JSON.stringify(event);
+                        const error = new Error(message);
+                        this.exception(error, true);
+                    }
                 });
-                const ga4 = async () => {
-                    const measurement_id = '848W2NVWVH';
-                    const user = this._getCookie('_ga').replace(/^(GA1\.\d\.)*/, '');
-                    const session = this._getCookie('_ga' + measurement_id);
-                    await this._telemetry.start('G-' + measurement_id, user, session);
-                    this._telemetry.set('page_location', this._document.location && this._document.location.href ? this._document.location.href : null);
-                    this._telemetry.set('page_title', this._document.title ? this._document.title : null);
-                    this._telemetry.set('page_referrer', this._document.referrer ? this._document.referrer : null);
-                    this._telemetry.send('page_view', {
-                        app_name: this.type,
-                        app_version: this.version,
-                    });
-                    this._telemetry.send('scroll', {
-                        percent_scrolled: 90,
-                        app_name: this.type,
-                        app_version: this.version
-                    });
-                    this._setCookie('_ga', 'GA1.2.' + this._telemetry.get('client_id'), 1200);
-                    this._setCookie('_ga' + measurement_id, 'GS1.1.' + this._telemetry.session, 1200);
-                };
-                const ua = async () => {
-                    return new Promise((resolve) => {
-                        this._telemetry_ua = true;
-                        const script = this.document.createElement('script');
-                        script.setAttribute('type', 'text/javascript');
-                        script.setAttribute('src', 'https://www.google-analytics.com/analytics.js');
-                        script.onload = () => {
-                            if (this.window.ga) {
-                                this.window.ga.l = 1 * new Date();
-                                this.window.ga('create', 'UA-54146-13', 'auto');
-                                this.window.ga('set', 'anonymizeIp', true);
-                            }
-                            resolve();
-                        };
-                        script.onerror = () => {
-                            resolve();
-                        };
-                        this.document.body.appendChild(script);
-                    });
-                };
-                await ga4();
-                await ua();
+                const measurement_id = '848W2NVWVH';
+                const user = this._getCookie('_ga').replace(/^(GA1\.\d\.)*/, '');
+                const session = this._getCookie(`_ga${measurement_id}`);
+                await this._telemetry.start(`G-${measurement_id}`, user, session);
+                this._telemetry.set('page_location', document.location && document.location.href ? document.location.href : null);
+                this._telemetry.set('page_title', document.title ? document.title : null);
+                this._telemetry.set('page_referrer', document.referrer ? document.referrer : null);
+                this._telemetry.send('page_view', {
+                    app_name: this.type,
+                    app_version: this.version,
+                });
+                this._telemetry.send('scroll', {
+                    percent_scrolled: 90,
+                    app_name: this.type,
+                    app_version: this.version
+                });
+                this._setCookie('_ga', `GA1.2.${this._telemetry.get('client_id')}`, 1200);
+                this._setCookie(`_ga${measurement_id}`, `GS1.1.${this._telemetry.session}`, 1200);
             }
         };
         const capabilities = async () => {
             const filter = (list) => {
                 return list.filter((capability) => {
                     const path = capability.split('.').reverse();
-                    let obj = this.window[path.pop()];
+                    let obj = window[path.pop()];
                     while (obj && path.length > 0) {
                         obj = obj[path.pop()];
                     }
                     return obj;
                 });
             };
-            const required = [
-                'TextDecoder', 'TextEncoder',
-                'URLSearchParams',
-                'HTMLCanvasElement.prototype.toBlob',
-                'Promise', 'Symbol.asyncIterator'
-            ];
-            const optional = [
-                'fetch',
-                'DataView.prototype.getBigInt64',
-                'Worker',
-            ];
-            const available = filter(required);
-            const capabilities = available.concat(filter(optional));
+            const capabilities = filter(['fetch', 'DataView.prototype.getBigInt64', 'Worker', 'Array.prototype.flat']);
             this.event('browser_open', {
                 browser_capabilities: capabilities.map((capability) => capability.split('.').pop()).join(',')
             });
-            if (required.length > available.length) {
-                this.window.terminate('Your browser is not supported.');
-                return new Promise(() => {});
-            }
             return Promise.resolve();
         };
         await age();
@@ -176,52 +145,50 @@ host.BrowserHost = class {
     }
 
     async start() {
-
-        const hash = this.window.location.hash ? this.window.location.hash.replace(/^#/, '') : '';
-        const search = this.window.location.search;
-        const params = new URLSearchParams(search + (hash ? '&' + hash : ''));
-
-        if (this._meta.file && this._meta.identifier) {
-            const url = this._meta.file[0];
+        if (this._meta.file) {
+            const [url] = this._meta.file;
             if (this._view.accept(url)) {
-                this._openModel(this._url(url), null);
-                this._document.title = this._meta.identifier;
-                return;
+                const identifier = Array.isArray(this._meta.identifier) && this._meta.identifier.length === 1 ? this._meta.identifier[0] : null;
+                const name = this._meta.name || null;
+                const status = await this._openModel(this._url(url), identifier || null, name);
+                if (status === '') {
+                    return;
+                }
             }
         }
-
-        const url = params.get('url');
+        const window = this.window;
+        const document = this.document;
+        const search = window.location.search;
+        const params = new Map(search ? new window.URLSearchParams(window.location.search) : []);
+        const hash = window.location.hash ? window.location.hash.replace(/^#/, '') : '';
+        const url = hash ? hash : params.get('url');
         if (url) {
             const identifier = params.get('identifier') || null;
             const location = url
                 .replace(/^https:\/\/github\.com\/([\w-]*\/[\w-]*)\/blob\/([\w/\-_.]*)(\?raw=true)?$/, 'https://raw.githubusercontent.com/$1/$2')
                 .replace(/^https:\/\/github\.com\/([\w-]*\/[\w-]*)\/raw\/([\w/\-_.]*)$/, 'https://raw.githubusercontent.com/$1/$2')
                 .replace(/^https:\/\/huggingface.co\/(.*)\/blob\/(.*)$/, 'https://huggingface.co/$1/resolve/$2');
-            if (this._view.accept(identifier || location)) {
-                const title = await this._openModel(location, identifier);
-                if (title) {
-                    this.document.title = title;
+            if (this._view.accept(identifier || location) && location.indexOf('*') === -1) {
+                const status = await this._openModel(location, identifier);
+                if (status === '') {
                     return;
                 }
             }
         }
-
         const gist = params.get('gist');
         if (gist) {
             this._openGist(gist);
             return;
         }
-
         const openFileButton = this._element('open-file-button');
         const openFileDialog = this._element('open-file-dialog');
         if (openFileButton && openFileDialog) {
             openFileButton.addEventListener('click', () => {
                 this.execute('open');
             });
-            const mobileSafari = this.environment('platform') === 'darwin' && navigator.maxTouchPoints && navigator.maxTouchPoints > 1;
+            const mobileSafari = this.environment('platform') === 'darwin' && window.navigator.maxTouchPoints && window.navigator.maxTouchPoints > 1;
             if (!mobileSafari) {
-                const base = require('./base');
-                const extensions = new base.Metadata().extensions.map((extension) => '.' + extension);
+                const extensions = new base.Metadata().extensions.map((extension) => `.${extension}`);
                 openFileDialog.setAttribute('accept', extensions.join(', '));
             }
             openFileDialog.addEventListener('change', (e) => {
@@ -234,13 +201,13 @@ host.BrowserHost = class {
                 }
             });
         }
-        this.document.addEventListener('dragover', (e) => {
+        document.addEventListener('dragover', (e) => {
             e.preventDefault();
         });
-        this.document.addEventListener('drop', (e) => {
+        document.addEventListener('drop', (e) => {
             e.preventDefault();
         });
-        this.document.body.addEventListener('drop', (e) => {
+        document.body.addEventListener('drop', (e) => {
             e.preventDefault();
             if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
                 const files = Array.from(e.dataTransfer.files);
@@ -250,7 +217,6 @@ host.BrowserHost = class {
                 }
             }
         });
-
         this._view.show('welcome');
     }
 
@@ -258,35 +224,33 @@ host.BrowserHost = class {
         return this._environment[name];
     }
 
-    async error(message, detail) {
-        alert((message == 'Error' ? '' : message + ' ') + detail);
-        return 0;
+    async require(id) {
+        return import(`${id}.js`);
     }
 
-    confirm(message, detail) {
-        return confirm(message + ' ' + detail);
+    worker(id) {
+        const window = this.window;
+        return new window.Worker(`${id}.js`, { type: 'module' });
     }
 
-    require(id) {
-        return new Promise((resolve, reject) => {
-            this.window.require(id, (module) => resolve(module), (error) => reject(error));
-        });
+    async save(name, extension, defaultPath) {
+        return `${defaultPath}.${extension}`;
     }
 
-    save(name, extension, defaultPath, callback) {
-        callback(defaultPath + '.' + extension);
-    }
-
-    export(file, blob) {
-        const element = this.document.createElement('a');
+    async export(file, blob) {
+        const window = this.window;
+        const document = this.document;
+        const element = document.createElement('a');
         element.download = file;
-        element.href = URL.createObjectURL(blob);
-        this.document.body.appendChild(element);
+        const url = window.URL.createObjectURL(blob);
+        element.href = url;
+        document.body.appendChild(element);
         element.click();
-        this.document.body.removeChild(element);
+        document.body.removeChild(element);
+        window.URL.revokeObjectURL(url);
     }
 
-    execute(name /*, value */) {
+    async execute(name /*, value */) {
         switch (name) {
             case 'open': {
                 const openFileDialog = this._element('open-file-dialog');
@@ -297,7 +261,7 @@ host.BrowserHost = class {
                 break;
             }
             case 'report-issue': {
-                this.openURL(this.environment('repository') + '/issues/new');
+                this.openURL(`${this.environment('repository')}/issues/new`);
                 break;
             }
             case 'about': {
@@ -310,45 +274,58 @@ host.BrowserHost = class {
         }
     }
 
-    request(file, encoding, base) {
-        const url = base ? (base + '/' + file) : this._url(file);
-        return this._request(url, null, encoding);
+    async fetch(file, encoding, base) {
+        const url = base ? `${base}/${file}` : this._url(file);
+        return this._fetch(url, null, encoding);
+    }
+
+    async asset(file) {
+        this._assets = this._assets || new Map();
+        if (!this._assets.has(file)) {
+            const url = this._url(file);
+            const separator = (/\?/).test(url) ? '&' : '?';
+            const tag = this.version && this.version !== '0.0.0' ? `version=${this.version}` : `cb=${new Date().getTime()}`;
+            const request = this._request(`${url}${separator}${tag}`, null, 'utf-8');
+            request.catch(() => this._assets.delete(file));
+            this._assets.set(file, request);
+        }
+        return this._assets.get(file);
     }
 
     openURL(url) {
-        this.window.location = url;
+        const window = this.window;
+        window.location = url;
     }
 
     exception(error, fatal) {
-        if ((this._telemetry_ua || this._telemetry) && error) {
-            const name = error.name ? error.name + ': ' : '';
+        if (this._telemetry && error) {
+            const name = error.name ? `${error.name}: ` : '';
             const message = error.message ? error.message : JSON.stringify(error);
-            const description = name + message;
             let context = '';
             let stack = '';
             if (error.stack) {
                 const format = (file, line, column) => {
-                    return file.split('\\').join('/').split('/').pop() + ':' + line + ':' + column;
+                    return `${file.split('\\').join('/').split('/').pop()}:${line}:${column}`;
                 };
                 const match = error.stack.match(/\n {4}at (.*) \((.*):(\d*):(\d*)\)/);
                 if (match) {
-                    stack = match[1] + ' (' + format(match[2], match[3], match[4]) + ')';
+                    stack = `${match[1]} (${format(match[2], match[3], match[4])})`;
                 } else {
                     const match = error.stack.match(/\n {4}at (.*):(\d*):(\d*)/);
                     if (match) {
-                        stack = '(' + format(match[1], match[2], match[3]) + ')';
+                        stack = `(${format(match[1], match[2], match[3])})`;
                     } else {
                         const match = error.stack.match(/\n {4}at (.*)\((.*)\)/);
                         if (match) {
-                            stack = '(' + format(match[1], match[2], match[3]) + ')';
+                            stack = `(${format(match[1], match[2], match[3])})`;
                         } else {
                             const match = error.stack.match(/\s*@\s*(.*):(.*):(.*)/);
                             if (match) {
-                                stack = '(' + format(match[1], match[2], match[3]) + ')';
+                                stack = `(${format(match[1], match[2], match[3])})`;
                             } else {
                                 const match = error.stack.match(/.*\n\s*(.*)\s*/);
                                 if (match) {
-                                    stack = match[1];
+                                    [, stack] = match;
                                 }
                             }
                         }
@@ -357,14 +334,6 @@ host.BrowserHost = class {
             }
             if (error.context) {
                 context = typeof error.context === 'string' ? error.context : JSON.stringify(error.context);
-            }
-            if (this._telemetry_ua && this.window.ga) {
-                this.window.ga('send', 'exception', {
-                    exDescription: stack ? description + ' @ ' + stack : description,
-                    exFatal: fatal,
-                    appName: this.type,
-                    appVersion: this.version
-                });
             }
             this._telemetry.send('exception', {
                 app_name: this.type,
@@ -378,19 +347,6 @@ host.BrowserHost = class {
         }
     }
 
-    event_ua(category, action, label, value) {
-        if (this._telemetry_ua && this.window.ga && category && action && label) {
-            this.window.ga('send', 'event', {
-                eventCategory: category,
-                eventAction: action,
-                eventLabel: label,
-                eventValue: value,
-                appName: this.type,
-                appVersion: this.version
-            });
-        }
-    }
-
     event(name, params) {
         if (name && params) {
             params.app_name = this.type;
@@ -399,21 +355,24 @@ host.BrowserHost = class {
         }
     }
 
-    _request(url, headers, encoding, callback, timeout) {
+    async _fetch(url, headers, encoding, callback, timeout) {
+        if (!url.startsWith('data:')) {
+            const separator = (/\?/).test(url) ? '&' : '?';
+            url = `${url}${separator}cb=${new Date().getTime()}`;
+        }
+        return this._request(url, headers, encoding, callback, timeout);
+    }
+
+    async _request(url, headers, encoding, callback, timeout) {
+        const window = this.window;
         return new Promise((resolve, reject) => {
-            const request = new XMLHttpRequest();
+            const request = new window.XMLHttpRequest();
             if (!encoding) {
                 request.responseType = 'arraybuffer';
             }
             if (timeout) {
                 request.timeout = timeout;
             }
-            const error = (status) => {
-                const err = new Error("The web request failed with status code " + status + " at '" + url + "'.");
-                err.type = 'error';
-                err.url = url;
-                return err;
-            };
             const progress = (value) => {
                 if (callback) {
                     callback(value);
@@ -421,32 +380,33 @@ host.BrowserHost = class {
             };
             request.onload = () => {
                 progress(0);
-                if (request.status == 200) {
-                    if (request.responseType == 'arraybuffer') {
-                        const base = require('./base');
+                if (request.status === 200) {
+                    let value = null;
+                    if (request.responseType === 'arraybuffer') {
                         const buffer = new Uint8Array(request.response);
-                        const stream = new base.BinaryStream(buffer);
-                        resolve(stream);
+                        value = new base.BinaryStream(buffer);
                     } else {
-                        resolve(request.responseText);
+                        value = request.responseText;
                     }
+                    resolve(value);
                 } else {
-                    reject(error(request.status));
+                    const error = new Error(`The web request failed with status code '${request.status}'.`);
+                    error.context = url;
+                    reject(error);
                 }
             };
-            request.onerror = (e) => {
+            request.onerror = () => {
                 progress(0);
-                const err = error(request.status);
-                err.type = e.type;
-                reject(err);
+                const error = new Error(`The web request failed.`);
+                error.context = url;
+                reject(error);
             };
             request.ontimeout = () => {
                 progress(0);
                 request.abort();
-                const err = new Error("The web request timed out in '" + url + "'.");
-                err.type = 'timeout';
-                err.url = url;
-                reject(err);
+                const error = new Error('The web request timed out.', 'timeout', url);
+                error.context = url;
+                reject(error);
             };
             request.onprogress = (e) => {
                 if (e && e.lengthComputable) {
@@ -455,8 +415,8 @@ host.BrowserHost = class {
             };
             request.open('GET', url, true);
             if (headers) {
-                for (const name of Object.keys(headers)) {
-                    request.setRequestHeader(name, headers[name]);
+                for (const [name, value] of Object.entries(headers)) {
+                    request.setRequestHeader(name, value);
                 }
             }
             request.send();
@@ -464,110 +424,122 @@ host.BrowserHost = class {
     }
 
     _url(file) {
-        file = file.startsWith('./') ? file.substring(2) : file.startsWith('/') ? file.substring(1) : file;
-        const location = this.window.location;
-        const pathname = location.pathname.endsWith('/') ?
-            location.pathname :
-            location.pathname.split('/').slice(0, -1).join('/') + '/';
-        return location.protocol + '//' + location.host + pathname + file;
+        if (file.startsWith('./')) {
+            file = file.substring(2);
+        } else if (file.startsWith('/')) {
+            file = file.substring(1);
+        }
+        const window = this.window;
+        const location = window.location;
+        const pathname = location.pathname.endsWith('/') ? location.pathname : `${location.pathname.split('/').slice(0, -1).join('/')}/`;
+        return `${location.protocol}//${location.host}${pathname}${file}`;
     }
 
-    async _openModel(url, identifier) {
-        url = url.startsWith('data:') ? url : url + ((/\?/).test(url) ? '&' : '?') + 'cb=' + (new Date()).getTime();
+    async _openModel(url, identifier, name) {
         this._view.show('welcome spinner');
         let context = null;
         try {
             const progress = (value) => {
                 this._view.progress(value);
             };
-            let stream = await this._request(url, null, null, progress);
+            let stream = await this._fetch(url, null, null, progress);
             if (url.startsWith('https://raw.githubusercontent.com/') && stream.length < 150) {
                 const buffer = stream.peek();
                 const content = Array.from(buffer).map((c) => String.fromCodePoint(c)).join('');
                 if (content.split('\n')[0] === 'version https://git-lfs.github.com/spec/v1') {
                     url = url.replace('https://raw.githubusercontent.com/', 'https://media.githubusercontent.com/media/');
-                    stream = await this._request(url, null, null, progress);
+                    stream = await this._fetch(url, null, null, progress);
                 }
             }
-            context = new host.BrowserHost.Context(this, url, identifier, stream);
+            context = new browser.Context(this, url, identifier, name, stream);
             this._telemetry.set('session_engaged', 1);
         } catch (error) {
-            await this.error('Model load request failed.', error.message);
+            await this._view.error(error, 'Model load request failed.');
             this._view.show('welcome');
             return null;
         }
-        try {
-            await this._view.open(context);
-            return identifier || context.identifier;
-        } catch (err) {
-            if (err) {
-                this._view.error(err, null, 'welcome');
-            }
-            return null;
-        }
+        return await this._openContext(context);
     }
 
     async _open(file, files) {
         this._view.show('welcome spinner');
-        const context = new host.BrowserHost.BrowserFileContext(this, file, files);
+        const context = new browser.BrowserFileContext(this, file, files);
         try {
             await context.open();
-            this._telemetry.set('session_engaged', 1);
-            await this._view.open(context);
-            this._view.show(null);
-            this.document.title = files[0].name;
+            await this._openContext(context);
         } catch (error) {
-            this._view.error(error, null, null);
+            await this._view.error(error);
         }
     }
 
     async _openGist(gist) {
         this._view.show('welcome spinner');
-        const url = 'https://api.github.com/gists/' + gist;
+        const url = `https://api.github.com/gists/${gist}`;
         try {
-            const text = await this._request(url, { 'Content-Type': 'application/json' }, 'utf-8');
+            const text = await this._fetch(url, { 'Content-Type': 'application/json' }, 'utf-8');
             const json = JSON.parse(text);
-            if (json.message) {
-                this.error('Error while loading Gist.', json.message);
-                return;
+            let message = json.message;
+            let file = null;
+            if (!message) {
+                file = Object.values(json.files).find((file) => this._view.accept(file.filename));
+                if (!file) {
+                    message = 'Gist does not contain a model file.';
+                }
             }
-            const key = Object.keys(json.files).find((key) => this._view.accept(json.files[key].filename));
-            if (!key) {
-                this.error('Error while loading Gist.', 'Gist does not contain a model file.');
-                return;
+            if (message) {
+                const error = new Error(message);
+                error.name = 'Error while loading Gist.';
+                throw error;
             }
-            const base = require('./base');
-            const file = json.files[key];
             const identifier = file.filename;
             const encoder = new TextEncoder();
             const buffer = encoder.encode(file.content);
             const stream = new base.BinaryStream(buffer);
-            const context = new host.BrowserHost.Context(this, '', identifier, stream);
-            this._telemetry.set('session_engaged', 1);
-            try {
-                await this._view.open(context);
-                this.document.title = identifier;
-            } catch (error) {
-                if (error) {
-                    this._view.error(error, error.name, 'welcome');
-                }
-            }
+            const context = new browser.Context(this, '', identifier, null, stream);
+            await this._openContext(context);
         } catch (error) {
-            this._view.error(error, 'Model load request failed.', 'welcome');
+            await this._view.error(error, 'Error while loading Gist.');
+            this._view.show('welcome');
+        }
+    }
+
+    async _openContext(context) {
+        const document = this.document;
+        this._telemetry.set('session_engaged', 1);
+        try {
+            const attachment = await this._view.attach(context);
+            if (attachment) {
+                this._view.show(null);
+                return 'context-open-attachment';
+            }
+            const model = await this._view.open(context);
+            if (model) {
+                this._view.show(null);
+                document.title = context.name || context.identifier;
+                return '';
+            }
+            document.title = '';
+            return 'context-open-failed';
+        } catch (error) {
+            await this._view.error(error, error.name);
+            return 'context-open-error';
         }
     }
 
     _setCookie(name, value, days) {
-        this.document.cookie = name + '=; Max-Age=0';
-        const location = this.window.location;
-        const domain = location && location.hostname && location.hostname.indexOf('.') !== -1 ? ';domain=.' + location.hostname.split('.').slice(-2).join('.') : '';
+        const window = this.window;
+        const document = this.document;
+        document.cookie = `${name}=; Max-Age=0`;
+        const location = window.location;
+        const domain = location && location.hostname && location.hostname.indexOf('.') !== -1 ? `;domain=.${location.hostname.split('.').slice(-2).join('.')}` : '';
         const date = new Date();
         date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
-        this.document.cookie = name + "=" + value + domain + ";path=/;expires=" + date.toUTCString();
+        document.cookie = `${name}=${value}${domain};path=/;expires=${date.toUTCString()}`;
     }
 
     _getCookie(name) {
-        for (const cookie of this.document.cookie.split(';')) {
+        const document = this.document;
+        for (const cookie of document.cookie.split(';')) {
             const entry = cookie.split('=');
             if (entry[0].trim() === name) {
                 return entry[1].trim();
@@ -576,33 +548,81 @@ host.BrowserHost = class {
         return '';
     }
 
-    _element(id) {
-        return this.document.getElementById(id);
+    get(name) {
+        const window = this.window;
+        try {
+            if (typeof window.localStorage !== 'undefined') {
+                const content = window.localStorage.getItem(name);
+                return JSON.parse(content);
+            }
+        } catch {
+            // continue regardless of error
+        }
+        return undefined;
     }
 
-    _message(message, action) {
+    set(name, value) {
+        const window = this.window;
+        try {
+            if (typeof window.localStorage !== 'undefined') {
+                window.localStorage.setItem(name, JSON.stringify(value));
+            }
+        } catch {
+            // continue regardless of error
+        }
+    }
+
+    delete(name) {
+        const window = this.window;
+        try {
+            if (typeof window.localStorage !== 'undefined') {
+                window.localStorage.removeItem(name);
+            }
+        } catch {
+            // continue regardless of error
+        }
+    }
+
+    _element(id) {
+        const document = this.document;
+        return document.getElementById(id);
+    }
+
+    update() {
+    }
+
+    async message(message, alert, action) {
         return new Promise((resolve) => {
-            this._element('message-text').innerText = message;
+            const document = this.document;
+            const type = document.body.getAttribute('class');
+            this._element('message-text').innerText = message || '';
             const button = this._element('message-button');
             if (action) {
                 button.style.removeProperty('display');
                 button.innerText = action;
                 button.onclick = () => {
                     button.onclick = null;
-                    this._document.body.classList.remove('message');
-                    resolve();
+                    document.body.setAttribute('class', type);
+                    resolve(0);
                 };
-                button.focus();
             } else {
                 button.style.display = 'none';
                 button.onclick = null;
             }
-            this._document.body.classList.add('message');
+            if (alert) {
+                document.body.setAttribute('class', 'alert');
+            } else {
+                document.body.classList.add('notification');
+                document.body.classList.remove('default');
+            }
+            if (action) {
+                button.focus();
+            }
         });
     }
 };
 
-host.BrowserHost.BrowserFileContext = class {
+browser.BrowserFileContext = class {
 
     constructor(host, file, blobs) {
         this._host = host;
@@ -621,17 +641,22 @@ host.BrowserHost.BrowserFileContext = class {
         return this._stream;
     }
 
-    async request(file, encoding, basename) {
+    async asset(file) {
+        return this._host.asset(file);
+    }
+
+    async fetch(file, encoding, basename) {
         if (basename !== undefined) {
-            return this._host.request(file, encoding, basename);
+            return this._host.fetch(file, encoding, basename);
         }
         const blob = this._blobs[file];
         if (!blob) {
-            throw new Error("File not found '" + file + "'.");
+            throw new Error(`File not found '${file}'.`);
         }
         return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            const size = 1024 * 1024 * 1024;
+            const window = this._host.window;
+            const reader = new window.FileReader();
+            const size = 0x10000000;
             let position = 0;
             const chunks = [];
             reader.onload = (e) => {
@@ -640,7 +665,6 @@ host.BrowserHost.BrowserFileContext = class {
                 } else {
                     const buffer = new Uint8Array(e.target.result);
                     if (position === 0 && buffer.length === blob.size) {
-                        const base = require('./base');
                         const stream = new base.BinaryStream(buffer);
                         resolve(stream);
                     } else {
@@ -650,7 +674,7 @@ host.BrowserHost.BrowserFileContext = class {
                             const slice = blob.slice(position, Math.min(position + size, blob.size));
                             reader.readAsArrayBuffer(slice);
                         } else {
-                            const stream = new host.BrowserHost.FileStream(chunks, size, 0, position);
+                            const stream = new browser.FileStream(chunks, size, 0, position);
                             resolve(stream);
                         }
                     }
@@ -662,16 +686,16 @@ host.BrowserHost.BrowserFileContext = class {
                 const error = event.target.error;
                 switch (error.code) {
                     case error.NOT_FOUND_ERR:
-                        message = "File not found '" + file + "'.";
+                        message = `File not found '${file}'.`;
                         break;
                     case error.NOT_READABLE_ERR:
-                        message = "File not readable '" + file + "'.";
+                        message = `File not readable '${file}'.`;
                         break;
                     case error.SECURITY_ERR:
-                        message = "File access denied '" + file + "'.";
+                        message = `File access denied '${file}'.`;
                         break;
                     default:
-                        message = error.message ? error.message : "File read '" + error.code.toString() + "' error '" + file + "'.";
+                        message = error.message ? error.message : `File read '${error.code}' error '${file}'.`;
                         break;
                 }
                 reject(new Error(message));
@@ -685,20 +709,20 @@ host.BrowserHost.BrowserFileContext = class {
         });
     }
 
-    require(id) {
+    async require(id) {
         return this._host.require(id);
     }
 
-    exception(error, fatal) {
+    error(error, fatal) {
         this._host.exception(error, fatal);
     }
 
     async open() {
-        this._stream = await this.request(this._file.name, null);
+        this._stream = await this.fetch(this._file.name, null);
     }
 };
 
-host.BrowserHost.FileStream = class {
+browser.FileStream = class {
 
     constructor(chunks, size, start, length) {
         this._chunks = chunks;
@@ -717,7 +741,7 @@ host.BrowserHost.FileStream = class {
     }
 
     stream(length) {
-        const file = new host.BrowserHost.FileStream(this._chunks, this._size, this._position, length);
+        const file = new browser.FileStream(this._chunks, this._size, this._start + this._position, length);
         this.skip(length);
         return file;
     }
@@ -729,83 +753,93 @@ host.BrowserHost.FileStream = class {
     skip(offset) {
         this._position += offset;
         if (this._position > this._length) {
-            throw new Error('Expected ' + (this._position - this._length) + ' more bytes. The file might be corrupted. Unexpected end of file.');
+            throw new Error(`Expected ${this._position - this._length} more bytes. The file might be corrupted. Unexpected end of file.`);
         }
     }
 
     peek(length) {
-        length = length !== undefined ? length : this._length - this._position;
+        length = length === undefined ? this._length - this._position : length;
         if (length < 0x10000000) {
             const position = this._fill(length);
             this._position -= length;
             return this._buffer.subarray(position, position + length);
         }
-        const position = this._position;
-        this.skip(length);
-        this.seek(position);
+        const position = this._start + this._position;
+        if (position % this._size === 0) {
+            const index = Math.floor(position / this._size);
+            const chunk = this._chunks[index];
+            if (chunk && chunk.length === length) {
+                return chunk;
+            }
+        }
         const buffer = new Uint8Array(length);
         this._read(buffer, position);
         return buffer;
     }
 
     read(length) {
-        length = length !== undefined ? length : this._length - this._position;
+        length = length === undefined ? this._length - this._position : length;
         if (length < 0x10000000) {
             const position = this._fill(length);
-            return this._buffer.subarray(position, position + length);
+            return this._buffer.slice(position, position + length);
         }
-        const position = this._position;
+        const position = this._start + this._position;
         this.skip(length);
+        if (position % this._size === 0) {
+            const index = Math.floor(position / this._size);
+            const chunk = this._chunks[index];
+            if (chunk && chunk.length === length) {
+                return chunk;
+            }
+        }
         const buffer = new Uint8Array(length);
         this._read(buffer, position);
         return buffer;
     }
 
-    byte() {
-        const position = this._fill(1);
-        return this._buffer[position];
-    }
-
     _fill(length) {
         if (this._position + length > this._length) {
-            throw new Error('Expected ' + (this._position + length - this._length) + ' more bytes. The file might be corrupted. Unexpected end of file.');
+            throw new Error(`Expected ${this._position + length - this._length} more bytes. The file might be corrupted. Unexpected end of file.`);
         }
         if (!this._buffer || this._position < this._offset || this._position + length > this._offset + this._buffer.length) {
-            this._offset = this._position;
-            this._buffer = new Uint8Array(Math.min(0x10000000, this._size, this._length - this._offset));
+            this._offset = this._start + this._position;
+            const length = Math.min(0x10000000, this._start + this._length - this._offset);
+            if (!this._buffer || length !== this._buffer.length) {
+                this._buffer = new Uint8Array(length);
+            }
             this._read(this._buffer, this._offset);
         }
-        const position = this._position;
+        const position = this._start + this._position - this._offset;
         this._position += length;
-        return position - this._offset;
+        return position;
     }
 
     _read(buffer, offset) {
-        const index = Math.floor(offset / this._size);
-        offset = offset - (index * this._size);
-        const length = Math.min(this._chunks[index].length - offset, buffer.length);
-        buffer.set(this._chunks[index].subarray(offset, offset + length), 0);
-        if (length !== buffer.length) {
-            buffer.set(this._chunks[index + 1].subarray(0, buffer.length - length), length);
+        let index = Math.floor(offset / this._size);
+        offset -= index * this._size;
+        const chunk = this._chunks[index++];
+        let destination = Math.min(chunk.length - offset, buffer.length);
+        buffer.set(chunk.subarray(offset, offset + destination), 0);
+        while (destination < buffer.length) {
+            const chunk = this._chunks[index++];
+            const size = Math.min(this._size, buffer.length - destination);
+            buffer.set(chunk.subarray(0, size), destination);
+            destination += size;
         }
     }
 };
 
-host.BrowserHost.Context = class {
+browser.Context = class {
 
-    constructor(host, url, identifier, stream) {
+    constructor(host, url, identifier, name, stream) {
         this._host = host;
+        this._name = name;
         this._stream = stream;
+        const parts = url.split('?')[0].split('/');
+        this._identifier = parts.pop();
+        this._base = parts.join('/');
         if (identifier) {
             this._identifier = identifier;
-            this._base = url;
-            if (this._base.endsWith('/')) {
-                this._base.substring(0, this._base.length - 1);
-            }
-        } else {
-            const parts = url.split('?')[0].split('/');
-            this._identifier = parts.pop();
-            this._base = parts.join('/');
         }
     }
 
@@ -813,30 +847,40 @@ host.BrowserHost.Context = class {
         return this._identifier;
     }
 
+    get name() {
+        return this._name;
+    }
+
     get stream() {
         return this._stream;
     }
 
-    request(file, encoding, base) {
-        return this._host.request(file, encoding, base === undefined ? this._base : base);
+    async asset(file) {
+        return this._host.asset(file);
     }
 
-    require(id) {
+    async fetch(file, encoding, base) {
+        base = base === undefined ? this._base : base;
+        return this._host.fetch(file, encoding, base);
+    }
+
+    async require(id) {
         return this._host.require(id);
     }
 
-    exception(error, fatal) {
+    error(error, fatal) {
         this._host.exception(error, fatal);
     }
 };
 
 if (!('scrollBehavior' in window.document.documentElement.style)) {
-    const __scrollTo__ = Element.prototype.scrollTo;
-    Element.prototype.scrollTo = function(options) {
+    const __scrollTo__ = window.Element.prototype.scrollTo;
+    window.Element.prototype.scrollTo = function(...args) {
+        const [options] = args;
         if (options !== undefined) {
-            if (options === null || typeof options !== 'object' || options.behavior === undefined || arguments[0].behavior === 'auto' || options.behavior === 'instant') {
+            if (options === null || typeof options !== 'object' || options.behavior === undefined || options.behavior === 'auto' || options.behavior === 'instant') {
                 if (__scrollTo__) {
-                    __scrollTo__.apply(this, arguments);
+                    __scrollTo__.apply(this, args);
                 }
             } else {
                 const now = () =>  window.performance && window.performance.now ? window.performance.now() : Date.now();
@@ -864,3 +908,9 @@ if (!('scrollBehavior' in window.document.documentElement.style)) {
         }
     };
 }
+
+if (typeof window !== 'undefined' && window.exports) {
+    window.exports.browser = browser;
+}
+
+export const Host = browser.Host;

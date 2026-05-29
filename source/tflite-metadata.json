@@ -141,7 +141,8 @@
       { "name": "stride_w", "type": "int32", "default": 0, "description": "stride of the filter window" },
       { "name": "stride_h", "type": "int32", "default": 0, "description": "stride of the filter window" },
       { "name": "dilation_w_factor", "type": "int32", "default": 1 },
-      { "name": "dilation_h_factor", "type": "int32", "default": 1 }
+      { "name": "dilation_h_factor", "type": "int32", "default": 1 },
+      { "name": "quantized_bias_type", "type": "TensorType", "default": "FLOAT32" }
     ],
     "inputs": [
       { "name": "input", "description": "4D tensor" },
@@ -197,6 +198,7 @@
   },
   {
     "name": "Dequantize",
+    "category": "Quantization",
     "inputs": [
       { "name": "input" }
     ],
@@ -278,7 +280,8 @@
       { "name": "fused_activation_function", "type": "ActivationFunctionType", "default": "NONE" },
       { "name": "weights_format", "type": "FullyConnectedOptionsWeightsFormat", "default": "DEFAULT" },
       { "name": "keep_num_dims", "type": "boolean", "default": false },
-      { "name": "asymmetric_quantize_inputs", "type": "boolean", "default": false }
+      { "name": "asymmetric_quantize_inputs", "type": "boolean", "default": false },
+      { "name": "quantized_bias_type", "type": "TensorType", "default": "FLOAT32" }
     ],
     "inputs": [
       { "name": "input", "type": "T" },
@@ -349,7 +352,15 @@
     ]
   },
   {
+    "name": "InstanceNorm",
+    "attributes": [
+      { "name": "epsilon", "type": "float32", "default": 0 },
+      { "name": "fused_activation_function", "type": "ActivationFunctionType", "default": "NONE" }
+    ]
+  },
+  {
     "name": "LeakyRelu",
+    "category": "Activation",
     "attributes": [
       { "name": "alpha", "type": "float32", "default": 0 }
     ]
@@ -565,6 +576,18 @@
     ]
   },
   {
+    "name": "Padv2",
+    "category": "Tensor",
+    "inputs": [
+      { "name": "input" },
+      { "name": "paddings" },
+      { "name": "constant_values" }
+    ],
+    "outputs": [
+      { "name": "output" }
+    ]
+  },
+  {
     "name": "Predict",
     "inputs": [
       { "name": "hashes" },
@@ -590,6 +613,7 @@
   },
   {
     "name": "Quantize",
+    "category": "Quantization",
     "inputs": [
       { "name": "input" }
     ],
@@ -635,6 +659,12 @@
     ],
     "outputs": [
       { "name": "output", "type": "T" }
+    ]
+  },
+  {
+    "name": "ReduceWindow",
+    "attributes": [
+      { "name": "reduce_function", "type": "ReduceWindowFunction", "default": "UNSUPPORTED" }
     ]
   },
   {
@@ -828,6 +858,170 @@
     ]
   },
   {
+    "name": "StablehloBroadcastInDim",
+    "attributes": [
+      { "name": "broadcast_dimensions", "type": "int64[]", "default": 0 }
+    ]
+  },
+  {
+    "name": "StablehloCase",
+    "attributes": [
+      { "name": "branch_subgraph_indices", "type": "int32[]", "default": 0 }
+    ]
+  },
+  {
+    "name": "StablehloCompare",
+    "attributes": [
+      { "name": "comparison_direction", "type": "StablehloComparisonDirection", "default": "STABLEHLO_COMPARISON_DIRECTION_EQ" },
+      { "name": "compare_type", "type": "StablehloComparisonType", "default": "STABLEHLO_COMPARISON_TYPE_NOTYPE" }
+    ]
+  },
+  {
+    "name": "StablehloConcatenate",
+    "attributes": [
+      { "name": "dimension", "type": "int64", "default": 0 }
+    ]
+  },
+  {
+    "name": "StablehloConvolution",
+    "attributes": [
+      { "name": "window_strides", "type": "int64[]", "default": 0 },
+      { "name": "padding", "type": "int64[]", "default": 0 },
+      { "name": "lhs_dilation", "type": "int64[]", "default": 0 },
+      { "name": "rhs_dilation", "type": "int64[]", "default": 0 },
+      { "name": "window_reversal", "type": "boolean", "default": false },
+      { "name": "input_batch_dimension", "type": "int64", "default": 0 },
+      { "name": "input_feature_dimension", "type": "int64", "default": 0 },
+      { "name": "input_spatial_dimensions", "type": "int64[]", "default": 0 },
+      { "name": "kernel_input_feature_dimension", "type": "int64", "default": 0 },
+      { "name": "kernel_output_feature_dimension", "type": "int64", "default": 0 },
+      { "name": "kernel_spatial_dimensions", "type": "int64[]", "default": 0 },
+      { "name": "output_batch_dimension", "type": "int64", "default": 0 },
+      { "name": "output_feature_dimension", "type": "int64", "default": 0 },
+      { "name": "output_spatial_dimensions", "type": "int64[]", "default": 0 },
+      { "name": "feature_group_count", "type": "int64", "default": 0 },
+      { "name": "batch_group_count", "type": "int64", "default": 0 },
+      { "name": "precision_config", "type": "StablehloPrecisionConfig[]", "default": "DEFAULT" }
+    ]
+  },
+  {
+    "name": "StablehloCustomCall",
+    "attributes": [
+      { "name": "call_target_name", "type": "string", "default": null },
+      { "name": "has_side_effect", "type": "boolean", "default": false },
+      { "name": "backend_config", "type": "string", "default": null },
+      { "name": "api_version", "type": "int32", "default": 0 },
+      { "name": "called_computations", "type": "int32[]", "default": 0 },
+      { "name": "custom_attributes", "type": "uint8[]", "default": 0 }
+    ]
+  },
+  {
+    "name": "StablehloDotGeneral",
+    "attributes": [
+      { "name": "lhs_batching_dimensions", "type": "int64[]", "default": 0 },
+      { "name": "rhs_batching_dimensions", "type": "int64[]", "default": 0 },
+      { "name": "lhs_contracting_dimensions", "type": "int64[]", "default": 0 },
+      { "name": "rhs_contracting_dimensions", "type": "int64[]", "default": 0 },
+      { "name": "precision_config", "type": "StablehloPrecisionConfig[]", "default": "DEFAULT" }
+    ]
+  },
+  {
+    "name": "StablehloDynamicSlice",
+    "attributes": [
+      { "name": "slice_sizes", "type": "int64[]", "default": 0 }
+    ]
+  },
+  {
+    "name": "StablehloGather",
+    "attributes": [
+      { "name": "offset_dims", "type": "int64[]", "default": 0 },
+      { "name": "collapsed_slice_dims", "type": "int64[]", "default": 0 },
+      { "name": "start_index_map", "type": "int64[]", "default": 0 },
+      { "name": "index_vector_dim", "type": "int64", "default": 0 },
+      { "name": "slice_sizes", "type": "int64[]", "default": 0 },
+      { "name": "indices_are_sorted", "type": "boolean", "default": false }
+    ]
+  },
+  {
+    "name": "StablehloIota",
+    "attributes": [
+      { "name": "iota_dimension", "type": "int64", "default": 0 }
+    ]
+  },
+  {
+    "name": "StablehloPad",
+    "attributes": [
+      { "name": "edge_padding_low", "type": "int64[]", "default": 0 },
+      { "name": "edge_padding_high", "type": "int64[]", "default": 0 },
+      { "name": "interior_padding", "type": "int64[]", "default": 0 }
+    ]
+  },
+  {
+    "name": "StablehloReduce",
+    "attributes": [
+      { "name": "dimensions", "type": "int64[]", "default": 0 },
+      { "name": "body_subgraph_index", "type": "int32", "default": 0 }
+    ]
+  },
+  {
+    "name": "StablehloReduceWindow",
+    "attributes": [
+      { "name": "window_dimensions", "type": "int64[]", "default": 0 },
+      { "name": "window_strides", "type": "int64[]", "default": 0 },
+      { "name": "base_dilations", "type": "int64[]", "default": 0 },
+      { "name": "window_dilations", "type": "int64[]", "default": 0 },
+      { "name": "padding", "type": "int64[]", "default": 0 },
+      { "name": "body_subgraph_index", "type": "int32", "default": 0 }
+    ]
+  },
+  {
+    "name": "StablehloRngBitGenerator",
+    "attributes": [
+      { "name": "algorithm", "type": "RngAlgorithm", "default": "DEFAULT" }
+    ]
+  },
+  {
+    "name": "StablehloScatter",
+    "attributes": [
+      { "name": "indices_are_sorted", "type": "boolean", "default": false },
+      { "name": "update_window_dims", "type": "int64[]", "default": 0 },
+      { "name": "inserted_window_dims", "type": "int64[]", "default": 0 },
+      { "name": "scatter_dims_to_operand_dims", "type": "int64[]", "default": 0 },
+      { "name": "index_vector_dim", "type": "int64", "default": 0 },
+      { "name": "unique_indices", "type": "boolean", "default": false },
+      { "name": "update_computation_subgraph_index", "type": "int32", "default": 0 }
+    ]
+  },
+  {
+    "name": "StablehloSlice",
+    "attributes": [
+      { "name": "start_indices", "type": "int64[]", "default": 0 },
+      { "name": "limit_indices", "type": "int64[]", "default": 0 },
+      { "name": "strides", "type": "int64[]", "default": 0 }
+    ]
+  },
+  {
+    "name": "StablehloSort",
+    "attributes": [
+      { "name": "dimension", "type": "int64", "default": 0 },
+      { "name": "is_stable", "type": "boolean", "default": false },
+      { "name": "comparator_subgraph_index", "type": "int32", "default": 0 }
+    ]
+  },
+  {
+    "name": "StablehloTranspose",
+    "attributes": [
+      { "name": "permutation", "type": "int64[]", "default": 0 }
+    ]
+  },
+  {
+    "name": "StablehloWhile",
+    "attributes": [
+      { "name": "cond_subgraph_index", "type": "int32", "default": 0 },
+      { "name": "body_subgraph_index", "type": "int32", "default": 0 }
+    ]
+  },
+  {
     "name": "StridedSlice",
     "category": "Tensor",
     "inputs": [
@@ -887,10 +1081,11 @@
       { "name": "input", "type": "T" },
       { "name": "feature", "type": "T" },
       { "name": "time", "type": "T" },
-      { "name": "bias", "type": "T" }
+      { "name": "bias", "type": "T" },
+      { "name": "state", "type": "T" }
     ],
     "outputs": [
-      { "name": "state", "type": "T" },
+      { "name": "state_out", "type": "T" },
       { "name": "output", "type": "T" }
     ]
   },
@@ -932,7 +1127,8 @@
       { "name": "padding", "type": "Padding", "default": "SAME" },
       { "name": "stride_w", "type": "int32", "default": 0 },
       { "name": "stride_h", "type": "int32", "default": 0 },
-      { "name": "fused_activation_function", "type": "ActivationFunctionType", "default": "NONE" }
+      { "name": "fused_activation_function", "type": "ActivationFunctionType", "default": "NONE" },
+      { "name": "quantized_bias_type", "type": "TensorType", "default": "FLOAT32" }
     ],
     "inputs": [
       { "name": "output_shape" },

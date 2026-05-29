@@ -13,6 +13,11 @@
     "category": "Transform"
   },
   {
+    "name": "Attention",
+    "operator": 299,
+    "category": "Attention"
+  },
+  {
     "name": "BatchMatMul",
     "operator": 106
   },
@@ -35,6 +40,7 @@
     "name": "BinaryOp",
     "operator": 7,
     "attributes": [
+      { "name": "activationType", "type": "FusedActivation" },
       { "name": "opType", "type": "BinaryOpOperation" },
       { "name": "T", "type": "DataType" }
     ]
@@ -128,7 +134,8 @@
   },
   {
     "name": "Dequantize",
-    "operator": 19
+    "operator": 19,
+    "category": "Quantization"
   },
   {
     "name": "DetectionOutput",
@@ -389,7 +396,8 @@
   },
   {
     "name": "QuantizeV2",
-    "operator": 64
+    "operator": 64,
+    "category": "Quantization"
   },
   {
     "name": "Range",
@@ -609,6 +617,7 @@
   },
   {
     "name": "Unsqueeze",
+    "category": "Transform",
     "operator": 107
   },
   {

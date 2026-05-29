@@ -3,8 +3,11 @@
 set -e
 pushd $(cd $(dirname ${0})/..; pwd) > /dev/null
 
+env_dir=./third_party/env/onnx
+src_dir=./third_party/source/onnx
+
 case "${OSTYPE}" in
-    msys*) python="winpty python";;
+    msys*|cygwin*|mingw*) python="winpty python";;
     *) python="python";;
 esac
 
@@ -12,7 +15,7 @@ venv() {
     env_dir=./third_party/env/onnx
     [ -d "${env_dir}" ] || ${python} -m venv ${env_dir}
     case "${OSTYPE}" in
-        msys*) source ${env_dir}/Scripts/activate;;
+        msys*|cygwin*|mingw*) source ${env_dir}/Scripts/activate;;
         *) source ${env_dir}/bin/activate;;
     esac
     ${python} -m pip install --quiet --upgrade pip setuptools wheel
@@ -20,89 +23,104 @@ venv() {
 
 clean() {
     echo "onnx clean"
-    rm -rf "./third_party/env/onnx"
-    rm -rf "./third_party/source/onnx"
-    rm -rf "./third_party/source/onnxruntime"
+    rm -rf "${env_dir}"
+    rm -rf "${src_dir}"
+    rm -rf "./third_party/bin/protobuf"
 }
 
 sync() {
     echo "onnx sync"
-    [ -d "./third_party/source/onnx" ] || git clone --quiet --recursive https://github.com/onnx/onnx.git "./third_party/source/onnx"
-    pushd "./third_party/source/onnx" > /dev/null
-    git pull --quiet --prune
-    git submodule sync --quiet
-    git submodule update --quiet --init --recursive
+    onnx_src_dir="${src_dir}/onnx"
+    if [ ! -d "${onnx_src_dir}" ]; then
+        git clone --quiet --depth=1 --branch main --single-branch https://github.com/onnx/onnx.git "${onnx_src_dir}"
+    else
+        git -C "${onnx_src_dir}" fetch --quiet --depth=1 origin main
+        git -C "${onnx_src_dir}" reset --quiet --hard FETCH_HEAD
+        git -C "${onnx_src_dir}" gc --quiet --prune=all
+    fi
     popd > /dev/null
-    mkdir -p "./third_party/source/onnxruntime/core/flatbuffers/schema"
-    curl --silent --location --output "./third_party/source/onnxruntime/core/flatbuffers/schema/ort.fbs" "https://github.com/microsoft/onnxruntime/raw/main/onnxruntime/core/flatbuffers/schema/ort.fbs"
+    mkdir -p "./third_party/source/onnx/onnxruntime/core/flatbuffers/schema"
+    curl --silent --show-error --location --output "./third_party/source/onnx/onnxruntime/core/flatbuffers/schema/ort.fbs" "https://github.com/microsoft/onnxruntime/raw/main/onnxruntime/core/flatbuffers/schema/ort.fbs"
 }
 
 install() {
     echo "onnx install"
-    protoc_version=3.20.2
-    protobuf="protobuf==${protoc_version}"
-    protoc_dir="$(pwd)/third_party/bin/protobuf/v${protoc_version}"
+    onnx_src_dir="${src_dir}/onnx"
+    venv
+    protobuf_version=$(grep "protobuf" ${onnx_src_dir}/requirements.txt | cut -d'=' -f2)
+    protoc_dir="$(pwd)/third_party/bin/protobuf/v${protobuf_version}"
     case "${OSTYPE}" in
-        linux*)
-            [ -x "$(command -v cmake)" ] || sudo apt install -y cmake
-            if [ ! -f "${protoc_dir}/bin/protoc" ]; then
-                rm -rf ${protoc_dir}
-                git clone --quiet -c advice.detachedHead=false --quiet --recursive --depth=1 --branch v${protoc_version} https://github.com/protocolbuffers/protobuf.git ${protoc_dir}/src
-                pushd "${protoc_dir}/src/cmake" > /dev/null
-                cmake ../cmake -DCMAKE_CXX_FLAGS="-w" -Dprotobuf_BUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX="..\.." -DCMAKE_INSTALL_SYSCONFDIR=/etc -DCMAKE_POSITION_INDEPENDENT_CODE=ON -Dprotobuf_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release > /dev/null
-                make -j$(nproc) > /dev/null
-                make install > /dev/null
-                popd > /dev/null
-            fi
-            export PATH="${protoc_dir}\bin":${PATH}
-            ;;
-        darwin*)
-            [ -x "$(command -v cmake)" ] || brew install cmake > /dev/null
-            if [ ! -f "${protoc_dir}/bin/protoc" ]; then
-                rm -rf ${protoc_dir}
-                git clone --quiet -c advice.detachedHead=false --quiet --recursive --depth=1 --branch v${protoc_version} https://github.com/protocolbuffers/protobuf.git ${protoc_dir}/src
-                pushd "${protoc_dir}/src/cmake" > /dev/null
-                cmake ../cmake -DCMAKE_CXX_FLAGS="-w" -Dprotobuf_BUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX="..\.." -DCMAKE_INSTALL_SYSCONFDIR=/etc -DCMAKE_POSITION_INDEPENDENT_CODE=ON -Dprotobuf_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release > /dev/null
-                make > /dev/null
-                make install > /dev/null
-                popd > /dev/null
-            fi
-            export PATH="${protoc_dir}\bin":${PATH}
-            ;;
-        msys*)
-            # winget install -e --id=Microsoft.VisualStudio.2019.BuildTools --override "--passive --wait --add Microsoft.VisualStudio.Workload.VCTools;includeRecommended"
-            programfiles_x86_dir=$(env | grep "^ProgramFiles(x86)=" | cut -d '=' -f 2)
-            build_tools_dir="${programfiles_x86_dir}\Microsoft Visual Studio\2019\BuildTools"
+        # linux*)
+        #     [ -x "$(command -v cmake)" ] || sudo apt install -y cmake
+        #     if [ ! -f "${protoc_dir}/bin/protoc" ]; then
+        #         rm -rf ${protoc_dir}
+        #         git clone --quiet -c advice.detachedHead=false --quiet --recursive --depth=1 --branch v${protobuf_version} https://github.com/protocolbuffers/protobuf.git ${protoc_dir}/src
+        #         pushd "${protoc_dir}/src/cmake" > /dev/null
+        #         cmake ../cmake -DCMAKE_CXX_FLAGS="-w" -Dprotobuf_BUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX="..\.." -DCMAKE_INSTALL_SYSCONFDIR=/etc -DCMAKE_POSITION_INDEPENDENT_CODE=ON -Dprotobuf_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release > /dev/null
+        #         make -j$(nproc) > /dev/null
+        #         make install > /dev/null
+        #         popd > /dev/null
+        #     fi
+        #     export PATH="${protoc_dir}\bin":${PATH}
+        #     ;;
+        # darwin*)
+        #     [ -x "$(command -v cmake)" ] || brew install cmake > /dev/null
+        #     if [ ! -f "${protoc_dir}/bin/protoc" ]; then
+        #         rm -rf ${protoc_dir}
+        #         git clone --quiet -c advice.detachedHead=false --quiet --recursive --depth=1 --branch v${protobuf_version} https://github.com/protocolbuffers/protobuf.git ${protoc_dir}/src
+        #         pushd "${protoc_dir}/src/cmake" > /dev/null
+        #         cmake ../cmake -DCMAKE_CXX_FLAGS="-w" -Dprotobuf_BUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX="..\.." -DCMAKE_INSTALL_SYSCONFDIR=/etc -DCMAKE_POSITION_INDEPENDENT_CODE=ON -Dprotobuf_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release > /dev/null
+        #         make > /dev/null
+        #         make install > /dev/null
+        #         popd > /dev/null
+        #     fi
+        #     export PATH="${protoc_dir}\bin":${PATH}
+        #     ;;
+        msys*|cygwin*|mingw*)
+            # winget install -e --id=Microsoft.VisualStudio.2026.BuildTools --override "--passive --wait --add Microsoft.VisualStudio.Workload.VCTools;includeRecommended"
+            programfiles_x86=$(env | grep "^ProgramFiles(x86)=" | cut -d '=' -f 2)
+            vswhere="${programfiles_x86}\Microsoft Visual Studio\Installer\vswhere.exe"
+            build_tools_dir=$("${vswhere}" -latest -products '*' -property installationPath)
+            case "$(uname -s)" in
+                *ARM64*) cmake_arch="ARM64" ;;
+                *) cmake_arch="x64" ;;
+            esac
             cmake_dir="${build_tools_dir}\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin"
-            msbuild_dir="${build_tools_dir}\MSBuild\Current\Bin"
+            protobuf="protobuf==${protobuf_version}"
+            ${python} -m pip install --quiet --upgrade ${protobuf}
+            export PATH="$(cygpath -u "${cmake_dir}")":${PATH}
             if [ ! -f "${protoc_dir}/bin/protoc.exe" ]; then
                 rm -rf ${protoc_dir}
-                git clone --quiet -c advice.detachedHead=false -b v${protoc_version} https://github.com/protocolbuffers/protobuf.git ${protoc_dir}/src
-                pushd "${protoc_dir}/src/cmake" > /dev/null
-                "${cmake_dir}\cmake.exe" -G "Visual Studio 16 2019" -A x64 -Dprotobuf_MSVC_STATIC_RUNTIME=OFF -Dprotobuf_BUILD_SHARED_LIBS=OFF -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_BUILD_EXAMPLES=OFF -DCMAKE_INSTALL_PREFIX="..\.." > /dev/null
-                "${msbuild_dir}\MSBuild.exe" protobuf.sln //m //p:Configuration=Release > /dev/null
-                "${msbuild_dir}\MSBuild.exe" INSTALL.vcxproj //p:Configuration=Release > /dev/null
+                git init --quiet ${protoc_dir}/src
+                git -C ${protoc_dir}/src fetch --quiet --depth=1 https://github.com/protocolbuffers/protobuf.git v${protobuf_version}
+                git -C ${protoc_dir}/src checkout --quiet FETCH_HEAD
+                git -C ${protoc_dir}/src submodule update --quiet --init --recursive --depth=1
+                pushd "${protoc_dir}/src" > /dev/null
+                "${cmake_dir}\cmake.exe" -Wno-deprecated -A ${cmake_arch} -Dprotobuf_MSVC_STATIC_RUNTIME=OFF -Dprotobuf_BUILD_SHARED_LIBS=OFF -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_BUILD_EXAMPLES=OFF -DABSL_PROPAGATE_CXX_STD=ON -DCMAKE_INSTALL_PREFIX="$(cygpath -w "${protoc_dir}")" . > /dev/null
+                "${cmake_dir}\cmake.exe" --build . --config Release > /dev/null
+                "${cmake_dir}\cmake.exe" --install . --config Release > /dev/null
                 popd > /dev/null
             fi
-            export PATH="${protoc_dir}\bin":"$(cygpath -u "${cmake_dir}")":${PATH}
+            export PATH="${protoc_dir}\bin":${PATH}
             export USE_MSVC_STATIC_RUNTIME=0
             ;;
     esac
-    venv
-    ${python} -m pip install --quiet --upgrade ${protobuf} numpy
-    ${python} -m pip install --quiet "./third_party/source/onnx"
+    ${python} -m pip install --quiet "${onnx_src_dir}"
+    ${python} -m pip install --quiet --upgrade flatbuffers numpy packaging protobuf sympy
+    ${python} -m pip install --quiet --upgrade onnxruntime --pre --extra-index https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/ORT-Nightly/pypi/simple/
     deactivate
 }
 
 schema() {
     echo "onnx schema"
+    onnx_src_dir="${src_dir}/onnx"
     [[ $(grep -U $'\x0D' ./source/onnx-proto.js) ]] && crlf=1
-    node ./tools/protoc.js --text --root onnx --out ./source/onnx-proto.js --path ./third_party/source/onnx onnx/onnx-ml.proto onnx/onnx-operators-ml.proto
+    node ./tools/protoc.js --binary --text --json --root onnx --out ./source/onnx-proto.js --path ${onnx_src_dir} onnx/onnx-ml.proto onnx/onnx-operators-ml.proto
     if [[ -n ${crlf} ]]; then
         unix2dos --quiet --newfile ./source/onnx-proto.js ./source/onnx-proto.js
     fi
     [[ $(grep -U $'\x0D' ./source/onnx-schema.js) ]] && crlf=1
-    node ./tools/flatc.js --root ort --out ./source/onnx-schema.js ./third_party/source/onnxruntime/core/flatbuffers/schema/ort.fbs
+    node ./tools/flatc.js --root ort --out ./source/onnx-schema.js ${src_dir}/onnxruntime/core/flatbuffers/schema/ort.fbs
     if [[ -n ${crlf} ]]; then
         unix2dos --quiet --newfile ./source/onnx-schema.js ./source/onnx-schema.js
     fi
@@ -113,7 +131,7 @@ metadata() {
     [[ $(grep -U $'\x0D' ./source/onnx-metadata.json) ]] && crlf=1
     venv
     export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
-    ${python} ./tools/onnx_metadata.py
+    ${python} ./tools/onnx_script.py
     deactivate
     if [[ -n ${crlf} ]]; then
         unix2dos --quiet --newfile ./source/onnx-metadata.json ./source/onnx-metadata.json

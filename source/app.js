@@ -1,30 +1,40 @@
 
-const electron = require('electron');
-const updater = require('electron-updater');
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
-const process = require('process');
-const url = require('url');
-const base = require('./base');
+import * as base from './base.js';
+import * as electron from 'electron';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import * as process from 'process';
+import * as updater from 'electron-updater';
+import * as url from 'url';
 
-var app = {};
+const app = {};
 
 app.Application = class {
 
     constructor() {
-
         this._views = new app.ViewCollection(this);
         this._configuration = new app.ConfigurationService();
         this._menu = new app.MenuService(this._views);
         this._openQueue = [];
+        this._package = {};
+    }
 
-        const packageFile = path.join(path.dirname(__dirname), 'package.json');
-        const packageContent = fs.readFileSync(packageFile, 'utf-8');
+    async start() {
+        const dirname = path.dirname(url.fileURLToPath(import.meta.url));
+        const packageFile = path.join(path.dirname(dirname), 'package.json');
+        const packageContent =  fs.readFileSync(packageFile, 'utf-8');
         this._package = JSON.parse(packageContent);
 
         electron.app.setAppUserModelId('com.lutzroeder.netron');
         electron.app.allowRendererProcessReuse = true;
+
+        // Workaround electron/electron#50419 only available in Electron 43
+        if (process.platform === 'darwin') {
+            electron.app.commandLine.appendSwitch('use-mock-keychain');
+        } else if (process.platform === 'linux') {
+            electron.app.commandLine.appendSwitch('password-store', 'basic');
+        }
 
         if (!electron.app.requestSingleInstanceLock()) {
             electron.app.quit();
@@ -54,6 +64,11 @@ app.Application = class {
             this._configuration.save();
             event.returnValue = null;
         });
+        electron.ipcMain.on('delete-configuration', (event, obj) => {
+            this._configuration.delete(obj.name);
+            this._configuration.save();
+            event.returnValue = null;
+        });
         electron.ipcMain.on('drop-paths', (event, data) => {
             const paths = data.paths.filter((path) => {
                 if (fs.existsSync(path)) {
@@ -65,18 +80,31 @@ app.Application = class {
             this._dropPaths(event.sender, paths);
             event.returnValue = null;
         });
-        electron.ipcMain.on('show-message-box', (event, options) => {
-            const owner = event.sender.getOwnerBrowserWindow();
-            event.returnValue = electron.dialog.showMessageBoxSync(owner, options);
-        });
-        electron.ipcMain.on('show-save-dialog', (event, options) => {
-            const owner = event.sender.getOwnerBrowserWindow();
-            event.returnValue = electron.dialog.showSaveDialogSync(owner, options);
-        });
-        electron.ipcMain.on('execute', (event, data) => {
-            const owner = event.sender.getOwnerBrowserWindow();
-            this.execute(data.name, data.value || null, owner);
+        electron.ipcMain.on('update-recents', (event, data) => {
+            this._updateRecents(data.path);
             event.returnValue = null;
+        });
+        electron.ipcMain.on('show-save-dialog', async (event, options) => {
+            const owner = event.sender.getOwnerBrowserWindow();
+            const argument = {};
+            try {
+                const { filePath, canceled } = await electron.dialog.showSaveDialog(owner, options);
+                argument.filePath = filePath;
+                argument.canceled = canceled;
+            } catch (error) {
+                argument.error = error.message;
+            }
+            event.sender.send('show-save-dialog-complete', argument);
+        });
+        electron.ipcMain.on('execute', async (event, data) => {
+            const owner = event.sender.getOwnerBrowserWindow();
+            const argument = {};
+            try {
+                argument.value = await this.execute(data.name, data.value || null, owner);
+            } catch (error) {
+                argument.error = error.message;
+            }
+            event.sender.send('execute-complete', argument);
         });
 
         electron.app.on('will-finish-launching', () => {
@@ -100,7 +128,7 @@ app.Application = class {
         });
 
         this._parseCommandLine(process.argv);
-        this._checkForUpdates();
+        await this._checkForUpdates();
     }
 
     get environment() {
@@ -109,7 +137,7 @@ app.Application = class {
             name: this._package.productName,
             version: this._package.version,
             date: this._package.date,
-            repository: 'https://github.com' + this._package.repository,
+            repository: `https://github.com/${this._package.repository}`,
             platform: process.platform,
             separator: path.sep,
             titlebar: true // process.platform === 'darwin'
@@ -121,7 +149,8 @@ app.Application = class {
         let open = false;
         if (argv.length > 1) {
             for (const arg of argv.slice(1)) {
-                if (!arg.startsWith('-') && arg !== path.dirname(__dirname)) {
+                const dirname = path.dirname(url.fileURLToPath(import.meta.url));
+                if (!arg.startsWith('-') && arg !== path.dirname(dirname)) {
                     const extension = path.extname(arg).toLowerCase();
                     if (extension !== '' && extension !== '.js' && fs.existsSync(arg)) {
                         const stat = fs.statSync(arg);
@@ -137,7 +166,7 @@ app.Application = class {
     }
 
     _ready() {
-        this._configuration.load();
+        this._configuration.open();
         if (this._openQueue) {
             const queue = this._openQueue;
             this._openQueue = null;
@@ -159,14 +188,15 @@ app.Application = class {
     }
 
     _open(path) {
-        let paths = path ? [ path ] : [];
+        let paths = path ? [path] : [];
         if (paths.length === 0) {
             const extensions = new base.Metadata().extensions;
-            const showOpenDialogOptions = {
-                properties: [ 'openFile' ],
-                filters: [ { name: 'All Model Files', extensions: extensions } ]
+            const options = {
+                properties: ['openFile'],
+                filters: [{ name: 'All Model Files', extensions }]
             };
-            paths = electron.dialog.showOpenDialogSync(showOpenDialogOptions);
+            const owner = electron.BrowserWindow.getFocusedWindow();
+            paths = electron.dialog.showOpenDialogSync(owner, options);
         }
         if (Array.isArray(paths) && paths.length > 0) {
             for (const path of paths) {
@@ -187,13 +217,13 @@ app.Application = class {
                 if (stat.isFile() || stat.isDirectory()) {
                     const views = Array.from(this._views.views);
                     // find existing view for this file
-                    let view = views.find(view => view.match(path));
+                    let view = views.find((view) => view.match(path));
                     // find empty welcome window
-                    if (view == null) {
-                        view = views.find(view => view.match(null));
+                    if (!view) {
+                        view = views.find((view) => view.match(null));
                     }
                     // create new window
-                    if (view == null) {
+                    if (!view) {
                         view = this._views.openView();
                     }
                     view.open(path);
@@ -209,7 +239,6 @@ app.Application = class {
         for (const path of paths) {
             if (view) {
                 view.open(path);
-                this._updateRecents(path);
                 view = null;
             } else {
                 this._openPath(path);
@@ -217,7 +246,7 @@ app.Application = class {
         }
     }
 
-    _export() {
+    async _export() {
         const view = this._views.activeView;
         if (view && view.path) {
             let defaultPath = 'Untitled';
@@ -227,34 +256,34 @@ app.Application = class {
                 defaultPath = file.substring(0, lastIndex);
             }
             const owner = electron.BrowserWindow.getFocusedWindow();
-            const showSaveDialogOptions = {
+            const options = {
                 title: 'Export',
-                defaultPath: defaultPath,
+                defaultPath,
                 buttonLabel: 'Export',
                 filters: [
-                    { name: 'PNG', extensions: [ 'png' ] },
-                    { name: 'SVG', extensions: [ 'svg' ] }
+                    { name: 'PNG', extensions: ['png'] },
+                    { name: 'SVG', extensions: ['svg'] }
                 ]
             };
-            const selectedFile = electron.dialog.showSaveDialogSync(owner, showSaveDialogOptions);
-            if (selectedFile) {
-                view.execute('export', { 'file': selectedFile });
+            const { filePath, canceled } = await electron.dialog.showSaveDialog(owner, options);
+            if (filePath && !canceled) {
+                view.execute('export', { 'file': filePath });
             }
         }
     }
 
-    execute(command, value, window) {
+    async execute(command, value, window) {
         switch (command) {
             case 'open': this._open(value); break;
-            case 'export': this._export(); break;
+            case 'export': await this._export(); break;
             case 'close': window.close(); break;
             case 'quit': electron.app.quit(); break;
             case 'reload': this._reload(); break;
-            case 'report-issue': electron.shell.openExternal('https://github.com/' + this._package.repository + '/issues/new'); break;
+            case 'report-issue': electron.shell.openExternal(`https://github.com/${this._package.repository}/issues/new`); break;
             case 'about': this._about(); break;
             default: {
                 const view = this._views.get(window) || this._views.activeView;
-                if (view) {
+                if (view && view.get(`${command}.enabled`) !== false) {
                     view.execute(command, value || {});
                 }
                 this._menu.update();
@@ -266,15 +295,14 @@ app.Application = class {
         const view = this._views.activeView;
         if (view && view.path) {
             view.open(view.path);
-            this._updateRecents(view.path);
         }
     }
 
-    _checkForUpdates() {
+    async _checkForUpdates() {
         if (!electron.app.isPackaged) {
             return;
         }
-        const autoUpdater = updater.autoUpdater;
+        const autoUpdater = updater.default.autoUpdater;
         if (autoUpdater.app && autoUpdater.app.appUpdateConfigPath && !fs.existsSync(autoUpdater.app.appUpdateConfigPath)) {
             return;
         }
@@ -290,7 +318,7 @@ app.Application = class {
 
     _about() {
         let view = this._views.activeView;
-        if (view == null) {
+        if (!view) {
             view = this._views.openView();
         }
         view.execute('about');
@@ -300,8 +328,8 @@ app.Application = class {
         let updated = false;
         let recents = this._configuration.has('recents') ? this._configuration.get('recents') : [];
         if (path && (recents.length === 0 || recents[0] !== path)) {
-            recents = recents.filter((recent) => path !== recent.path);
-            recents.unshift({ path: path });
+            recents = recents.filter((recent) => path !== recent);
+            recents.unshift(path);
             updated = true;
         }
         const value = [];
@@ -310,12 +338,11 @@ app.Application = class {
                 updated = true;
                 break;
             }
-            const path = recent.path;
-            if (!fs.existsSync(path)) {
+            if (!fs.existsSync(recent)) {
                 updated = true;
                 continue;
             }
-            const stat = fs.statSync(path);
+            const stat = fs.statSync(recent);
             if (!stat.isFile() && !stat.isDirectory()) {
                 updated = true;
                 continue;
@@ -333,7 +360,7 @@ app.Application = class {
         let recents = [];
         if (this._configuration.has('recents')) {
             const value = this._configuration.get('recents');
-            recents = value.map((recent) => app.Application.location(recent.path));
+            recents = value.map((recent) => app.Application.location(recent));
         }
 
         if (this.environment.titlebar && recents.length > 0) {
@@ -362,7 +389,7 @@ app.Application = class {
                     label: electron.app.name,
                     submenu: [
                         {
-                            label: 'About ' + electron.app.name,
+                            label: `About ${electron.app.name}`,
                             click: () => /* this.execute('about', null) */ this._about()
                         },
                         { type: 'separator' },
@@ -375,36 +402,38 @@ app.Application = class {
                 });
             }
 
-            menuTemplate.push({
-                label: '&File',
-                submenu: [
-                    {
-                        label: '&Open...',
-                        accelerator: 'CmdOrCtrl+O',
-                        click: () => this._open(null)
-                    },
-                    {
-                        label: 'Open &Recent',
-                        submenu: menuRecentsTemplate
-                    },
-                    { type: 'separator' },
-                    {
-                        id: 'file.export',
-                        label: '&Export...',
-                        accelerator: 'CmdOrCtrl+Shift+E',
-                        click: () => this.execute('export', null)
-                    },
-                    { type: 'separator' },
-                    { role: 'close' },
-                ]
-            });
+            const fileSubmenu = [
+                {
+                    label: '&Open...',
+                    accelerator: 'CmdOrCtrl+O',
+                    click: () => this._open(null)
+                },
+                {
+                    label: 'Open &Recent',
+                    submenu: menuRecentsTemplate
+                },
+                { type: 'separator' },
+                {
+                    id: 'file.export',
+                    label: '&Export...',
+                    accelerator: 'CmdOrCtrl+Shift+E',
+                    click: async () => await this.execute('export', null)
+                },
+                { type: 'separator' },
+                { role: 'close' },
+            ];
 
             if (!darwin) {
-                menuTemplate.slice(-1)[0].submenu.push(
+                fileSubmenu.push(
                     { type: 'separator' },
                     { role: 'quit' }
                 );
             }
+
+            menuTemplate.push({
+                label: '&File',
+                submenu: fileSubmenu
+            });
 
             if (darwin) {
                 electron.systemPreferences.setUserDefault('NSDisabledDictationMenuItem', 'boolean', true);
@@ -418,32 +447,32 @@ app.Application = class {
                         id: 'edit.cut',
                         label: 'Cu&t',
                         accelerator: 'CmdOrCtrl+X',
-                        click: () => this.execute('cut', null),
+                        click: async () => await this.execute('cut', null),
                     },
                     {
                         id: 'edit.copy',
                         label: '&Copy',
                         accelerator: 'CmdOrCtrl+C',
-                        click: () => this.execute('copy', null),
+                        click: async () => await this.execute('copy', null),
                     },
                     {
                         id: 'edit.paste',
                         label: '&Paste',
                         accelerator: 'CmdOrCtrl+V',
-                        click: () => this.execute('paste', null),
+                        click: async () => await this.execute('paste', null),
                     },
                     {
                         id: 'edit.select-all',
                         label: 'Select &All',
                         accelerator: 'CmdOrCtrl+A',
-                        click: () => this.execute('selectall', null),
+                        click: async () => await this.execute('selectall', null),
                     },
                     { type: 'separator' },
                     {
                         id: 'edit.find',
                         label: '&Find...',
                         accelerator: 'CmdOrCtrl+F',
-                        click: () => this.execute('find', null),
+                        click: async () => await this.execute('find', null),
                     }
                 ]
             });
@@ -454,60 +483,60 @@ app.Application = class {
                     {
                         id: 'view.toggle-attributes',
                         accelerator: 'CmdOrCtrl+D',
-                        click: () => this.execute('toggle', 'attributes'),
+                        click: async () => await this.execute('toggle', 'attributes'),
                     },
                     {
                         id: 'view.toggle-weights',
                         accelerator: 'CmdOrCtrl+I',
-                        click: () => this.execute('toggle', 'weights'),
+                        click: async () => await this.execute('toggle', 'weights'),
                     },
                     {
                         id: 'view.toggle-names',
                         accelerator: 'CmdOrCtrl+U',
-                        click: () => this.execute('toggle', 'names'),
+                        click: async () => await this.execute('toggle', 'names'),
                     },
                     {
                         id: 'view.toggle-direction',
                         accelerator: 'CmdOrCtrl+K',
-                        click: () => this.execute('toggle', 'direction')
+                        click: async () => await this.execute('toggle', 'direction')
                     },
                     {
                         id: 'view.toggle-mousewheel',
                         accelerator: 'CmdOrCtrl+M',
-                        click: () => this.execute('toggle', 'mousewheel'),
+                        click: async () => await this.execute('toggle', 'mousewheel'),
                     },
                     { type: 'separator' },
                     {
                         id: 'view.reload',
                         label: '&Reload',
                         accelerator: darwin ? 'Cmd+R' : 'F5',
-                        click: () => this._reload(),
+                        click: async () => await this._reload(),
                     },
                     { type: 'separator' },
                     {
-                        id: 'view.reset-zoom',
+                        id: 'view.zoom-reset',
                         label: 'Actual &Size',
                         accelerator: 'Shift+Backspace',
-                        click: () => this.execute('reset-zoom', null),
+                        click: async () => await this.execute('zoom-reset', null),
                     },
                     {
                         id: 'view.zoom-in',
                         label: 'Zoom &In',
                         accelerator: 'Shift+Up',
-                        click: () => this.execute('zoom-in', null),
+                        click: async () => await this.execute('zoom-in', null),
                     },
                     {
                         id: 'view.zoom-out',
                         label: 'Zoom &Out',
                         accelerator: 'Shift+Down',
-                        click: () => this.execute('zoom-out', null),
+                        click: async () => await this.execute('zoom-out', null),
                     },
                     { type: 'separator' },
                     {
                         id: 'view.show-properties',
                         label: '&Properties...',
                         accelerator: 'CmdOrCtrl+Enter',
-                        click: () => this.execute('show-properties', null),
+                        click: async () => await this.execute('show-properties', null),
                     }
                 ]
             };
@@ -532,15 +561,15 @@ app.Application = class {
             const helpSubmenu = [
                 {
                     label: 'Report &Issue',
-                    click: () => this.execute('report-issue', null)
+                    click: async () => await this.execute('report-issue', null)
                 }
             ];
 
             if (!darwin) {
                 helpSubmenu.push({ type: 'separator' });
                 helpSubmenu.push({
-                    label: '&About ' + electron.app.name,
-                    click: () => this.execute('about', null)
+                    label: `&About ${electron.app.name}`,
+                    click: async () => await this.execute('about', null)
                 });
             }
 
@@ -557,7 +586,7 @@ app.Application = class {
                 enabled: (view) => view && view.path ? true : false
             });
             commandTable.set('edit.copy', {
-                enabled: (view) => view && view.path ? true : false
+                enabled: (view) => view && (view.path || view.get('copy.enabled')) ? true : false
             });
             commandTable.set('edit.paste', {
                 enabled: (view) => view && view.path ? true : false
@@ -591,14 +620,14 @@ app.Application = class {
             commandTable.set('view.reload', {
                 enabled: (view) => view && view.path ? true : false
             });
-            commandTable.set('view.reset-zoom', {
-                enabled: (view) => view && view.path ? true : false
+            commandTable.set('view.zoom-reset', {
+                enabled: (view) => view && view.path && view.get('zoom-reset.enabled') ? true : false
             });
             commandTable.set('view.zoom-in', {
-                enabled: (view) => view && view.path ? true : false
+                enabled: (view) => view && view.path && view.get('zoom-in.enabled') ? true : false
             });
             commandTable.set('view.zoom-out', {
-                enabled: (view) => view && view.path ? true : false
+                enabled: (view) => view && view.path && view.get('zoom-out.enabled') ? true : false
             });
             commandTable.set('view.show-properties', {
                 enabled: (view) => view && view.path ? true : false
@@ -613,10 +642,10 @@ app.Application = class {
         if (process.platform !== 'win32') {
             const homeDir = os.homedir();
             if (path.startsWith(homeDir)) {
-                return { path: path, label: '~' + path.substring(homeDir.length) };
+                return { path, label: `~${path.substring(homeDir.length)}` };
             }
         }
-        return { path: path, label: path };
+        return { path, label: path };
     }
 };
 
@@ -628,19 +657,22 @@ app.View = class {
         this._path = null;
         this._properties = new Map();
         this._dispatch = [];
+        const dirname = path.dirname(url.fileURLToPath(import.meta.url));
         const size = electron.screen.getPrimaryDisplay().workAreaSize;
         const options = {
             show: false,
             title: electron.app.name,
-            backgroundColor: electron.nativeTheme.shouldUseDarkColors ? '#1d1d1d' : '#e6e6e6',
-            icon: electron.nativeImage.createFromPath(path.join(__dirname, 'icon.png')),
+            backgroundColor: electron.nativeTheme.shouldUseDarkColors ? '#1e1e1e' : '#ececec',
+            icon: electron.nativeImage.createFromPath(path.join(dirname, 'icon.png')),
             minWidth: 600,
             minHeight: 600,
             width: size.width > 1024 ? 1024 : size.width,
             height: size.height > 768 ? 768 : size.height,
             webPreferences: {
-                preload: path.join(__dirname, 'electron.js'),
-                nodeIntegration: true
+                preload: path.join(dirname, 'desktop.mjs'),
+                contextIsolation: true,
+                nodeIntegration: true,
+                enableDeprecatedPaste: true
             }
         };
         if (owner.application.environment.titlebar) {
@@ -648,7 +680,7 @@ app.View = class {
             options.thickFrame = true;
             options.titleBarStyle = 'hiddenInset';
         }
-        if (!this._owner.empty && app.View._position && app.View._position.length == 2) {
+        if (!this._owner.empty && app.View._position && app.View._position.length === 2) {
             options.x = app.View._position[0] + 30;
             options.y = app.View._position[1] + 30;
             if (options.x + options.width > size.width) {
@@ -669,7 +701,7 @@ app.View = class {
         this._window.on('unmaximize', () => this.state());
         this._window.on('enter-full-screen', () => this.state('enter-full-screen'));
         this._window.on('leave-full-screen', () => this.state('leave-full-screen'));
-        this._window.webContents.on('did-finish-load', () => {
+        this._window.webContents.once('did-finish-load', () => {
             this._didFinishLoad = true;
         });
         this._window.webContents.setWindowOpenHandler((detail) => {
@@ -685,7 +717,13 @@ app.View = class {
         if (owner.application.environment.titlebar && process.platform !== 'darwin') {
             this._window.removeMenu();
         }
-        this._loadURL();
+        const pathname = path.join(dirname, 'index.html');
+        let content = fs.readFileSync(pathname, 'utf-8');
+        content = content.replace(/<\s*script[^>]*>[\s\S]*?(<\s*\/script[^>]*>|$)/ig, '');
+        const data = `data:text/html;charset=utf-8,${encodeURIComponent(content)}`;
+        this._window.loadURL(data, {
+            baseURLForDataURL: url.pathToFileURL(pathname).toString()
+        });
     }
 
     get window() {
@@ -696,28 +734,24 @@ app.View = class {
         return this._path;
     }
 
-    open(path) {
+    async open(path) {
         this._openPath = path;
         const location = app.Application.location(path);
-        if (this._didFinishLoad) {
-            this._window.webContents.send('open', location);
-        } else {
-            this._window.webContents.on('did-finish-load', () => {
-                this._window.webContents.send('open', location);
-            });
-            this._loadURL();
-        }
-    }
-
-    _loadURL() {
-        const pathname = path.join(__dirname, 'index.html');
-        let content = fs.readFileSync(pathname, 'utf-8');
-        content = content.replace(/<\s*script[^>]*>[\s\S]*?(<\s*\/script[^>]*>|$)/ig, '');
-        const data = 'data:text/html;charset=utf-8,' + encodeURIComponent(content);
-        const options = {
-            baseURLForDataURL: url.pathToFileURL(pathname).toString()
-        };
-        this._window.loadURL(data, options);
+        await new Promise((resolve) => {
+            if (this._didFinishLoad) {
+                resolve();
+            } else {
+                this._window.webContents.once('did-finish-load', resolve);
+            }
+        });
+        await new Promise((resolve) => {
+            if (this._window.isVisible()) {
+                resolve();
+            } else {
+                this._window.once('ready-to-show', resolve);
+            }
+        });
+        this._window.webContents.send('open', location);
     }
 
     restore() {
@@ -738,7 +772,7 @@ app.View = class {
 
     execute(command, data) {
         if (this._dispatch) {
-            this._dispatch.push({ command: command, data: data });
+            this._dispatch.push({ command, data });
         } else if (this._window && this._window.webContents) {
             const window = this._window;
             const contents = window.webContents;
@@ -761,15 +795,13 @@ app.View = class {
     }
 
     update(data) {
-        for (const entry of Object.entries(data)) {
-            const name = entry[0];
-            const value = entry[1];
+        for (const [name, value] of Object.entries(data)) {
             switch (name) {
                 case 'path': {
                     if (value) {
                         this._path = value;
                         const location = app.Application.location(this._path);
-                        const title = process.platform !== 'darwin' ? location.label + ' - ' + electron.app.name : location.label;
+                        const title = process.platform === 'darwin' ? location.label : `${location.label} - ${electron.app.name}`;
                         this._window.setTitle(title);
                         this._window.focus();
                     }
@@ -803,10 +835,16 @@ app.View = class {
     }
 
     state(event) {
+        let fullscreen = false;
+        switch (event) {
+            case 'enter-full-screen': fullscreen = true; break;
+            case 'leave-full-screen': fullscreen = false; break;
+            default: fullscreen = this._window.isFullScreen(); break;
+        }
         this.execute('window-state', {
             minimized: this._window.isMinimized(),
             maximized: this._window.isMaximized(),
-            fullscreen: event === 'enter-full-screen' ? true : event === 'leave-full-screen' ? false : this._window.isFullScreen()
+            fullscreen
         });
         if (this._dispatch) {
             const dispatch = this._dispatch;
@@ -847,7 +885,8 @@ app.ViewCollection = class {
         electron.ipcMain.on('window-update', (event, data) => {
             const window = event.sender.getOwnerBrowserWindow();
             if (this._views.has(window)) {
-                this._views.get(window).update(data);
+                const view = this._views.get(window);
+                view.update(data);
             }
             event.returnValue = null;
         });
@@ -934,43 +973,51 @@ app.ViewCollection = class {
 app.ConfigurationService = class {
 
     constructor() {
+        this._content = { 'recents': [] };
         const dir = electron.app.getPath('userData');
         if (dir && dir.length > 0) {
             this._file = path.join(dir, 'configuration.json');
         }
     }
 
-    load() {
-        this._data = { 'recents': [] };
+    open() {
         if (this._file && fs.existsSync(this._file)) {
             const data = fs.readFileSync(this._file, 'utf-8');
             if (data) {
                 try {
-                    this._data = JSON.parse(data);
-                } catch (error) {
-                    // continue regardless of error
+                    const content = JSON.parse(data);
+                    if (Array.isArray(content.recents)) {
+                        content.recents = content.recents.map((recent) => typeof recent !== 'string' && recent && recent.path ? recent.path : recent);
+                    }
+                    this._content = content;
+                } catch {
+                    // Silently ignore parsing errors and use empty config
                 }
             }
         }
     }
 
     save() {
-        if (this._data && this._file) {
-            const data = JSON.stringify(this._data, null, 2);
+        if (this._content && this._file) {
+            const data = JSON.stringify(this._content, null, 2);
             fs.writeFileSync(this._file, data);
         }
     }
 
     has(name) {
-        return this._data && Object.prototype.hasOwnProperty.call(this._data, name);
+        return this._content && Object.prototype.hasOwnProperty.call(this._content, name);
     }
 
     set(name, value) {
-        this._data[name] = value;
+        this._content[name] = value;
     }
 
     get(name) {
-        return this._data[name];
+        return this._content[name];
+    }
+
+    delete(name) {
+        delete this._content[name];
     }
 };
 
@@ -1022,15 +1069,14 @@ app.MenuService = class {
 
     _updateLabel(view) {
         let rebuild = false;
-        for (const entry of this._commandTable.entries()) {
+        for (const [name, command] of this._commandTable.entries()) {
             if (this._menu) {
-                const menuItem = this._menu.getMenuItemById(entry[0]);
-                const command = entry[1];
+                const item = this._menu.getMenuItemById(name);
                 if (command && command.label) {
                     const label = command.label(view);
-                    if (label !== menuItem.label) {
-                        if (this._itemTable.has(entry[0])) {
-                            this._itemTable.get(entry[0]).label = label;
+                    if (label !== item.label) {
+                        if (this._itemTable.has(name)) {
+                            this._itemTable.get(name).label = label;
                             rebuild = true;
                         }
                     }
@@ -1041,16 +1087,22 @@ app.MenuService = class {
     }
 
     _updateEnabled(view) {
-        for (const entry of this._commandTable.entries()) {
+        for (const [name, command] of this._commandTable.entries()) {
             if (this._menu) {
-                const menuItem = this._menu.getMenuItemById(entry[0]);
-                const command = entry[1];
-                if (menuItem && command.enabled) {
-                    menuItem.enabled = command.enabled(view);
+                const item = this._menu.getMenuItemById(name);
+                if (item && command.enabled) {
+                    item.enabled = command.enabled(view);
                 }
             }
         }
     }
 };
 
-global.application = new app.Application();
+try {
+    global.application = new app.Application();
+    await global.application.start();
+} catch (error) {
+    /* eslint-disable no-console */
+    console.error(error.message);
+    /* eslint-enable no-console */
+}

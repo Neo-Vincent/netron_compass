@@ -1,9 +1,13 @@
 .DS_Store
 .DS_Store?
-.nyc_output/*
-coverage/*
+.claude
+.eslintcache
+.ruff_cache
+.specify
+.yarn
 dist/*
 node_modules/*
+test-results/*
 third_party/*
-package-lock.json
+yarn.lock
 *.pyc

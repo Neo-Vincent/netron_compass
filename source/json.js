@@ -1,17 +1,22 @@
 
-var json = {};
-var bson = {};
-var text = require('./text');
+import * as text from './text.js';
+
+const json = {};
+const bson = {};
 
 json.TextReader = class {
 
     static open(data) {
         const decoder = text.Decoder.open(data);
-        let state = 'start';
+        const position = decoder.position;
+        let state = '';
         for (let i = 0; i < 0x1000; i++) {
             const c = decoder.decode();
+            if (state === 'match') {
+                break;
+            }
             if (c === undefined || c === '\0') {
-                if (i === 0) {
+                if (state === '') {
                     return null;
                 }
                 break;
@@ -23,50 +28,48 @@ json.TextReader = class {
                 continue;
             }
             switch (state) {
-                case 'start':
-                    if (c === '#') {
-                        state = 'comment';
+                case '':
+                    if (c === '{') {
+                        state = '{}';
                     } else if (c === '[') {
-                        state = 'list';
-                    } else if (c === '{') {
-                        state = 'object';
-                    } else if (c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z') {
-                        state = '';
+                        state = '[]';
                     } else {
                         return null;
                     }
                     break;
-                case 'list':
-                    if (c === '"' || c === '-' || c === '+' || c === '{' || c === '[' || (c >= '0' && c <= '9')) {
-                        state = '';
-                        break;
-                    }
-                    return null;
-                case 'object':
-                    if (c != '"') {
+                case '[]':
+                    if (c !== '"' && c !== '-' && c !== '+' && c !== '{' && c !== '[' && c !== ']' && (c < '0' || c > '9')) {
                         return null;
                     }
-                    state = '';
-                    continue;
+                    state = 'match';
+                    break;
+                case '{}':
+                    if (c !== '"' && c !== '}') {
+                        return null;
+                    }
+                    state = 'match';
+                    break;
                 default:
                     break;
             }
         }
+        decoder.position = position;
         return new json.TextReader(decoder);
     }
 
     constructor(decoder) {
         this._decoder = decoder;
+        this._start = decoder.position;
         this._escape = { '"': '"', '\\': '\\', '/': '/', b: '\b', f: '\f', n: '\n', r: '\r', t: '\t' };
     }
 
     read() {
         const stack = [];
-        this._decoder.position = 0;
-        this._position = 0;
+        this._decoder.position = this._start;
+        this._position = this._start;
         this._char = this._decoder.decode();
         this._whitespace();
-        let obj = undefined;
+        let obj = null;
         let first = true;
         for (;;) {
             if (Array.isArray(obj)) {
@@ -147,9 +150,7 @@ json.TextReader = class {
                     const key = this._string();
                     switch (key) {
                         case '__proto__':
-                        case 'constructor':
-                        case 'prototype':
-                            throw new json.Error("Invalid key '" + key + "'" + this._location());
+                            throw new json.Error(`Invalid key '${key}' ${this._location()}`);
                         default:
                             break;
                     }
@@ -206,7 +207,14 @@ json.TextReader = class {
                         break;
                     }
                     default: {
-                        const value = c === '"' ? this._string() : c >= '0' && c <= '9' ? this._number() : this._literal();
+                        let value = null;
+                        if (c === '"') {
+                            value = this._string();
+                        } else if (c >= '0' && c <= '9') {
+                            value = this._number();
+                        } else {
+                            value = this._literal();
+                        }
                         this._whitespace();
                         if (this._char !== undefined) {
                             this._unexpected();
@@ -306,13 +314,13 @@ json.TextReader = class {
                 this._next();
             }
         }
-        return +value;
+        return Number(value);
     }
 
     _string() {
         let value = '';
         this._next();
-        while (this._char != '"') {
+        while (this._char !== '"') {
             if (this._char === '\\') {
                 this._next();
                 if (this._char === 'u') {
@@ -364,21 +372,21 @@ json.TextReader = class {
         } else {
             if (c < ' ' || c > '\x7F') {
                 const name = Object.keys(this._escape).filter((key) => this._escape[key] === c);
-                c = (name.length === 1) ? '\\' + name : '\\u' + ('000' + c.charCodeAt(0).toString(16)).slice(-4);
+                c = (name.length === 1) ? `\\${name}` : `\\u${(`000${c.charCodeAt(0).toString(16)}`).slice(-4)}`;
             }
-            c = "token '" + c + "'";
+            c = `token '${c}'`;
         }
-        throw new json.Error('Unexpected ' + c + this._location());
+        throw new json.Error(`Unexpected ${c} ${this._location()}`);
     }
 
     _location() {
         let line = 1;
         let column = 1;
-        this._decoder.position = 0;
-        let c;
+        this._decoder.position = this._start;
+        let c = '';
         do {
             if (this._decoder.position === this._position) {
-                return ' at ' + line.toString() + ':' + column.toString() + '.';
+                return `at ${line}:${column}.`;
             }
             c = this._decoder.decode();
             if (c === '\n') {
@@ -389,21 +397,43 @@ json.TextReader = class {
             }
         }
         while (c !== undefined);
-        return ' at ' + line.toString() + ':' + column.toString() + '.';
+        return `at ${line}:${column}.`;
     }
 };
 
 json.BinaryReader = class {
 
     static open(data) {
-        return data ? new json.BinaryReader(data) : null;
+        const length = data.length;
+        const buffer = data instanceof Uint8Array ? data : data.peek(Math.min(data.length, 8));
+        const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+        if (buffer.length >= 4 && view.getInt32(0, true) === length) {
+            return new json.BinaryReader(data, 'bson');
+        }
+        const [signature] = buffer;
+        if (signature === 0x7B || signature === 0x5B) {
+            return new json.BinaryReader(data, 'ubj');
+        }
+        return null;
     }
 
-    constructor(data) {
+    constructor(data, format) {
         this._buffer = data instanceof Uint8Array ? data : data.peek();
+        this._format = format;
     }
 
     read() {
+        switch (this._format) {
+            case 'bson':
+                return this._readBson();
+            case 'ubj':
+                return this._readUbj();
+            default:
+                throw new json.Error(`Unsupported binary JSON format '${this._format}'.`);
+        }
+    }
+
+    _readBson() {
         const buffer = this._buffer;
         const length = buffer.length;
         const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
@@ -413,14 +443,14 @@ json.BinaryReader = class {
         const skip = (offset) => {
             position += offset;
             if (position > length) {
-                throw new bson.Error('Expected ' + (position + length) + ' more bytes. The file might be corrupted. Unexpected end of file.');
+                throw new bson.Error(`Expected ${position + length} more bytes. The file might be corrupted. Unexpected end of file.`);
             }
         };
         const header = () => {
             const start = position;
             skip(4);
             const size = view.getInt32(start, 4);
-            if (size < 5 || start + size > length || buffer[start + size - 1] != 0x00) {
+            if (size < 5 || start + size > length || buffer[start + size - 1] !== 0x00) {
                 throw new bson.Error('Invalid file size.');
             }
         };
@@ -430,7 +460,7 @@ json.BinaryReader = class {
         for (;;) {
             skip(1);
             const type = buffer[position - 1];
-            if (type == 0x00) {
+            if (type === 0x00) {
                 if (stack.length === 0) {
                     break;
                 }
@@ -438,7 +468,11 @@ json.BinaryReader = class {
                 continue;
             }
             const start = position;
-            position = buffer.indexOf(0x00, start) + 1;
+            position = buffer.indexOf(0x00, start);
+            if (position === -1) {
+                throw new bson.Error('Missing string terminator.');
+            }
+            position += 1;
             const key = asciiDecoder.decode(buffer.subarray(start, position - 1));
             let value = null;
             switch (type) {
@@ -454,7 +488,7 @@ json.BinaryReader = class {
                     const start = position;
                     skip(size);
                     value = utf8Decoder.decode(buffer.subarray(start, position - 1));
-                    if (buffer[position - 1] != '0x00') {
+                    if (buffer[position - 1] !== 0) {
                         throw new bson.Error('String missing terminal 0.');
                     }
                     break;
@@ -475,7 +509,7 @@ json.BinaryReader = class {
                     const size = view.getInt32(start, true);
                     const subtype = buffer[start + 4];
                     if (subtype !== 0x00) {
-                        throw new bson.Error("Unsupported binary subtype '" + subtype + "'.");
+                        throw new bson.Error(`Unsupported binary subtype '${subtype}'.`);
                     }
                     skip(size);
                     value = buffer.subarray(start + 5, position);
@@ -485,7 +519,7 @@ json.BinaryReader = class {
                     skip(1);
                     value = buffer[position - 1];
                     if (value > 1) {
-                        throw new bson.Error("Invalid boolean value '" + value + "'.");
+                        throw new bson.Error(`Invalid boolean value '${value}'.`);
                     }
                     value = value === 1 ? true : false;
                     break;
@@ -502,22 +536,22 @@ json.BinaryReader = class {
                 case 0x11: { // uint64
                     const start = position;
                     skip(8);
-                    value = view.getUint64(start, true).toNumber();
+                    value = view.getBigUint64(start, true);
                     break;
                 }
                 case 0x12: { // int64
                     const start = position;
                     skip(8);
-                    value = view.getInt64(start, true).toNumber();
+                    value = view.getBigInt64(start, true);
                     break;
                 }
                 default: {
-                    throw new bson.Error("Unsupported value type '" + type + "'.");
+                    throw new bson.Error(`Unsupported value type '${type}'.`);
                 }
             }
             if (Array.isArray(obj))  {
                 if (obj.length !== parseInt(key, 10)) {
-                    throw new bson.Error("Invalid array index '" + key + "'.");
+                    throw new bson.Error(`Invalid array index '${key}'.`);
                 }
                 obj.push(value);
             } else {
@@ -525,7 +559,7 @@ json.BinaryReader = class {
                     case '__proto__':
                     case 'constructor':
                     case 'prototype':
-                        throw new bson.Error("Invalid key '" + key + "' at " + position.toString() + "'.");
+                        throw new bson.Error(`Invalid key '${key}' at ${position}'.`);
                     default:
                         break;
                 }
@@ -537,9 +571,13 @@ json.BinaryReader = class {
             }
         }
         if (position !== length) {
-            throw new bson.Error("Unexpected data at '" + position.toString() + "'.");
+            throw new bson.Error(`Unexpected data at '${position}'.`);
         }
         return obj;
+    }
+
+    _readUbj() {
+        throw new json.Error('Unsupported JSON UBJ data.');
     }
 };
 
@@ -559,7 +597,5 @@ bson.Error = class extends Error {
     }
 };
 
-if (typeof module !== 'undefined' && typeof module.exports === 'object') {
-    module.exports.TextReader = json.TextReader;
-    module.exports.BinaryReader = json.BinaryReader;
-}
+export const TextReader = json.TextReader;
+export const BinaryReader = json.BinaryReader;

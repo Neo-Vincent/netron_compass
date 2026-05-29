@@ -15,57 +15,54 @@ jobs:
 
     steps:
       - name: Check out Git repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Git credentials
         run: |
-          git config --global user.name ${{ secrets.PUBLISH_USER_NAME }}
-          git config --global user.email ${{ secrets.PUBLISH_USER_EMAIL }}
+          git config --global user.name ${{ secrets.PUBLISH_GITHUB_USER_NAME }}
+          git config --global user.email ${{ secrets.PUBLISH_GITHUB_USER_EMAIL }}
 
       - name: Install Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: latest
 
       - name: Install Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: 3.x
 
-      - name: Install npm packages 
-        run: npm install
-
-      - name: Lint
-        run: npm run lint
+      - name: Install Packages
+        run: npm run install
 
       - name: Publish Electron
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.PUBLISH_GITHUB_TOKEN }}
+          APPLE_API_KEY: ~/.private_keys/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_KEY_ISSUER_ID: ${{ secrets.APPLE_API_KEY_ISSUER_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         run: |
           npx electron-builder install-app-deps
           case "${{ matrix.os }}" in
             macos*)
               mkdir -p ~/.private_keys
               echo '${{ secrets.APPLE_API_KEY }}' > ~/.private_keys/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8
-              npx electron-builder --mac --universal --publish always
+              npm run publish electron mac
               ;;
             ubuntu*)
-              sudo snap install snapcraft --classic
-              npx electron-builder --linux appimage --x64 --publish always
-              npx electron-builder --linux snap --x64 --publish always
+              sudo apt-get install rpm --yes
+              npm run publish electron linux
               ;;
             windows*)
               unset CSC_LINK;
               unset CSC_KEY_PASSWORD;
-              npx electron-builder --win --x64 --arm64 --publish always
+              npm run publish electron windows
               ;;
           esac
 
@@ -73,7 +70,7 @@ jobs:
         name: Publish Python
         env:
           TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.pypi_api_token }}
+          TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
         run: npm run publish python
 
       - if: startsWith(matrix.os, 'ubuntu')
@@ -81,9 +78,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.PUBLISH_GITHUB_TOKEN }}
           GITHUB_USER: ${{ secrets.PUBLISH_GITHUB_USER }}
-        run: npm run publish web
+        run: git push origin HEAD:release --force
 
-      - if: startsWith(matrix.os, 'macos')
+      - if: false # startsWith(matrix.os, 'macos')
         name: Publish cask
         env:
           GITHUB_TOKEN: ${{ secrets.PUBLISH_GITHUB_TOKEN }}
@@ -93,6 +90,7 @@ jobs:
       - if: startsWith(matrix.os, 'windows')
         name: Publish winget
         env:
-          GITHUB_TOKEN: ${{ secrets.PUBLISH_GITHUB_TOKEN }}
           GITHUB_USER: ${{ secrets.PUBLISH_GITHUB_USER }}
+          GITHUB_TOKEN: ${{ secrets.PUBLISH_GITHUB_TOKEN }}
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
         run: npm run publish winget

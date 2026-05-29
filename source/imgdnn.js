@@ -1,11 +1,11 @@
 
-var imgdnn = imgdnn || {};
+const imgdnn = {};
 
 imgdnn.ModelFactory = class {
 
-    match(context) {
+    async match(context) {
         const stream = context.stream;
-        const signature = [ 0x49, 0x4d, 0x47, 0x44, 0x4e, 0x4e ]; // IMGDNN
+        const signature = [0x49, 0x4d, 0x47, 0x44, 0x4e, 0x4e]; // IMGDNN
         if (stream && stream.length >= signature.length && stream.peek(6).every((value, index) => value === signature[index])) {
             return 'imgdnn';
         }
@@ -20,37 +20,17 @@ imgdnn.ModelFactory = class {
 imgdnn.Model = class {
 
     constructor(metadata, model) {
-        this._format = 'IMGDNN';
-        this._graphs = [ new imgdnn.Graph(metadata, model) ];
-    }
-
-    get format() {
-        return this._format;
-    }
-
-    get graphs() {
-        return this._graphs;
+        this.format = 'IMGDNN';
+        this.modules = [new imgdnn.Graph(metadata, model)];
     }
 };
 
 imgdnn.Graph = class {
 
     constructor(/* metadata, model */) {
-        this._inputs = [];
-        this._outputs = [];
-        this._nodes = [];
-    }
-
-    get inputs() {
-        return this._inputs;
-    }
-
-    get outputs() {
-        return this._outputs;
-    }
-
-    get nodes() {
-        return this._nodes;
+        this.inputs = [];
+        this.outputs = [];
+        this.nodes = [];
     }
 };
 
@@ -62,6 +42,5 @@ imgdnn.Error = class extends Error {
     }
 };
 
-if (typeof module !== 'undefined' && typeof module.exports === 'object') {
-    module.exports.ModelFactory = imgdnn.ModelFactory;
-}
+export const ModelFactory = imgdnn.ModelFactory;
+

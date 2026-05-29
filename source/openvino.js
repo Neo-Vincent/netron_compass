@@ -1,120 +1,256 @@
 
-var openvino = {};
-var xml = require('./xml');
+const openvino = {};
 
 openvino.ModelFactory = class {
 
-    match(context) {
-        const tags = context.tags('xml');
-        if (tags.has('net')) {
-            return 'openvino.xml';
+    async match(context) {
+        const identifier = context.identifier.toLowerCase();
+        const extension = identifier.split('.').pop();
+        if (/^.*\.ncnn\.bin$/.test(identifier) ||
+            /^.*\.pnnx\.bin$/.test(identifier) ||
+            /^.*pytorch_model.*\.bin$/.test(identifier) ||
+            /^.*group.+-shard.+of.+\.bin$/.test(identifier) ||
+            /^.*param\.bin$/.test(identifier)) {
+            return null;
         }
-        const identifier = context.identifier;
-        const extension = identifier.split('.').pop().toLowerCase();
         if (extension === 'bin') {
-            if (identifier === 'natives_blob.bin' || identifier === 'snapshot_blob.bin' || identifier === 'v8_context_snapshot.bin') {
-                return undefined;
-            }
             const stream = context.stream;
-            const signature = [ 0x21, 0xA8, 0xEF, 0xBE, 0xAD, 0xDE ];
-            if (signature.length <= stream.length && stream.peek(signature.length).every((value, index) => value === signature[index])) {
-                return undefined;
-            }
-            if (stream.length > 4) {
-                const buffer = stream.peek(4);
-                const signature = (buffer[0] | buffer[1] << 8 | buffer[2] << 16 | buffer [3] << 24) >>> 0;
-                if (signature === 0x00000000 || signature === 0x00000001 ||
-                    signature === 0x01306B47 || signature === 0x000D4B38 || signature === 0x0002C056) {
-                    return undefined;
-                }
-            }
-            if (stream.length > 4) {
-                const buffer = stream.peek(Math.min(256, stream.length));
+            const length = Math.min(0x10000, stream.length);
+            if (length >= 4) {
+                let buffer = stream.peek(length);
+                const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.length);
+                const signature = view.getUint32(0, true);
                 for (let i = 0; i < buffer.length - 4; i++) {
-                    const signature = (buffer[i] | buffer[i + 1] << 8 | buffer[i + 2] << 16 | buffer [i + 3] << 24) >>> 0;
-                    if (signature === 0xdeadbeef) {
-                        return undefined;
+                    const signature = view.getUint32(i, true);
+                    if (signature === 0xdeadbeef || // Core ML
+                        signature === 0x01306b47 || signature === 0x000d4b38 || signature === 0x0002c056) { // ncnn
+                        return null;
                     }
                 }
+                const match = (pattern, identifier, buffer) => {
+                    if (pattern.identifier && typeof pattern.identifier === 'string' && identifier !== pattern.identifier) {
+                        return false;
+                    } else if (pattern.identifier && pattern.identifier instanceof RegExp && !pattern.identifier.test(identifier)) {
+                        return false;
+                    } else if (pattern.signature && !pattern.signature.every((value, index) => value === buffer[index])) {
+                        return false;
+                    }
+                    return true;
+                };
+                const include = [
+                    { identifier: 'googlenet-v1.bin', signature: [0x80, 0xD6, 0x50, 0xD7, 0xB0, 0xD7, 0xA5, 0x2D, 0xCA, 0x28, 0x49, 0x2A, 0x35, 0x31, 0x0A, 0x31] },
+                    { identifier: 'text-recognition-0012.bin', signature: [0x0B, 0x21, 0xC6, 0xBC, 0xD0, 0xBB, 0xC1, 0x3B] },
+                ];
+                if (include.some((pattern) => match(pattern, identifier, buffer))) {
+                    return context.set('openvino.bin');
+                }
+                const exclude = [
+                    { identifier: '__model__.bin' },
+                    { identifier: 'config.bin' },
+                    { identifier: 'model.bin' },
+                    { identifier: 'ncnn.bin' },
+                    { identifier: 'programs.bin' },
+                    { identifier: 'weights.bin' },
+                    { identifier: /stories\d+(m|k)\.bin$/ },
+                    { signature: [0x21, 0xA8, 0xEF, 0xBE, 0xAD, 0xDE] }
+                ];
+                if (exclude.some((pattern) => match(pattern, identifier, buffer))) {
+                    return null;
+                }
+                if (signature === 0x00000001) {
+                    return null;
+                }
+                const size = Math.min(buffer.length & 0xfffffffc, 128);
+                buffer = buffer.subarray(0, size);
+                if (Array.from(buffer).every((value) => value === 0)) {
+                    return context.set('openvino.bin');
+                }
+                const f32 = new Array(buffer.length >> 2);
+                for (let i = 0; i < f32.length; i++) {
+                    f32[i] = view.getFloat32(i << 2, true);
+                }
+                const f16 = new Array(buffer.length >> 1);
+                for (let i = 0; i < f16.length; i++) {
+                    f16[i] = view.getFloat16(i << 1, true);
+                }
+                const i32 = new Array(buffer.length >> 2);
+                for (let i = 0; i < f32.length; i++) {
+                    i32[i] = view.getInt32(i << 2, true);
+                }
+                const validateFloat = (array) => array[0] !== 0 && array.every((x) => !Number.isNaN(x) && Number.isFinite(x)) &&
+                    (array.every((x) => x > -20.0 && x < 20.0 && (x >= 0 || x < -0.0000001) && (x <= 0 || x > 0.0000001)) ||
+                     array.every((x) => x > -100.0 && x < 100.0 && (x * 10) % 1 === 0));
+                const validateInt = (array) => array.length > 32 &&
+                    array.slice(0, 32).every((x) => x === 0 || x === 1 || x === 2 || x === 0x7fffffff);
+                if (validateFloat(f32) || validateFloat(f16) || validateInt(i32)) {
+                    return context.set('openvino.bin');
+                }
             }
-            return 'openvino.bin';
+            return null;
         }
-        return undefined;
+        const tags = await context.tags('xml');
+        if (tags.has('net')) {
+            return context.set('openvino.xml');
+        }
+        return null;
     }
 
-    async open(context, match) {
-        const open = async (stream, bin) => {
-            const metadata = await context.metadata('openvino-metadata.json');
-            let document = null;
-            try {
-                const reader = xml.TextReader.open(stream);
-                document = reader.read();
-            } catch (error) {
-                const message = error && error.message ? error.message : error.toString();
-                throw new openvino.Error('File format is not OpenVINO XML (' + message.replace(/\.$/, '') + ').');
-            }
-            if (!document.documentElement || document.documentElement.localName != 'net') {
-                throw new openvino.Error('File format is not OpenVINO IR.');
-            }
-            const net = openvino.XmlReader.read(document.documentElement);
-            return new openvino.Model(metadata, net, bin);
-        };
+    filter(context, match) {
+        return context.type !== 'openvino.xml' || match.type !== 'openvino.bin';
+    }
+
+    async open(context) {
         const identifier = context.identifier;
-        switch (match) {
-            case 'openvino.xml':
+        const base = identifier.substring(0, identifier.length - 4);
+        let bin = null;
+        switch (context.type) {
+            case 'openvino.xml': {
                 try {
-                    const stream = await context.request(identifier.substring(0, identifier.length - 4) + '.bin', null);
-                    const buffer = stream.read();
-                    return open(context.stream, buffer);
-                } catch (error) {
-                    return open(context.stream, null);
+                    const file = `${base}.bin`;
+                    const content = await context.fetch(file);
+                    bin = content.stream.peek();
+                } catch {
+                    // continue regardless of error
                 }
-            case 'openvino.bin': {
-                const stream = await context.request(identifier.substring(0, identifier.length - 4) + '.xml', null);
-                return open(stream, context.stream.peek());
+                break;
             }
-            default:
-                throw new openvino.Error("Unsupported OpenVINO format '" + match + "'.");
+            case 'openvino.bin': {
+                try {
+                    const file = `${base}.xml`;
+                    bin = context.stream.peek();
+                    context = await context.fetch(file, null);
+                } catch (error) {
+                    const message = error && error.message ? error.message : error.toString();
+                    throw new openvino.Error(`Required OpenVINO model definition not found (${message.replace(/\.$/, '')}).`);
+                }
+                break;
+            }
+            default: {
+                throw new openvino.Error(`Unsupported OpenVINO format '${context.type}'.`);
+            }
         }
+        let document = null;
+        try {
+            document = await context.read('xml');
+        } catch (error) {
+            const message = error && error.message ? error.message : error.toString();
+            throw new openvino.Error(`File format is not OpenVINO XML (${message.replace(/\.$/, '')}).`);
+        }
+        if (!document.documentElement || document.documentElement.localName !== 'net') {
+            throw new openvino.Error('File format is not OpenVINO IR.');
+        }
+        const element = document.documentElement;
+        const metadata = await context.metadata('openvino-metadata.json');
+        const object = (element) => {
+            const obj = {};
+            for (const attribute of element.attributes) {
+                obj[attribute.localName] = attribute.value;
+            }
+            return obj;
+        };
+        const child = (parent, name) => {
+            const elements = parent.getElementsByTagName(name);
+            if (elements.length > 1) {
+                throw new openvino.Error(`Element '${parent.localName}' has multiple '${name}' elements.`);
+            }
+            return elements.length > 0 ? elements[0] : null;
+        };
+        const children = (parent, name, element) => {
+            const list = child(parent, name);
+            return list ? list.getElementsByTagName(element) : [];
+        };
+        const edges = (parent, name) => {
+            const map = {};
+            for (const element of children(parent, name || 'edges', 'edge')) {
+                const fromLayer = element.getAttribute('from-layer');
+                const fromPort = element.getAttribute('from-port');
+                const toLayer = element.getAttribute('to-layer');
+                const toPort = element.getAttribute('to-port');
+                map[`${toLayer}:${toPort}`] = `${fromLayer}:${fromPort}`;
+            }
+            return map;
+        };
+        const layers = (parent) => {
+            const ports = (parent, name) => {
+                return children(parent, name, 'port').map((element) => {
+                    const port = object(element);
+                    port.dims = element.getElementsByTagName('dim').map((dim) => parseInt(dim.textContent.trim(), 10));
+                    return port;
+                });
+            };
+            return children(parent, 'layers', 'layer').map((element) => {
+                const layer = object(element);
+                layer.input = ports(element, 'input');
+                layer.output = ports(element, 'output');
+                const data = child(element, 'data');
+                const blobs = child(element, 'blobs');
+                layer.data = data ? object(data) : {};
+                layer.blobs = blobs ? blobs.getElementsByTagName('*').map((blob) => {
+                    const obj = object(blob);
+                    obj.name = blob.localName;
+                    obj.offset = parseInt(obj.offset, 10);
+                    obj.size = parseInt(obj.size, 10);
+                    return obj;
+                }) : [];
+                if (layer.type === 'TensorIterator') {
+                    layer.back_edges = edges(element, 'back_edges');
+                    const body = child(element, 'body');
+                    if (body) {
+                        layer.body = {
+                            layers: layers(body),
+                            edges: edges(body)
+                        };
+                    }
+                    const port_map = child(element, 'port_map');
+                    if (port_map) {
+                        layer.port_map = { input: [], output: [] };
+                        for (const port of port_map.getElementsByTagName('*')) {
+                            const item = object(port);
+                            switch (port.localName) {
+                                case 'input': layer.port_map.input.push(item); break;
+                                case 'output': layer.port_map.output.push(item); break;
+                                default: throw new openvino.Error(`Unsupported port local name '${port.localName}'.`);
+                            }
+                        }
+                    }
+                }
+                return layer;
+            });
+        };
+        const net = object(element);
+        net.body =  {
+            layers: layers(element),
+            edges: edges(element)
+        };
+        return new openvino.Model(metadata, net, bin);
     }
 };
 
 openvino.Model = class {
 
     constructor(metadata, net, bin) {
-        this._name = net.name || '';
-        this._graphs = [ new openvino.Graph(metadata, net, bin) ];
+        this.name = net.name || '';
+        this.modules = [new openvino.Graph(metadata, net, bin)];
+        this.format = 'OpenVINO IR';
     }
-
-    get name() {
-        return this._name;
-    }
-
-    get format() {
-        return 'OpenVINO IR';
-    }
-
-    get graphs() {
-        return this._graphs;
-    }
-
 };
 
 openvino.Graph = class {
 
     constructor(metadata, net, bin) {
-        this._name = net.name || '';
-        this._nodes = [];
-        this._inputs = [];
-        this._outputs = [];
+        this.name = net.name || '';
+        this.nodes = [];
+        this.inputs = [];
+        this.outputs = [];
+        const tensors = new Map();
         const values = new Map();
-        const value = (layer, precision, port, map) => {
-            const id = layer + ':' + port.id;
-            const name = map ? (map[id] || '') : id;
+        values.map = (layer, precision, port, map) => {
+            const id = `${layer}:${port.id}`;
+            const name = map && map[id] ? map[id] : id;
             if (name === '') {
                 throw new openvino.Error('Empty value name.');
             }
-            const shape = port.dims.length == 0 ? null : new openvino.TensorShape(port.dims);
+            const shape = port.dims.length === 0 ? null : new openvino.TensorShape(port.dims);
             if (!precision && values.has(name)) {
                 const value = values.get(name);
                 if (value.type && value.type.shape && value.type.shape.equals(shape)) {
@@ -122,230 +258,91 @@ openvino.Graph = class {
                 }
             }
             const type = new openvino.TensorType(precision, shape);
+            let tensor = null;
+            if (tensors.has(id)) {
+                const blob = tensors.get(id);
+                const offset = blob.offset;
+                const size = blob.size;
+                const shape = new openvino.TensorShape(blob.shape);
+                const type = new openvino.TensorType(blob.precision || precision, shape);
+                const data = (bin && (offset + size) <= bin.length) ? bin.slice(offset, offset + size) : null;
+                tensor = new openvino.Tensor(type, data, 'Const');
+            }
             if (!values.has(name)) {
-                values.set(name, new openvino.Value(name, type, null));
-            } else if (type && !type.equals(values.get(name).type)) {
-                return new openvino.Value(name, type, null);
-                // TODO throw new openvino.Error("Duplicate value '" + name + "'.");
+                values.set(name, new openvino.Value(name, type, tensor));
+            } else if (name === id && type && !type.equals(values.get(name).type)) {
+                throw new openvino.Error(`Duplicate value '${name}'.`);
             }
             return values.get(name);
         };
         const nodes = new Map();
-        const replaceTensorIteratorWithSubgraph = (metadata, bin, layers, edges) => {
-            const tensorIteratorLayers = layers.filter((node) => node.type === 'TensorIterator');
-            for (const tensorIteratorLayer of tensorIteratorLayers) {
-                const id = tensorIteratorLayer.id;
-                const tiNode = nodes.get(id);
-                const iteratorLayers = tensorIteratorLayer.body.layers;
-                const iteratorEdgeMap = tensorIteratorLayer.body.edges;
-                const iteratorBackEdgesMap = tensorIteratorLayer.back_edges;
-                const iteratorAllEdges = Object.assign({}, iteratorEdgeMap, iteratorBackEdgesMap);
-                const iteratorAllEdgesMap = {};
-                for (const entry of Object.entries(Object.assign({}, iteratorEdgeMap, iteratorBackEdgesMap))) {
-                    iteratorAllEdgesMap[id + '_' + entry[0]] = id + '_' + entry[1];
-                }
-                const mappingForNestedIR = tensorIteratorLayer.port_map;
-                const layers = constant(iteratorLayers, iteratorAllEdges, iteratorBackEdgesMap);
-                for (const layer of layers) {
-                    for (const output of layer.outputs) {
-                        value(id + '_' + layer.id, layer.precision || output.precision, output, null);
-                    }
-                }
-                const nestedLayers = new Map(layers.map((layer) => [ id + '_' + layer.id, layer ]));
-                const newValues = [];
-                for (const nestedInput of mappingForNestedIR.input) {
-                    const key = id + '_' + nestedInput.internal_layer_id;
-                    const nestedLayer = nestedLayers.get(key);
-                    const candidate_edge = edges[id + ':' + nestedInput.external_port_id];
-                    if (candidate_edge) {
-                        const parts = candidate_edge.split(':');
-                        const parentLayerId = parts[0];
-                        const parentPortId = parts[1];
-                        if (!nodes.has(parentLayerId) && !nestedLayers.has(parentLayerId)) {
-                            // its parent is a TensorIterator that was removed on the previous cycle
-                            // information is still present in the inputs of the current TensorIterator node
-                            const potentialParentInput = tiNode.inputs.find((tiInput) => tiInput.name === 'input');
-                            if (!potentialParentInput) {
-                                continue;
-                            }
-                            for (const input of nestedLayer.inputs) {
-                                const input_id = id + '_' + nestedLayer.id + ':' + input.id;
-                                if (!iteratorAllEdgesMap[input_id]) {
-                                    iteratorAllEdgesMap[input_id] = potentialParentInput.value[0].name;
-                                    break;
-                                }
-                            }
-                        } else {
-                            if (!nestedLayer.inputs) {
-                                throw new openvino.Error("Tensor iterator '" + key + "' does not have inputs.");
-                            }
-                            const newId = parentLayerId + ':' + parentPortId;
-                            let newValue = true;
-                            for (const input of nestedLayer.inputs) {
-                                const input_id = id + '_' + nestedLayer.id + ':' + input.id;
-                                if (!iteratorAllEdgesMap[input_id]) {
-                                    iteratorAllEdgesMap[input_id] = newId;
-                                    newValue = false;
-                                    break;
-                                }
-                            }
-                            if (newValue) {
-                                // TODO: no tensor information in the new argument - passed as null for now
-                                newValues.push({ layer: key, id: newId });
-                            }
-                        }
-                    }
-                }
-                for (const layer of layers) {
-                    const inputs = layer.inputs.map((input) => {
-                        return value(id + '_' + layer.id, layer.precision, input, iteratorAllEdgesMap);
-                    });
-                    const outputs = layer.outputs.map((output) => {
-                        return value(id + '_' + layer.id, layer.precision || output.precision, output, null);
-                    });
-                    const key = id + '_' + layer.id;
-                    const node = new openvino.Node(metadata, bin, layer, inputs, outputs);
-                    nodes.set(key, node);
-                }
-                for (const newValue of newValues) {
-                    const nestedLayer = nodes.get(newValue.layer);
-                    if (!values.has(newValue.id)) {
-                        values.set(newValue.id, new openvino.Argument(newValue.id, null, null));
-                    }
-                    const value = values.get(newValue.id);
-                    const argument = new openvino.Argument((nestedLayer.inputs.length + 1).toString(), [ value ]);
-                    nestedLayer.inputs.push(argument);
-                }
-                for (const nestedOutput of mappingForNestedIR.output) {
-                    const key = id + '_' + nestedOutput.internal_layer_id;
-                    const nestedNode = nodes.get(key);
-                    const toEdge = id + ':' + nestedOutput.external_port_id;
-                    const candidate_edges = Object.keys(edges).filter((key) => edges[key] === toEdge);
-                    for (const candidate_edge of candidate_edges) {
-                        const childLayerID = candidate_edge.split(':')[0];
-                        const child = nodes.get(childLayerID);
-                        if (!child.inputs || (child.inputs && child.inputs.length === 0)) {
-                            continue;
-                        }
-                        for (const child_input of child.inputs) {
-                            for (const value of child_input.value) {
-                                if (!value.name || (value.name && value.name.split(':')[0] !== id)) {
-                                    continue;
-                                }
-                                if (nestedNode.outputs && nestedNode.outputs.length === 0) {
-                                    // it turns out that IRs of version 10 with TensorIterators (TI) can omit
-                                    // output section in the output layers of TI body. It seems to happen only
-                                    // for cases when TI has a single output. Therefore, there is a workaround that
-                                    // creates fake output section for the TI output layer in order to connect it
-                                    // with a layer from the main IR.
-                                    const myPort = 0;
-                                    const newId = key + ':' + myPort;
-                                    nestedNode.outputs.push(new openvino.Argument('output', [
-                                        new openvino.Value(newId, null, null)
-                                    ]));
-                                }
-                                const myPort = nestedNode.outputs[0].value[0].name.split(':')[1];
-                                value._name = key + ':' + myPort;
-                            }
-                        }
-                    }
-                }
-                nodes.delete(id);
-            }
-        };
-        const constant = (layers, edges, back_edges, omitConstLayers) => {
+        const constant = (layers, edges, back_edges) => {
             back_edges = back_edges || {};
             for (const layer of layers) {
-                if (layer.type === 'Const' && layer.inputs.length === 0 && layer.outputs.length === 1 && layer.blobs.length === 0 && layer.data && layer.data.size > 3) {
-                    const element_type = layer.data.get('element_type');
-                    const offset = layer.data.get('offset');
-                    const size = layer.data.get('size');
-                    if (element_type && offset !== null && size !== null) {
-                        let precision = null;
-                        switch (element_type) {
-                            case 'f16': precision = 'FP16'; break;
-                            case 'f32': precision = 'FP32'; break;
-                            case 'f64': precision = 'FP64'; break;
-                            default: precision = element_type.toUpperCase();
-                        }
-                        const shape = layer.data.get('shape');
-                        const dims = shape ? shape.split(',').map((dim) => parseInt(dim.trim(), 10)) : null;
-                        layer.data.clear();
-                        layer.blobs.push({ name: 'custom', precision: precision, offset: parseInt(offset, 10), size: parseInt(size, 10), shape: dims });
+                if (layer.type === 'Const' &&
+                    layer.input.length === 0 && layer.output.length === 1 && layer.blobs.length === 0 &&
+                    layer.data && layer.data.element_type !== undefined && layer.data.offset !== undefined && layer.data.size !== undefined) {
+                    let precision = null;
+                    switch (layer.data.element_type) {
+                        case 'f16': precision = 'FP16'; break;
+                        case 'f32': precision = 'FP32'; break;
+                        case 'f64': precision = 'FP64'; break;
+                        default: precision = layer.data.element_type.toUpperCase();
                     }
+                    const shape = layer.data.shape;
+                    layer.blobs.push({
+                        name: 'value',
+                        precision,
+                        offset: parseInt(layer.data.offset, 10),
+                        size: parseInt(layer.data.size, 10),
+                        shape: shape ? shape.split(',').map((dim) => parseInt(dim.trim(), 10)) : null
+                    });
+                    layer.data = {};
                 }
                 if (layer.type === 'Const' && layer.blobs.length === 1 && !layer.blobs[0].shape &&
-                    layer.inputs.length === 0 && layer.outputs.length === 1 && layer.outputs[0].dims) {
-                    layer.blobs[0].shape = layer.outputs[0].dims;
+                    layer.input.length === 0 && layer.output.length === 1 && layer.output[0].dims) {
+                    layer.blobs[0].shape = layer.output[0].dims;
                 }
             }
             const constants = new Map();
             for (const layer of layers) {
-                if (layer.type === 'Const' && layer.inputs.length === 0 && layer.outputs.length === 1) {
-                    const from = layer.id + ':' + layer.outputs[0].id;
-                    constants.set(from, { layer: layer, counter: 0 });
+                if (layer.type === 'Const' && layer.input.length === 0 && layer.output.length === 1) {
+                    const from = `${layer.id}:${layer.output[0].id}`;
+                    constants.set(from, { layer, counter: 0 });
                 }
             }
-            for (const entry of Object.entries(edges)) {
-                const from = entry[1];
+            for (const from of Object.values(edges)) {
                 if (constants.has(from)) {
                     constants.get(from).counter++;
                 }
             }
             if (back_edges) {
-                for (const to of Object.keys(back_edges)) {
-                    const from = back_edges[to];
+                for (const from of Object.values(back_edges)) {
                     if (constants.has(from)) {
                         constants.get(from).counter++;
                     }
                 }
             }
-            for (const entry of constants) {
-                if (entry[1].counter !== 1) {
-                    constants.delete(entry[0]);
+            for (const [name, value] of constants) {
+                if (value.counter !== 1) {
+                    constants.delete(name);
                 }
             }
             for (const layer of layers) {
                 if (layer.blobs.length === 0) {
-                    for (let i = layer.inputs.length - 1; i > 0; i--) {
-                        const input = layer.inputs[i];
-                        const to = layer.id + ':' + input.id;
+                    for (let i = layer.input.length - 1; i >= 0; i--) {
+                        const input = layer.input[i];
+                        const to = `${layer.id}:${input.id}`;
                         const from = edges[to] || back_edges[to];
                         if (!constants.has(from)) {
                             break;
                         }
                         const constLayer = constants.get(from).layer;
-                        if (constLayer && Array.isArray(constLayer.blobs)) {
-                            const blob = constLayer.blobs[0];
+                        if (constLayer && Array.isArray(constLayer.blobs) && constLayer.blobs.length > 0) {
+                            const [blob] = constLayer.blobs;
                             if (blob) {
                                 blob.id = constLayer.name || constLayer.id;
-                                blob.kind = 'Const';
-                                layer.blobs.push(blob);
-                                layer.inputs.splice(i, 1);
-                                constants.get(from).layer = null;
-                                constants.get(from).delete = true;
-                            }
-                        }
-                    }
-                }
-            }
-            if (omitConstLayers) {
-                for (const layer of layers) {
-                    if (layer.blobs.length === 0) {
-                        for (let i = layer.inputs.length - 1; i > 0; i--) {
-                            const input = layer.inputs[i];
-                            const to = layer.id + ':' + input.id;
-                            const from = edges[to] || back_edges[to];
-                            if (!constants.has(from)) {
-                                break;
-                            }
-                            const constLayer = constants.get(from).layer;
-                            const blob = constLayer.blobs[0];
-                            if (blob) {
-                                blob.id = constLayer.name || constLayer.id;
-                                blob.kind = 'Const';
-                                layer.blobs.push(blob);
-                                layer.inputs.splice(i, 1);
+                                layer.input[i].blob = blob;
                                 constants.get(from).layer = null;
                                 constants.get(from).delete = true;
                             }
@@ -354,8 +351,8 @@ openvino.Graph = class {
                 }
             }
             return layers.filter((layer) => {
-                if (layer.type === 'Const' && layer.inputs.length === 0 && layer.outputs.length === 1) {
-                    const from = layer.id + ':' + layer.outputs[0].id;
+                if (layer.type === 'Const' && layer.input.length === 0 && layer.output.length === 1) {
+                    const from = `${layer.id}:${layer.output[0].id}`;
                     if (constants.has(from) && constants.get(from).delete) {
                         return false;
                     }
@@ -363,444 +360,423 @@ openvino.Graph = class {
                 return true;
             });
         };
-        const layers = new Map(net.layers.map((entry) => [ entry.id, entry ]));
-        const layer_list = constant(net.layers, net.edges);
-        for (const layer of net.layers) {
-            for (const output of layer.outputs) {
-                const precision = output && output.precision ? output.precision : layer && layer.precision ? layer.precision : null;
-                value(layer.id, precision, output, null);
+        const body = net.body;
+        const body_layers = body && Array.isArray(body.layers) ? body.layers : [];
+        const body_edges = body && body.edges ? body.edges : {};
+        const layers = new Map(body_layers.map((entry) => [entry.id, entry]));
+        const ports = new Map();
+        if (Array.isArray(net.input)) {
+            for (const input of net.input) {
+                const value = values.map('', input.precision || null, input);
+                const argument = new openvino.Argument(input.id, [value]);
+                this.inputs.push(argument);
+                ports.set(input.id, value);
+            }
+        }
+        if (Array.isArray(net.output)) {
+            for (const output of net.output) {
+                const value = values.map('', output.precision || null, output);
+                const argument = new openvino.Argument(output.id, [value]);
+                this.outputs.push(argument);
+                ports.set(output.id, value);
+            }
+        }
+        for (const layer of body_layers) {
+            for (const output of layer.output) {
+                if (!output.precision) {
+                    output.precision = layer.precision;
+                }
+            }
+        }
+        if (net.port_map) {
+            for (const input of net.port_map.input) {
+                const external_port = net.input.find((v) => v.id === input.external_port_id);
+                const layer = layers.get(input.internal_layer_id);
+                if (input.internal_port_id === undefined) {
+                    input.internal_port_id = '';
+                    layer.input.push({
+                        id: input.internal_port_id,
+                        precision: layer.data.element_type,
+                        dims: layer.data.shape.split(',')
+                    });
+                }
+                const internal_port = layer.input.find((v) => v.id === input.internal_port_id);
+                internal_port.precision = external_port.precision;
+            }
+            for (const output of net.port_map.output) {
+                const external_port = net.output.find((v) => v.id === output.external_port_id);
+                const layer = layers.get(output.internal_layer_id);
+                if (output.internal_port_id === undefined) {
+                    output.internal_port_id = '';
+                    layer.output.push({
+                        id: output.internal_port_id,
+                        precision: external_port.precision,
+                        dims: external_port.dims
+                    });
+                }
+            }
+        }
+        const layer_list = constant(body_layers, body_edges);
+        for (const layer of layer_list) {
+            for (const input of layer.input) {
+                if (input.blob) {
+                    tensors.set(`${layer.id}:${input.id}`, input.blob);
+                }
             }
         }
         for (const layer of layer_list) {
-            const inputs = layer.inputs.map((input) => {
-                const to = layer.id + ':' + input.id;
-                if (net.edges[to]) {
-                    const output = net.edges[to] ? net.edges[to].split(':') : [];
-                    const outputLayerId = output[0];
-                    const outputId = output[1];
+            for (const output of layer.output) {
+                values.map(layer.id, output.precision, output, null);
+            }
+        }
+        for (const layer of layer_list) {
+            const inputs = layer.input.map((input) => {
+                const to = `${layer.id}:${input.id}`;
+                if (body.edges[to]) {
+                    const output = body.edges[to] ? body.edges[to].split(':') : [];
+                    const [outputLayerId, outputId] = output;
                     const outputLayer = layers.get(outputLayerId);
                     if (outputLayer && outputId) {
-                        const output = outputLayer.outputs.find((output) => output.id === outputId);
+                        const output = outputLayer.output.find((output) => output.id === outputId);
                         if (input && output) {
                             input.precision = output.precision;
                         }
                     }
                 }
-                return value(layer.id, input.precision || layer.precision, input, net.edges);
+                return values.map(layer.id, input.precision || layer.precision || null, input, body.edges);
             });
-            const outputs = layer.outputs.map((output) => {
-                const precision = output && output.precision ? output.precision : layer && layer.precision ? layer.precision : null;
-                return value(layer.id, precision, output, null);
+            const outputs = layer.output.map((output) => {
+                let precision = null;
+                if (output && output.precision) {
+                    precision = output.precision;
+                } else if (layer && layer.precision) {
+                    precision = layer.precision;
+                }
+                return values.map(layer.id, precision, output, null);
             });
-            switch (layer.type) {
-                case 'Input': {
-                    const name = layer.name || '';
-                    // precision is a part of OpenVINO IR layers of IR v6 and earlier
-                    // in IR v7 and newer the port is no longer an attribute of the layer but of each output port
-                    // IR input is not just a placeholder, it is conceptually the legitimate layer
-                    // in order not to break compatibility with the overall approach
-                    // with openvino.Parameter for inputs and openvino.Node for outputs
-                    // input openvino.Node would be stored as an optional attribute of openvino.Parameter
-                    this._inputs.push(new openvino.Argument(name, outputs));
-                    break;
-                }
-                case 'Parameter': {
-                    const name = layer.name || '';
-                    this._inputs.push(new openvino.Argument(name, outputs));
-                    break;
-                }
-                default: {
-                    const node = new openvino.Node(metadata, bin, layer, inputs, outputs);
-                    nodes.set(layer.id, node);
-                    break;
-                }
+            const subgraph = Array.isArray(net.input) || Array.isArray(net.output);
+            if (!subgraph && (layer.type === 'Input' || layer.type === 'Parameter')) {
+                const name = layer.name || '';
+                // precision is a part of OpenVINO IR layers of IR v6 and earlier
+                // in IR v7 and newer the port is no longer an attribute of the layer but of each output port
+                // IR input is not just a placeholder, it is conceptually the legitimate layer
+                // in order not to break compatibility with the overall approach
+                // with openvino.Argument for inputs and openvino.Node for outputs
+                // input openvino.Node would be stored as an optional attribute of openvino.Parameter
+                this.inputs.push(new openvino.Argument(name, outputs));
+            } else {
+                const node = new openvino.Node(metadata, layer, inputs, outputs, bin);
+                nodes.set(layer.id, node);
             }
         }
-        replaceTensorIteratorWithSubgraph(metadata, bin, net.layers, net.edges);
-        // Validation
-        // all graph elements are split between inputs and nodes
-        // by definition IR is a graph can have inputs of two types: "Input" and "Const"
-        // "Input" layers are already moved to inputs when we parse a graph
-        // if there are any layers that do not have input value and they are no Const ones
-        // this means that this graph was not properly processed by the graph building logic
-        const outputs = new Set();
-        for (const node of nodes.values()) {
-            for (const output of node.outputs) {
-                for (const value of output.value) {
-                    outputs.add(value.name);
-                }
-            }
-        }
-        for (const input of this.inputs) {
-            for (const value of input.value) {
-                outputs.add(value.name);
-            }
-        }
-        const nodesWithNonExistentInputs = new Set();
-        for (const node of nodes.values()) {
-            for (const input of node.inputs) {
-                for (const value of input.value) {
-                    if (!value.initializer && !outputs.has(value.name)) {
-                        nodesWithNonExistentInputs.add(node);
+        this.nodes = Array.from(nodes.values());
+        if (net.port_map) {
+            const createMapLayer = (obj) => {
+                const data = {};
+                for (const [name, value] of Object.entries(obj)) {
+                    if (name !== 'external_port_id' && name !== 'internal_layer_id' && name !== 'internal_port_id') {
+                        data[name] = value;
                     }
                 }
+                return { type: '-', data };
+            };
+            for (const input of net.port_map.input) {
+                const internal_port = layers.get(input.internal_layer_id).input.find((v) => v.id === input.internal_port_id);
+                const inputs = [ports.get(input.external_port_id)];
+                const outputs = [values.map(input.internal_layer_id, internal_port.precision, internal_port)];
+                const layer = createMapLayer(input);
+                this.nodes.push(new openvino.Node(metadata, layer, inputs, outputs));
+            }
+            for (const output of net.port_map.output) {
+                const internal_port = layers.get(output.internal_layer_id).output.find((v) => v.id === output.internal_port_id);
+                const inputs = [values.map(output.internal_layer_id, internal_port.precision, internal_port)];
+                const outputs = [ports.get(output.external_port_id)];
+                const layer = createMapLayer(output);
+                this.nodes.push(new openvino.Node(metadata, layer, inputs, outputs));
             }
         }
-        if (nodesWithNonExistentInputs.size !== 0) {
-            net.disconnectedLayers = Array.from(nodesWithNonExistentInputs).map((node) => node.name);
-        }
-        this._nodes = Array.from(nodes.values());
-    }
-
-    get name() {
-        return this._name;
-    }
-
-    get inputs() {
-        return this._inputs;
-    }
-
-    get outputs() {
-        return this._outputs;
-    }
-
-    get nodes() {
-        return this._nodes;
     }
 };
 
 openvino.Node = class {
 
-    constructor(metadata, bin, layer, inputs, outputs) {
-        this._name = layer.name || '';
-        this._inputs = [];
-        this._outputs = [];
-        this._attributes = [];
+    constructor(metadata, layer, inputs, outputs, bin) {
+        this.name = layer.name || '';
+        this.inputs = [];
+        this.outputs = [];
+        this.attributes = [];
         const type = layer.type;
-        this._type = metadata.type(type) || { name: type };
-        const precision = layer.precision;
+        this.type = metadata.type(type) || { name: type };
         for (let i = 0; i < inputs.length;) {
-            const input = this._type && this._type.inputs && i < this._type.inputs.length ? this._type.inputs[i] : inputs.length === 1 ? { name: 'input' } : { name: i.toString() };
-            const count = input.list ? inputs.length - i : 1;
-            const list = inputs.slice(i, i + count);
-            this._inputs.push(new openvino.Argument(input.name, list));
+            let input = null;
+            if (this.type && Array.isArray(this.type.inputs) && i < this.type.inputs.length) {
+                input = this.type.inputs[i];
+            } else if (inputs.length === 1) {
+                input = { name: 'input' };
+            } else {
+                input = { name: i.toString() };
+            }
+            const count = input.type === 'Tensor[]' ? inputs.length - i : 1;
+            const values = inputs.slice(i, i + count);
+            const argument = new openvino.Argument(input.name, values);
+            this.inputs.push(argument);
             i += count;
         }
         for (let i = 0; i < outputs.length;) {
-            const output = this._type && this._type.outputs && i < this._type.outputs.length ? this._type.outputs[i] : outputs.length === 1 ? { name: 'output' } : { name: i.toString() };
-            const count = output.list ? outputs.length - i : 1;
-            const list = outputs.slice(i, i + count);
-            this._outputs.push(new openvino.Argument(output.name, list));
+            let output = null;
+            if (this.type && Array.isArray(this.type.outputs) && i < this.type.outputs.length) {
+                output = this.type.outputs[i];
+            } else if (outputs.length === 1) {
+                output = { name: 'output' };
+            } else {
+                output = { name: i.toString() };
+            }
+            const count = output.type === 'Tensor[]' ? outputs.length - i : 1;
+            const values = outputs.slice(i, i + count);
+            const argument = new openvino.Argument(output.name, values);
+            this.outputs.push(argument);
             i += count;
         }
-        for (const entry of layer.data) {
-            const attribute = new openvino.Attribute(metadata.attribute(type, entry[0]), entry[0], entry[1]);
-            this._attributes.push(attribute);
+        const op = type;
+        for (const [name, obj] of Object.entries(layer.data)) {
+            const schema = metadata.attribute(op, name);
+            let value = obj;
+            let type = null;
+            let visible = true;
+            if (schema && schema.type !== undefined) {
+                type = schema.type;
+                switch (schema.type) {
+                    case '':
+                    case 'graph':
+                    case 'string':
+                        break;
+                    case 'boolean':
+                        if (obj === '1' || obj === 'true' || obj === 'True') {
+                            value = true;
+                        } else if (obj === '0' || obj === 'false' || obj === 'False') {
+                            value = false;
+                        } else {
+                            throw new openvino.Error(`Unsupported attribute boolean value '${obj}'.`);
+                        }
+                        break;
+                    case 'int32':
+                    case 'int64': {
+                        const intValue = Number.parseInt(obj, 10);
+                        value = Number.isNaN(obj - intValue) ? obj : intValue;
+                        break;
+                    }
+                    case 'float32':
+                    case 'float64': {
+                        const floatValue = Number.parseFloat(obj);
+                        value = Number.isNaN(obj - floatValue) ? obj : floatValue;
+                        break;
+                    }
+                    case 'int32[]':
+                        if (obj.length > 2) {
+                            let ints = [];
+                            for (const entry of obj.split(',')) {
+                                const item = entry.trim();
+                                const intValue = Number.parseInt(item, 10);
+                                if (Number.isNaN(item - intValue)) {
+                                    ints = null;
+                                } else if (ints !== null) {
+                                    ints.push(intValue);
+                                }
+                            }
+                            if (ints !== null) {
+                                value = ints;
+                            }
+                        }
+                        break;
+                    case 'float32[]':
+                        if (obj.length > 2) {
+                            let floats = [];
+                            for (const entry of obj.split(',')) {
+                                const item = entry.trim();
+                                const floatValue = Number.parseFloat(item);
+                                if (Number.isNaN(item - floatValue)) {
+                                    floats = null;
+                                } else if (floats !== null) {
+                                    floats.push(floatValue);
+                                }
+                            }
+                            if (floats !== null) {
+                                value = floats;
+                            }
+                        }
+                        break;
+                    default:
+                        throw new openvino.Error(`Unsupported attribute type '${schema.type}'.`);
+                }
+            }
+            if (schema && schema.visible === false) {
+                visible = false;
+            } else if (schema && schema.default !== undefined) {
+                const defaultValue = schema.default;
+                if (value === defaultValue) {
+                    visible = false;
+                } else if (Array.isArray(value) && Array.isArray(defaultValue)) {
+                    const repeat = defaultValue.length > 1 && defaultValue[defaultValue.length - 1] === null;
+                    if (value.every((item, index) => item === (repeat && index >= defaultValue.length - 1 ? defaultValue[defaultValue.length - 2] : defaultValue[index]))) {
+                        visible = false;
+                    }
+                }
+            }
+            const attribute = new openvino.Argument(name, value, type, visible);
+            this.attributes.push(attribute);
         }
-        for (const blob of layer.blobs) {
+        if (layer.type === 'TensorIterator') {
+            const graph = new openvino.Graph(metadata, layer, null);
+            const attribute = new openvino.Argument('body', graph, 'graph');
+            this.attributes.push(attribute);
+        }
+        for (const blob of layer.blobs || []) {
             const name = blob.name;
             const offset = blob.offset;
-            const size = blob.size;
-            let data = (bin && (offset + size) <= bin.length) ? bin.slice(offset, offset + size) : null;
+            let data = (bin && (offset + blob.size) <= bin.length) ? bin.slice(offset, offset + blob.size) : null;
             let dimensions = blob.shape || null;
-            const kind = blob.kind || 'Blob';
+            const category = blob.kind || 'Blob';
             const id = blob.id || '';
-            const dataType = blob.precision || precision;
-            const precisionMap = {
-                'FP16': 2, 'FP32': 4,
-                'I8': 1, 'I16': 2, 'I32': 4, 'I64': 8,
-                'U8': 1, 'U16': 2, 'U32': 4, 'U64': 8
-            };
-            const itemSize = precisionMap[dataType];
-            const weight = (data, name, dimensions) => {
+            const precision = blob.precision || layer.precision || null;
+            let itemSize = -1;
+            switch (precision) {
+                case 'BOOL': case 'BOOLEAN':          itemSize = 1; break;
+                case 'I1':   case 'U1':               itemSize = 0.125; break;
+                case 'I2':   case 'U2':               itemSize = 0.25; break;
+                case 'I4':   case 'U4':               itemSize = 0.5; break;
+                case 'I8':   case 'U8':               itemSize = 1; break;
+                case 'I16':  case 'U16': case 'FP16': itemSize = 2; break;
+                case 'I32':  case 'U32': case 'FP32': itemSize = 4; break;
+                case 'I64':  case 'U64': case 'FP64': itemSize = 8; break;
+                case 'F8E4M3':                        itemSize = 1; break;
+                case 'BF16':                          itemSize = 2; break;
+                case 'DYNAMIC':                       itemSize = 0; break;
+                default: throw new openvino.Error(`Unsupported data type size '${precision}'.`);
+            }
+            const weight = (name, precision, dimensions, data) => {
                 const shape = dimensions ? new openvino.TensorShape(dimensions) : null;
-                const value = new openvino.Value(id, null, new openvino.Tensor(dataType, shape, data, kind));
-                this._inputs.push(new openvino.Argument(name, [ value ]));
-                const size = dimensions.reduce((a, b) => a * b, 1) * itemSize;
+                const type = new openvino.TensorType(precision, shape);
+                const tensor = new openvino.Tensor(type, data, category);
+                const value = new openvino.Value(id, null, tensor);
+                this.inputs.push(new openvino.Argument(name, [value]));
+                const size = Math.ceil(dimensions.reduce((a, b) => a * b, 1) * itemSize);
                 if (data && data.length !== size) {
                     return data.slice(size, data.length);
                 }
                 return null;
             };
-            if (itemSize) {
-                switch (type + ':' + name) {
+            if (itemSize !== -1) {
+                switch (`${type}:${name}`) {
                     case 'FullyConnected:weights': {
-                        const outSize = parseInt(layer.data.get('out-size'), 10);
-                        dimensions = [ size / (outSize * itemSize), outSize ];
+                        const outSize = parseInt(layer.data['out-size'], 10);
+                        dimensions = [layer.input[0].dims[1], outSize];
                         break;
                     }
                     case 'FullyConnected:biases': {
-                        dimensions = [ parseInt(layer.data.get('out-size'), 10) ];
+                        dimensions = [parseInt(layer.data['out-size'], 10)];
                         break;
                     }
                     case 'Convolution:weights':
                     case 'Deconvolution:weights': {
                         const c = this.inputs[0].value[0].type.shape.dimensions[1];
-                        const group = parseInt(layer.data.get('group') || '1', 10);
-                        const kernel = layer.data.has('kernel-x') && layer.data.has('kernel-y') ?
-                            [ parseInt(layer.data.get('kernel-x'), 10), parseInt(layer.data.get('kernel-y'), 10) ] :
-                            layer.data.get('kernel').split(',').map((v) => parseInt(v.trim(), 10));
-                        const n = parseInt(layer.data.get('output'), 10);
-                        dimensions = [ Math.floor(c / group), n ].concat(kernel);
+                        const group = parseInt(layer.data.group || '1', 10);
+                        const kernel = layer.data['kernel-x'] !== undefined && layer.data['kernel-y'] !== undefined ?
+                            [parseInt(layer.data['kernel-x'], 10), parseInt(layer.data['kernel-y'], 10)] :
+                            layer.data.kernel.split(',').map((v) => parseInt(v.trim(), 10));
+                        const n = parseInt(layer.data.output, 10);
+                        dimensions = [Math.floor(c / group), n].concat(kernel);
                         break;
                     }
                     case 'LSTMCell:weights': {
                         const input_size = inputs[0].type.shape.dimensions[1];
-                        const hidden_size = parseInt(layer.data.get('hidden_size'), 10);
-                        data = weight(data, 'W', [ 4 * hidden_size, input_size ]);
-                        data = weight(data, 'R', [ 4 * hidden_size, hidden_size ]);
+                        const hidden_size = parseInt(layer.data.hidden_size, 10);
+                        data = weight('W', precision, [4 * hidden_size, input_size], data);
+                        data = weight('R', precision, [4 * hidden_size, hidden_size], data);
                         break;
                     }
                     case 'LSTMCell:biases': {
-                        const hidden_size = parseInt(layer.data.get('hidden_size'), 10);
-                        data = weight(data, 'B', [ 4 * hidden_size ]);
+                        const hidden_size = parseInt(layer.data.hidden_size, 10);
+                        data = weight('B', precision, [4 * hidden_size], data);
                         break;
                     }
                     case 'GRUCell:weights': {
                         const input_size = inputs[0].type.shape.dimensions[1];
-                        const hidden_size = parseInt(layer.data.get('hidden_size'), 10);
-                        data = weight(data, 'W', [ 3 * hidden_size, input_size ]);
-                        data = weight(data, 'R', [ 3 * hidden_size, hidden_size ]);
+                        const hidden_size = parseInt(layer.data.hidden_size, 10);
+                        data = weight('W', precision, [3 * hidden_size, input_size], data);
+                        data = weight('R', precision, [3 * hidden_size, hidden_size], data);
                         break;
                     }
                     case 'GRUCell:biases': {
-                        const linear_before_reset = parseInt(layer.data.get('linear_before_reset'), 10);
-                        const hidden_size = parseInt(layer.data.get('hidden_size'), 10);
-                        dimensions = linear_before_reset ? [ 4 * hidden_size ] : [ 3 * hidden_size ];
-                        data = weight(data, 'B', dimensions);
+                        const linear_before_reset = parseInt(layer.data.linear_before_reset, 10);
+                        const hidden_size = parseInt(layer.data.hidden_size, 10);
+                        dimensions = linear_before_reset ? [4 * hidden_size] : [3 * hidden_size];
+                        data = weight('B', precision, dimensions, data);
+                        break;
+                    }
+                    case 'Convolution:biases': {
+                        dimensions = [parseInt(layer.data.output, 10)];
                         break;
                     }
                     case 'ScaleShift:weights':
                     case 'ScaleShift:biases':
-                    case 'Convolution:biases':
-                    case 'Normalize:weights':
+                    case 'Normalize:weights': {
+                        dimensions = [layer.input[0].dims[1]];
+                        break;
+                    }
                     case 'PReLU:weights': {
-                        dimensions = [ Math.floor(size / itemSize) ];
+                        dimensions = layer.data.channel_shared === '1' ? [1] : [layer.input[0].dims[1]];
                         break;
                     }
                     case 'Const:custom': {
-                        if (this._outputs.length > 0 &&
-                            this._outputs[0].value.length > 0 &&
-                            this._outputs[0].value[0].type &&
-                            this._outputs[0].value[0].type.shape &&
-                            this._outputs[0].value[0].type.shape.dimensions) {
-                            dimensions = this._outputs[0].value[0].type.shape.dimensions;
+                        if (this.outputs.length > 0 &&
+                            this.outputs[0].value.length > 0 &&
+                            this.outputs[0].value[0].type &&
+                            this.outputs[0].value[0].type.shape &&
+                            this.outputs[0].value[0].type.shape.dimensions) {
+                            dimensions = this.outputs[0].value[0].type.shape.dimensions;
                         }
                         break;
                     }
-                    default:
+                    default: {
                         break;
+                    }
                 }
             }
             if (data) {
-                weight(data, name, dimensions);
+                weight(name, precision, dimensions, data);
             }
         }
-    }
-
-    get name() {
-        return this._name;
-    }
-
-    get device() {
-        return this._device || '';
-    }
-
-    get type() {
-        return this._type;
-    }
-
-    get attributes() {
-        return this._attributes;
-    }
-
-    get inputs() {
-        return this._inputs;
-    }
-
-    get outputs() {
-        return this._outputs;
     }
 };
 
 openvino.Argument = class {
 
-    constructor(name, value) {
-        this._name = name;
-        this._value = value;
-    }
-
-    get name() {
-        return this._name;
-    }
-
-    get value() {
-        return this._value;
+    constructor(name, value, type = null, visible = true) {
+        this.name = name;
+        this.value = value;
+        this.type = type;
+        this.visible = visible;
     }
 };
 
 openvino.Value = class {
 
-    constructor(name, type, initializer) {
+    constructor(name, type, initializer = null) {
         if (typeof name !== 'string') {
-            throw new openvino.Error("Invalid value identifier '" + JSON.stringify(name) + "'.");
+            throw new openvino.Error(`Invalid value identifier '${JSON.stringify(name)}'.`);
         }
-        this._name = name;
-        this._type = type || null;
-        this._initializer = initializer || null;
-    }
-
-    get name() {
-        return this._name;
-    }
-
-    get type() {
-        if (this._initializer) {
-            return this._initializer.type;
-        }
-        return this._type;
-    }
-
-    get initializer() {
-        return this._initializer;
-    }
-};
-
-openvino.Attribute = class {
-
-    constructor(schema, name, value) {
-        this._name = name;
-        this._value = value;
-        if (schema) {
-            if (Object.prototype.hasOwnProperty.call(schema, 'type')) {
-                this._type = schema.type;
-                switch (schema.type) {
-                    case '':
-                    case 'string':
-                        break;
-                    case 'boolean':
-                        switch (value) {
-                            case '1':
-                            case 'true':
-                            case 'True':
-                                this._value = true;
-                                break;
-                            case '0':
-                            case 'false':
-                            case 'False':
-                                this._value = false;
-                                break;
-                            default:
-                                throw new openvino.Error("Unsupported attribute boolean value '" + value + "'.");
-                        }
-                        break;
-                    case 'int32':
-                    case 'int64': {
-                        const intValue = Number.parseInt(this._value, 10);
-                        this._value = Number.isNaN(this._value - intValue) ? value : intValue;
-                        break;
-                    }
-                    case 'float32':
-                    case 'float64': {
-                        const floatValue = Number.parseFloat(this._value);
-                        this._value = Number.isNaN(this._value - floatValue) ? value : floatValue;
-                        break;
-                    }
-                    case 'int32[]':
-                        if (this._value.length > 2) {
-                            let ints = [];
-                            for (const entry of this._value.split(',')) {
-                                const item = entry.trim();
-                                const intValue = Number.parseInt(item, 10);
-                                if (Number.isNaN(item - intValue)) {
-                                    ints = null;
-                                } else if (ints != null) {
-                                    ints.push(intValue);
-                                }
-                            }
-                            if (ints != null) {
-                                this._value = ints;
-                            }
-                        }
-                        break;
-                    case 'float32[]':
-                        if (this._value.length > 2) {
-                            let floats = [];
-                            for (const entry of this._value.split(',')) {
-                                const item = entry.trim();
-                                const floatValue = Number.parseFloat(item);
-                                if (Number.isNaN(item - floatValue)) {
-                                    floats = null;
-                                } else if (floats != null) {
-                                    floats.push(floatValue);
-                                }
-                            }
-                            if (floats != null) {
-                                this._value = floats;
-                            }
-                        }
-                        break;
-                    default:
-                        throw new openvino.Error("Unsupported attribute type '" + schema.type + "'.");
-                }
-            }
-            if (Object.prototype.hasOwnProperty.call(schema, 'visible') && schema.visible == false) {
-                this._visible = false;
-            } else if (Object.prototype.hasOwnProperty.call(schema, 'default')) {
-                let defaultValue = schema.default;
-                if (this._value == defaultValue) {
-                    this._visible = false;
-                } else if (Array.isArray(this._value) && Array.isArray(defaultValue)) {
-                    defaultValue = defaultValue.slice(0, defaultValue.length);
-                    if (defaultValue.length > 1 && defaultValue[defaultValue.length - 1] == null) {
-                        defaultValue.pop();
-                        while (defaultValue.length < this._value.length) {
-                            defaultValue.push(defaultValue[defaultValue.length - 1]);
-                        }
-                    }
-                    if (this._value.every((item, index) => item == defaultValue[index])) {
-                        this._visible = false;
-                    }
-                }
-            }
-        }
-    }
-
-    get name() {
-        return this._name;
-    }
-
-    get value() {
-        return this._value;
-    }
-
-    get type() {
-        return this._type;
-    }
-
-    get visible() {
-        return this._visible == false ? false : true;
+        this.name = name;
+        this.type = initializer ? initializer.type : type;
+        this.initializer = initializer;
     }
 };
 
 openvino.Tensor = class {
 
-    constructor(precision, shape, data, category) {
-        this._type = new openvino.TensorType(precision, shape);
-        this._data = data;
-        this._category = category;
-    }
-
-    get category() {
-        return this._category;
-    }
-
-    get type() {
-        return this._type;
-    }
-
-    get values() {
-        return this._data;
+    constructor(type, data, category) {
+        this.type = type;
+        this.values = data;
+        this.category = category;
     }
 };
 
@@ -809,188 +785,74 @@ openvino.TensorType = class {
     constructor(precision, shape) {
         precision = precision ? precision.toLowerCase() : precision;
         switch (precision) {
-            case 'f16':     this._dataType = 'float16'; break;
-            case 'f32':     this._dataType = 'float32'; break;
-            case 'f64':     this._dataType = 'float64'; break;
-            case 'fp16':    this._dataType = 'float16'; break;
-            case 'fp32':    this._dataType = 'float32'; break;
-            case 'fp64':    this._dataType = 'float64'; break;
-            case 'bf16':    this._dataType = 'bfloat16'; break;
-            case 'i4':      this._dataType = 'int4'; break;
-            case 'i8':      this._dataType = 'int8'; break;
-            case 'i16':     this._dataType = 'int16'; break;
-            case 'i32':     this._dataType = 'int32'; break;
-            case 'i64':     this._dataType = 'int64'; break;
-            case 'u1':      this._dataType = 'boolean'; break;
-            case 'u4':      this._dataType = 'uint4'; break;
-            case 'u8':      this._dataType = 'uint8'; break;
-            case 'u16':     this._dataType = 'uint16'; break;
-            case 'u32':     this._dataType = 'uint32'; break;
-            case 'u64':     this._dataType = 'uint64'; break;
-            case 'bool':    this._dataType = 'boolean'; break;
-            case 'boolean': this._dataType = 'boolean'; break;
-            case 'bin':     this._dataType = 'bit'; break;
-            case '':        this._dataType = '?'; break;
-            case null:      this._dataType = '?'; break;
-            default:        throw new openvino.Error("Unsupported precision '" + JSON.stringify(precision) + "'.");
+            case 'f4e2m1':      this.dataType = 'float4e2m1'; break;
+            case 'f8e4m3':      this.dataType = 'float8e4m3'; break;
+            case 'f8e5m2':      this.dataType = 'float8e5m2'; break;
+            case 'f8e8m0':      this.dataType = 'float8e8m0'; break;
+            case 'f16':         this.dataType = 'float16'; break;
+            case 'f32':         this.dataType = 'float32'; break;
+            case 'f64':         this.dataType = 'float64'; break;
+            case 'fp16':        this.dataType = 'float16'; break;
+            case 'fp32':        this.dataType = 'float32'; break;
+            case 'fp64':        this.dataType = 'float64'; break;
+            case 'bf16':        this.dataType = 'bfloat16'; break;
+            case 'nf4':         this.dataType = 'nfloat4'; break;
+            case 'i2':          this.dataType = 'int2'; break;
+            case 'i4':          this.dataType = 'int4'; break;
+            case 'i8':          this.dataType = 'int8'; break;
+            case 'i16':         this.dataType = 'int16'; break;
+            case 'i32':         this.dataType = 'int32'; break;
+            case 'i64':         this.dataType = 'int64'; break;
+            case 'u1':          this.dataType = 'boolean'; break;
+            case 'u2':          this.dataType = 'uint2'; break;
+            case 'u4':          this.dataType = 'uint4'; break;
+            case 'u8':          this.dataType = 'uint8'; break;
+            case 'u16':         this.dataType = 'uint16'; break;
+            case 'u32':         this.dataType = 'uint32'; break;
+            case 'u64':         this.dataType = 'uint64'; break;
+            case 'bool':        this.dataType = 'boolean'; break;
+            case 'boolean':     this.dataType = 'boolean'; break;
+            case 'bin':         this.dataType = 'bit'; break;
+            case 'string':      this.dataType = 'string'; break;
+            case 'dynamic':     this.dataType = 'dynamic'; break;
+            case 'unspecified': this.dataType = 'unspecified'; break;
+            case '':            this.dataType = '?'; break;
+            case null:          this.dataType = '?'; break;
+            default:            throw new openvino.Error(`Unsupported precision '${JSON.stringify(precision)}'.`);
         }
-        this._shape = shape;
-    }
-
-    get dataType() {
-        return this._dataType;
-    }
-
-    get shape() {
-        return this._shape;
+        this.shape = shape;
     }
 
     equals(obj) {
-        return obj && this._dataType === obj.dataType && this._shape && this._shape.equals(obj.shape);
+        return obj && this.dataType === obj.dataType &&
+            ((this.shape === null && obj.shape === null) || this.shape && this.shape.equals(obj.shape));
     }
 
     toString() {
-        if (this._shape == null) {
-            return this.dataType + '[?]';
+        if (this.shape === null) {
+            return `${this.dataType}[?]`;
         }
-        return this.dataType + this._shape.toString();
+        return this.dataType + this.shape.toString();
     }
 };
 
 openvino.TensorShape = class {
 
     constructor(dimensions) {
-        this._dimensions = dimensions;
-    }
-
-    get dimensions() {
-        return this._dimensions;
+        this.dimensions = dimensions;
     }
 
     equals(obj) {
         return obj && Array.isArray(obj.dimensions) &&
-            Array.isArray(this._dimensions) && this._dimensions.length === obj.dimensions.length
-            && obj.dimensions.every((value, index) => this._dimensions[index] === value);
+            Array.isArray(this.dimensions) && this.dimensions.length === obj.dimensions.length
+            && obj.dimensions.every((value, index) => this.dimensions[index] === value);
     }
 
     toString() {
-        if (!this._dimensions || this._dimensions.length == 0) {
+        if (!this.dimensions || this.dimensions.length === 0) {
             return '';
         }
-        return '[' + this._dimensions.join(',') + ']';
-    }
-};
-
-openvino.XmlReader = class {
-
-    static read(element) {
-        const children = (parent, name) => {
-            const children = [];
-            let child = parent.firstChild;
-            while (child != null) {
-                if (child.nodeType == 1 && child.prefix === null && child.localName == name) {
-                    children.push(child);
-                }
-                child = child.nextSibling;
-            }
-            return children;
-        };
-        const child = (parent, name) => {
-            const elements = children(parent, name);
-            if (elements.length > 1) {
-                throw new openvino.Error("Element '" + parent.localName + "' has multiple '" + name + "' elements.");
-            }
-            return elements.length > 0 ? elements[0] : null;
-        };
-        const ports = (parent, name) => {
-            const elements = child(parent, name);
-            if (elements) {
-                return children(elements, 'port').map((element) => {
-                    return {
-                        id: element.getAttribute('id'),
-                        precision: element.getAttribute('precision'),
-                        dims: element.getElementsByTagName('dim').map((dim) => parseInt(dim.textContent.trim(), 10))
-                    };
-                });
-            }
-            return [];
-        };
-        const layers = (parent) => {
-            const elements = child(parent, 'layers');
-            if (elements) {
-                return children(elements, 'layer').map((element) => {
-                    const data = child(element, 'data');
-                    const blobs = child(element, 'blobs');
-                    const layer = {
-                        id: element.getAttribute('id'),
-                        name: element.getAttribute('name'),
-                        type: element.getAttribute('type'),
-                        precision: element.getAttribute('precision'),
-                        data: !data ? new Map() : new Map(Array.from(data.attributes).map((attribute) => [ attribute.localName, attribute.value ])),
-                        blobs: !blobs ? [] : Array.from(blobs.childNodes).filter((node) => node.nodeType === 1).map((blob) => {
-                            return {
-                                name: blob.localName,
-                                precision: blob.getAttribute('precision'),
-                                offset: parseInt(blob.getAttribute('offset'), 10),
-                                size: parseInt(blob.getAttribute('size'), 10)
-                            };
-                        }),
-                        inputs: ports(element, 'input'),
-                        outputs: ports(element, 'output'),
-                    };
-                    if (layer.type === 'TensorIterator') {
-                        layer.back_edges = edges(element, 'back_edges');
-                        const body = child(element, 'body');
-                        if (body) {
-                            layer.body = {
-                                layers: layers(body),
-                                edges: edges(body)
-                            };
-                        }
-                        const port_map = child(element, 'port_map');
-                        if (port_map) {
-                            layer.port_map = { input: [], output: [] };
-                            for (const port of Array.from(port_map.childNodes).filter((element) => element.nodeType === 1)) {
-                                const item = {
-                                    axis: port.getAttribute("axis"),
-                                    external_port_id: port.getAttribute("external_port_id"),
-                                    internal_layer_id: port.getAttribute("internal_layer_id"),
-                                    internal_port_id: port.getAttribute("internal_port_id")
-                                };
-                                switch (port.localName) {
-                                    case 'input': layer.port_map.input.push(item); break;
-                                    case 'output': layer.port_map.output.push(item); break;
-                                    default: throw new openvino.Error("Unsupported port local name '" + port.localName + "'.");
-                                }
-                            }
-                        }
-                    }
-                    return layer;
-                });
-            }
-            return [];
-        };
-        const edges = (parent, name) => {
-            const map = {};
-            const elements = child(parent, name || 'edges');
-            if (elements) {
-                for (const element of children(elements, 'edge')) {
-                    const fromLayer = element.getAttribute('from-layer');
-                    const fromPort = element.getAttribute('from-port');
-                    const toLayer = element.getAttribute('to-layer');
-                    const toPort = element.getAttribute('to-port');
-                    map[toLayer + ':' + toPort] = fromLayer + ':' + fromPort;
-                }
-            }
-            return map;
-        };
-        return {
-            name: element.getAttribute('name'),
-            batch: element.getAttribute('batch'),
-            version: element.getAttribute('version'),
-            layers: layers(element),
-            edges: edges(element)
-        };
+        return `[${this.dimensions.join(',')}]`;
     }
 };
 
@@ -1002,6 +864,4 @@ openvino.Error = class extends Error {
     }
 };
 
-if (typeof module !== 'undefined' && typeof module.exports === 'object') {
-    module.exports.ModelFactory = openvino.ModelFactory;
-}
+export const ModelFactory = openvino.ModelFactory;

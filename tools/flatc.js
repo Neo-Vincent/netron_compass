@@ -1,7 +1,8 @@
 
+import * as fs from 'fs/promises';
+import * as path from 'path';
+
 const flatc = {};
-const fs = require('fs');
-const path = require('path');
 
 flatc.Object = class {
 
@@ -26,7 +27,7 @@ flatc.Object = class {
                     case 'required':
                         break;
                     default:
-                        throw new flatc.Error("Unsupported attribute '" + key + "'.");
+                        throw new flatc.Error(`Unsupported attribute '${key}'.`);
                 }
             }
             this.resolved = true;
@@ -43,7 +44,7 @@ flatc.Namespace = class extends flatc.Object {
     constructor(parent, name) {
         super(parent, name);
         this.children = new Map();
-        this.root_type = new Set();
+        this.root_type = new Map();
     }
 
     resolve() {
@@ -52,10 +53,13 @@ flatc.Namespace = class extends flatc.Object {
                 child.resolve();
             }
             if (this.root_type.size > 0) {
-                for (const root_type of this.root_type) {
-                    const type = this.find(root_type, flatc.Type);
+                for (const [name, value] of this.root_type) {
+                    const type = this.find(name, flatc.Type);
                     if (!type) {
-                        throw new flatc.Error("Failed to resolve root type '" + root_type + "'.");
+                        throw new flatc.Error(`Failed to resolve root type '${name}'.`);
+                    }
+                    if (value) {
+                        type.file_identifier = value;
                     }
                     this.root.root_type.add(type);
                 }
@@ -84,7 +88,7 @@ flatc.Namespace = class extends flatc.Object {
             const parents = this.name.split('.');
             while (parents.length > 1) {
                 parents.pop();
-                const parentNamespaceName = parents.join('.') + (namespaceName ? '.' + namespaceName : '');
+                const parentNamespaceName = parents.join('.') + (namespaceName ? `.${namespaceName}` : '');
                 const namespace = this.parent.find(parentNamespaceName, flatc.Namespace);
                 if (namespace) {
                     if (namespace.children.has(typeName)) {
@@ -103,7 +107,7 @@ flatc.Type = class extends flatc.Object {
         super(parent, name);
         if (parent instanceof flatc.Namespace) {
             if (parent.children.has(name)) {
-                throw new flatc.Error("Duplicate identifier '" + name + "'.");
+                throw new flatc.Error(`Duplicate identifier '${name}'.`);
             }
             parent.children.set(name, this);
         }
@@ -131,9 +135,17 @@ flatc.Enum = class extends flatc.Type {
                 }
                 index = this.values.get(key) + 1;
             }
-            this.keys = new Map(Array.from(this.values).map((pair) => [ pair[1], pair[0] ]));
+            this.keys = new Map(Array.from(this.values).map(([key, value]) => [value, key]));
             super.resolve();
         }
+    }
+};
+
+flatc.Alias = class extends flatc.Type {
+
+    constructor(parent, name, type) {
+        super(parent, name);
+        this.type = type;
     }
 };
 
@@ -141,35 +153,35 @@ flatc.Union = class extends flatc.Type {
 
     constructor(parent, name) {
         super(parent, name);
-        this.values = new Map();
+        this.values = [];
     }
 
     resolve() {
         if (!this.resolved) {
             let index = 1;
-            for (const key of this.values.keys()) {
-                if (this.values.get(key) === undefined) {
-                    this.values.set(key, index);
+            for (const value of this.values) {
+                value.index = value.index === undefined ? index : value.index;
+                index = value.index + 1;
+                const name = this.parent.find(value.name, flatc.Type);
+                const type = value.type ? this.parent.find(value.type, flatc.Type) : null;
+                value.type = name;
+                if (!name && type) {
+                    value.type = new flatc.Alias(this.parent, value.name, type);
+                    type.aliases.add(value.type);
+                    this.root.aliases.push(value);
                 }
-                index = this.values.get(key) + 1;
             }
-            const map = new Map();
-            for (const pair of this.values) {
-                const type = this.parent.find(pair[0], flatc.Type);
-                map.set(pair[1], type);
-            }
-            this.values = map;
             super.resolve();
         }
     }
 };
-
 
 flatc.Table = class extends flatc.Type {
 
     constructor(parent, name) {
         super(parent, name);
         this.fields = new Map();
+        this.aliases = new Set();
     }
 
     resolve() {
@@ -201,20 +213,20 @@ flatc.Struct = class extends flatc.Type {
                 const fieldType = field.type instanceof flatc.Enum ? field.type.base : field.type;
                 if (field.repeated) {
                     if (field.length === undefined) {
-                        const name = this.parent.name + '.' + this.name;
-                        throw new flatc.Error("Struct '" + name + "' may contain only scalar or struct fields.");
+                        const name = `${this.parent.name}.${this.name}`;
+                        throw new flatc.Error(`Struct '${name}' may contain only scalar or struct fields.`);
                     }
                     const size = fieldType.size;
-                    field.offset = (offset % size != 0) ? (Math.floor(offset / size) + 1) * size : offset;
+                    field.offset = (offset % size) === 0 ? offset : (Math.floor(offset / size) + 1) * size;
                     offset = field.offset + (field.length * size);
                 } else if (fieldType instanceof flatc.PrimitiveType && field.type !== 'string') {
                     const size = fieldType.size;
-                    field.offset = (offset % size != 0) ? (Math.floor(offset / size) + 1) * size : offset;
+                    field.offset = (offset % size) === 0 ? offset : (Math.floor(offset / size) + 1) * size;
                     offset = field.offset + size;
                 } else if (field.type instanceof flatc.Struct) {
                     field.type.resolve();
                     const align = 8;
-                    field.offset = (offset % align != 0) ? (Math.floor(offset / align) + 1) * align : offset;
+                    field.offset = (offset % align) === 0 ? offset : (Math.floor(offset / align) + 1) * align;
                     offset += field.type.size;
                 } else {
                     throw new flatc.Error('Structs may contain only scalar or struct fields.');
@@ -255,7 +267,7 @@ flatc.Field = class extends flatc.Object {
                     if (this.type.values.has(this.defaultValue)) {
                         this.defaultValue = this.type.values.get(this.defaultValue);
                     } else if (!new Set(this.type.values.values()).has(this.defaultValue)) {
-                        throw new flatc.Error("Unsupported enum value '" + this.defaultValue + "'.");
+                        throw new flatc.Error(`Unsupported enum value '${this.defaultValue}'.`);
                     }
                 }
             }
@@ -281,18 +293,18 @@ flatc.PrimitiveType = class extends flatc.Type {
                     this._map.set(name, type);
                 }
             };
-            register([ 'bool' ], false, 1);
-            register([ 'int8', 'byte' ], 0, 1);
-            register([ 'uint8', 'ubyte' ], 0, 1);
-            register([ 'int16', 'short' ], 0, 2);
-            register([ 'uint16', 'ushort' ], 0, 2);
-            register([ 'int32', 'int' ], 0, 4);
-            register([ 'uint32', 'uint' ], 0, 4);
-            register([ 'int64', 'long' ], 0, 8);
-            register([ 'uint64', 'ulong' ], 0, 8);
-            register([ 'float32', 'float' ], 0.0, 4);
-            register([ 'float64', 'double' ], 0, 4);
-            register([ 'string' ], null, undefined);
+            register(['bool'], false, 1);
+            register(['int8', 'byte'], 0, 1);
+            register(['uint8', 'ubyte'], 0, 1);
+            register(['int16', 'short'], 0, 2);
+            register(['uint16', 'ushort'], 0, 2);
+            register(['int32', 'int'], 0, 4);
+            register(['uint32', 'uint'], 0, 4);
+            register(['int64', 'long'], 0n, 8);
+            register(['uint64', 'ulong'], 0n, 8);
+            register(['float32', 'float'], 0.0, 4);
+            register(['float64', 'double'], 0, 4);
+            register(['string'], null, undefined);
         }
         return this._map.get(name);
     }
@@ -315,7 +327,7 @@ flatc.TypeReference = class {
         if (type) {
             return type;
         }
-        throw new flatc.Error("Falied to resolve type '" + this.name + "'.");
+        throw new flatc.Error(`Falied to resolve type '${this.name}'.`);
     }
 };
 
@@ -330,7 +342,7 @@ flatc.Parser = class {
 
     include() {
         const includes = [];
-        while (!this._tokenizer.match('eof') && this._tokenizer.eat('id', 'include')) {
+        while (!this._tokenizer.match('eof') && this._tokenizer.accept('id', 'include')) {
             includes.push(this._tokenizer.string());
             this._tokenizer.expect(';');
         }
@@ -340,99 +352,102 @@ flatc.Parser = class {
     parse() {
         const attributes = [];
         while (!this._tokenizer.match('eof')) {
-            if (this._tokenizer.eat('id', 'namespace')) {
+            if (this._tokenizer.accept('id', 'namespace')) {
                 let name = this._tokenizer.identifier();
-                while (this._tokenizer.eat('.')) {
-                    name += '.' + this._tokenizer.identifier();
+                while (this._tokenizer.accept('.')) {
+                    name += `.${this._tokenizer.identifier()}`;
                 }
                 this._tokenizer.expect(';');
                 this._context = this._root.defineNamespace(name);
                 continue;
             }
-            if (this._tokenizer.eat('id', 'table')) {
+            if (this._tokenizer.accept('id', 'table')) {
                 const name = this._tokenizer.identifier();
                 const table = new flatc.Table(this._context, name);
                 this._parseMetadata(table.metadata);
                 this._tokenizer.expect('{');
-                while (!this._tokenizer.eat('}')) {
+                while (!this._tokenizer.accept('}')) {
                     const field = this._parseField(table);
                     table.fields.set(field.name, field);
                     this._tokenizer.expect(';');
                 }
                 continue;
             }
-            if (this._tokenizer.eat('id', 'struct')) {
+            if (this._tokenizer.accept('id', 'struct')) {
                 const name = this._tokenizer.identifier();
                 const struct = new flatc.Struct(this._context, name);
                 this._parseMetadata(struct.metadata);
                 this._tokenizer.expect('{');
-                while (!this._tokenizer.eat('}')) {
+                while (!this._tokenizer.accept('}')) {
                     const field = this._parseField(struct);
                     struct.fields.set(field.name, field);
                     this._tokenizer.expect(';');
                 }
                 continue;
             }
-            if (this._tokenizer.eat('id', 'enum')) {
+            if (this._tokenizer.accept('id', 'enum')) {
                 const name = this._tokenizer.identifier();
                 this._tokenizer.expect(':');
                 const base = this._parseTypeReference();
                 if (base.repeated) {
-                    throw new flatc.Error('Underlying enum type must be integral' + this._tokenizer.location());
+                    throw new flatc.Error(`Underlying enum type must be integral ${this._tokenizer.location()}`);
                 }
                 const type = new flatc.Enum(this._context, name, base);
                 this._parseMetadata(type.metadata);
                 this._tokenizer.expect('{');
-                while (!this._tokenizer.eat('}')) {
+                while (!this._tokenizer.accept('}')) {
                     const key = this._tokenizer.identifier();
-                    const value = this._tokenizer.eat('=') ? this._tokenizer.integer() : undefined;
+                    const value = this._tokenizer.accept('=') ? this._tokenizer.integer() : undefined;
                     type.values.set(key, value);
-                    if (this._tokenizer.eat(',')) {
+                    this._parseMetadata(new Map());
+                    if (this._tokenizer.accept(',')) {
                         continue;
                     }
                 }
                 continue;
             }
-            if (this._tokenizer.eat('id', 'union')) {
+            if (this._tokenizer.accept('id', 'union')) {
                 const name = this._tokenizer.identifier();
                 const union = new flatc.Union(this._context, name);
                 this._parseMetadata(union.metadata);
                 this._tokenizer.expect('{');
-                while (!this._tokenizer.eat('}')) {
+                while (!this._tokenizer.accept('}')) {
                     const name = this._tokenizer.identifier();
-                    const key = this._tokenizer.eat(':') ? this._tokenizer.identifier() : name;
-                    const value = this._tokenizer.eat('=') ? this._tokenizer.integer() : undefined;
-                    union.values.set(key, value);
-                    if (this._tokenizer.eat(',')) {
+                    const type = this._tokenizer.accept(':') ? this._tokenizer.identifier() : null;
+                    const index = this._tokenizer.accept('=') ? this._tokenizer.integer() : undefined;
+                    union.values.push({ name, type, index });
+                    this._parseMetadata(new Map());
+                    if (this._tokenizer.accept(',')) {
                         continue;
                     }
                 }
                 continue;
             }
-            if (this._tokenizer.eat('id', 'rpc_service')) {
-                throw new flatc.Error("Unsupported keyword 'rpc_service'." + this._tokenizer.location());
+            if (this._tokenizer.accept('id', 'rpc_service')) {
+                throw new flatc.Error(`Unsupported keyword 'rpc_service' ${this._tokenizer.location()}`);
             }
-            if (this._tokenizer.eat('id', 'root_type')) {
-                this._context.root_type.add(this._tokenizer.identifier());
-                this._tokenizer.eat(';');
+            if (this._tokenizer.accept('id', 'root_type')) {
+                const root_type = this._tokenizer.identifier();
+                this._root_type = this._root_type || root_type;
+                this._tokenizer.accept(';');
                 continue;
             }
-            if (this._tokenizer.eat('id', 'file_extension')) {
+            if (this._tokenizer.accept('id', 'file_extension')) {
                 const value = this._tokenizer.string();
-                this._root.file_extension = value;
-                this._tokenizer.eat(';');
+                this._file_extension = value;
+                this._tokenizer.accept(';');
                 continue;
             }
-            if (this._tokenizer.eat('id', 'file_identifier')) {
+            if (this._tokenizer.accept('id', 'file_identifier')) {
                 const value = this._tokenizer.string();
                 if (value.length !== 4) {
-                    throw new flatc.Error("'file_identifier' must be exactly 4 characters " + this._tokenizer.location());
+                    throw new flatc.Error(`'file_identifier' must be exactly 4 characters ${this._tokenizer.location()}`);
                 }
-                this._root.file_identifier = value;
-                this._tokenizer.eat(';');
+                this._file_identifier = value;
+                this._tokenizer.accept(';');
                 continue;
             }
-            if (this._tokenizer.eat('id', 'attribute')) {
+            if (this._tokenizer.accept('id', 'attribute')) {
                 const token = this._tokenizer.read();
                 switch (token.type) {
                     case 'string':
@@ -442,15 +457,18 @@ flatc.Parser = class {
                         attributes.push(token.token);
                         break;
                     default:
-                        throw new flatc.Error("Unexpected attribute token '" + token.token + "'" + this._tokenizer.location());
+                        throw new flatc.Error(`Unexpected attribute token '${token.token}' ${this._tokenizer.location()}`);
                 }
                 this._tokenizer.expect(';');
                 continue;
             }
-            if (this._tokenizer.eat('{')) {
-                throw new flatc.Error('Unsupported object.' + this._tokenizer.location());
+            if (this._tokenizer.accept('{')) {
+                throw new flatc.Error(`Unsupported object ${this._tokenizer.location()}`);
             }
-            throw new flatc.Error("Unexpected token '" + this._tokenizer.peek().token + "'" + this._tokenizer.location());
+            throw new flatc.Error(`Unexpected token '${this._tokenizer.peek().token}' ${this._tokenizer.location()}`);
+        }
+        if (this._root_type) {
+            this._context.root_type.set(this._root_type, this._file_identifier);
         }
     }
 
@@ -462,34 +480,35 @@ flatc.Parser = class {
         if (token.type === '[') {
             const identifier = this._tokenizer.read();
             if (identifier.type === 'id') {
-                let length = undefined;
-                if (this._tokenizer.eat(':')) {
-                    length = this._parseScalar(); // array length
+                if (this._tokenizer.accept(':')) {
+                    const length = this._parseScalar(); // array length
+                    this._tokenizer.expect(']');
+                    return new flatc.TypeReference(identifier.token, true, length);
                 }
                 this._tokenizer.expect(']');
-                return new flatc.TypeReference(identifier.token, true, length);
+                return new flatc.TypeReference(identifier.token, true);
             }
         }
-        throw new flatc.Error("Expected type instead of '" + token.token + "'" + this._tokenizer.location());
+        throw new flatc.Error(`Expected type instead of '${token.token}' ${this._tokenizer.location()}`);
     }
 
     _parseField(parent) {
         const name = this._tokenizer.identifier();
         this._tokenizer.expect(':');
         const type = this._parseTypeReference();
-        const defaultValue = this._tokenizer.eat('=') ? this._parseScalar() : undefined;
+        const defaultValue = this._tokenizer.accept('=') ? this._parseScalar() : undefined;
         const field = new flatc.Field(parent, name, type, defaultValue);
         this._parseMetadata(field.metadata);
         return field;
     }
 
     _parseMetadata(metadata) {
-        if (this._tokenizer.eat('(')) {
-            while (!this._tokenizer.eat(')')) {
+        if (this._tokenizer.accept('(')) {
+            while (!this._tokenizer.accept(')')) {
                 const key = this._tokenizer.identifier();
-                const value = this._tokenizer.eat(':') ? this._parseSingleValue() : undefined;
+                const value = this._tokenizer.accept(':') ? this._parseSingleValue() : undefined;
                 metadata.set(key, value);
-                if (this._tokenizer.eat(',')) {
+                if (this._tokenizer.accept(',')) {
                     continue;
                 }
             }
@@ -506,7 +525,7 @@ flatc.Parser = class {
             case 'id':
                 return token.token;
             default:
-                throw new flatc.Error("Expected scalar instead of '" + token.token + "'" + this._tokenizer.location());
+                throw new flatc.Error(`Expected scalar instead of '${token.token}'${this._tokenizer.location()}`);
         }
     }
 
@@ -519,7 +538,7 @@ flatc.Parser = class {
             case 'float':
                 return token.value;
             default:
-                throw new flatc.Error("Expected single value instead of '" + token.token + "'" + this._token.location());
+                throw new flatc.Error(`Expected single value instead of '${token.token}'${this._token.location()}`);
         }
     }
 };
@@ -569,7 +588,7 @@ flatc.Tokenizer = class {
         return false;
     }
 
-    eat(type, value) {
+    accept(type, value) {
         const token = this.peek();
         if (token.type === type && (!value || token.token === value)) {
             this.read();
@@ -581,10 +600,10 @@ flatc.Tokenizer = class {
     expect(type, value) {
         const token = this.peek();
         if (token.type !== type) {
-            throw new flatc.Error("Unexpected '" + token.token + "' instead of '" + type + "'" + this.location());
+            throw new flatc.Error(`Unexpected '${token.token}' instead of '${type}'${this.location()}`);
         }
         if (value && token.token !== value) {
-            throw new flatc.Error("Unexpected '" + token.token + "' instead of '" + value + "'" + this.location());
+            throw new flatc.Error(`Unexpected '${token.token}' instead of '${value}'${this.location()}`);
         }
         this.read();
     }
@@ -594,7 +613,7 @@ flatc.Tokenizer = class {
         if (token.type === 'string') {
             return token.value;
         }
-        throw new flatc.Error("Expected string instead of '" + token.token + "'" + this.location());
+        throw new flatc.Error(`Expected string instead of '${token.token}' ${this.location()}`);
     }
 
     identifier() {
@@ -602,7 +621,7 @@ flatc.Tokenizer = class {
         if (token.type === 'id') {
             return token.token;
         }
-        throw new flatc.Error("Expected identifier instead of '" + token.token + "'" + this.location());
+        throw new flatc.Error(`Expected identifier instead of '${token.token}' ${this.location()}`);
     }
 
     integer() {
@@ -610,11 +629,13 @@ flatc.Tokenizer = class {
         if (token.type === 'integer') {
             return token.value;
         }
-        throw new flatc.Error("Expected integer instead of '" + token.token + "'" + this.location());
+        throw new flatc.Error(`Expected integer instead of '${token.token}' ${this.location()}`);
     }
 
     location() {
-        return ' at ' + this._file + ':' + (this._line + 1).toString() + ':' + (this._position - this._lineStart + 1).toString();
+        const line = this._line + 1;
+        const column = this._position - this._lineStart + 1;
+        return `at ${this._file}:${line}:${column}`;
     }
 
     _tokenize() {
@@ -628,7 +649,7 @@ flatc.Tokenizer = class {
 
         const boolean_constant = content.match(/^(true|false)/);
         if (boolean_constant) {
-            const content = boolean_constant[0];
+            const [content] = boolean_constant;
             return { type: 'boolean', token: content, value: content === 'true' };
         }
 
@@ -639,13 +660,13 @@ flatc.Tokenizer = class {
 
         const string_constant = content.match(/^".*?"/) || content.match(/^'.*?'/);
         if (string_constant) {
-            const content = string_constant[0];
+            const [content] = string_constant;
             return { type: 'string', token: content, value: content.substring(1, content.length - 1) };
         }
 
         const dec_float_constant = content.match(/^[-+]?(([.][0-9]+)|([0-9]+[.][0-9]*)|([0-9]+))([eE][-+]?[0-9]+)?/);
         if (dec_float_constant) {
-            const content = dec_float_constant[0];
+            const [content] = dec_float_constant;
             if (content.indexOf('.') !== -1 || content.indexOf('e') !== -1) {
                 return { type: 'float', token: content, value: parseFloat(content) };
             }
@@ -658,7 +679,7 @@ flatc.Tokenizer = class {
 
         const dec_integer_constant = content.match(/^[-+]?[0-9]+/);
         if (dec_integer_constant) {
-            const content = dec_integer_constant[0];
+            const [content] = dec_integer_constant;
             return { type: 'integer', token: content, value: parseInt(content, 10) };
         }
         const hex_integer_constant = content.match(/^[-+]?0[xX][0-9a-fA-F]+/);
@@ -680,7 +701,7 @@ flatc.Tokenizer = class {
             case ',':
                 return { type: c, token: c };
             default:
-                throw new flatc.Error("Unsupported character '" + c + "' " + this.location());
+                throw new flatc.Error(`Unsupported character '${c}' ${this.location()}`);
         }
     }
 
@@ -769,22 +790,35 @@ flatc.Tokenizer = class {
 
 flatc.Root = class extends flatc.Object {
 
-    constructor(root, paths, files) {
+    constructor(root) {
         super(null, root);
         this._namespaces = new Map();
         this._files = new Set();
         this.root_type = new Set();
+    }
+
+    async load(paths, files) {
         for (const file of files) {
-            this._parseFile(paths, file);
+            // eslint-disable-next-line no-await-in-loop
+            await this._parseFile(paths, file);
         }
         this.resolve();
     }
 
     resolve() {
         if (!this.resolved) {
+            this.aliases = [];
             for (const namespace of this._namespaces.values()) {
                 namespace.resolve();
             }
+            for (const value of this.aliases) {
+                if (value.type instanceof flatc.Alias && value.type.type.aliases.size <= 1) {
+                    value.type.type.aliases.delete(value.type);
+                    value.type.parent.children.delete(value.type.name);
+                    value.type = value.type.type;
+                }
+            }
+            delete this.aliases;
             super.resolve();
         }
     }
@@ -821,32 +855,45 @@ flatc.Root = class extends flatc.Object {
         return super.find(name, type);
     }
 
-    _parseFile(paths, file) {
+    async _parseFile(paths, file) {
         if (!this._files.has(file)) {
             this._files.add(file);
-            const content = fs.readFileSync(file, 'utf-8');
+            const content = await fs.readFile(file, 'utf-8');
             const parser = new flatc.Parser(content, file, this);
             const includes = parser.include();
             for (const include of includes) {
-                const includeFile = this._resolve(paths, file, include);
+                // eslint-disable-next-line no-await-in-loop
+                const includeFile = await this._resolve(paths, file, include);
                 if (includeFile) {
-                    this._parseFile(paths, includeFile);
+                    // eslint-disable-next-line no-await-in-loop
+                    await this._parseFile(paths, includeFile);
                     continue;
                 }
-                throw new flatc.Error("Include '" + include + "' not found.");
+                throw new flatc.Error(`Include '${include}' not found.`);
             }
             parser.parse();
         }
     }
 
-    _resolve(paths, origin, target) {
+    async _resolve(paths, origin, target) {
+        const access = async (path) => {
+            try {
+                await fs.access(path);
+                return true;
+            } catch {
+                return false;
+            }
+        };
         const file = path.join(path.dirname(origin), target);
-        if (fs.existsSync(file)) {
+        const exists = await access(file);
+        if (exists) {
             return file;
         }
         for (const current of paths) {
             const file = path.join(current, target);
-            if (fs.existsSync(file)) {
+            // eslint-disable-next-line no-await-in-loop
+            const exists = await access(file);
+            if (exists) {
                 return file;
             }
         }
@@ -860,7 +907,12 @@ flatc.Generator = class {
         this._root = root;
         this._text = text;
         this._builder = new flatc.Generator.StringBuilder();
-        this._builder.add("var $root = flatbuffers.get('" + this._root.name + "');");
+        const namespaces = Array.from(this._root.namespaces.values()).filter((namespace) => namespace.name !== '').map((namespace) => namespace.name);
+        const exports = new Set (namespaces.map((namespace) => namespace.split('.')[0]));
+        for (const value of exports) {
+            this._builder.add('');
+            this._builder.add(`export const ${value} = {};`);
+        }
         for (const namespace of this._root.namespaces.values()) {
             this._buildNamespace(namespace);
         }
@@ -874,10 +926,10 @@ flatc.Generator = class {
     _buildNamespace(namespace) {
         if (namespace.name !== '') {
             const parts = namespace.name.split('.');
-            for (let i = 1; i <= parts.length; i++) {
-                const name = '$root.' + parts.slice(0, i).join('.');
+            for (let i = 2; i <= parts.length; i++) {
+                const name = `${parts.slice(0, i).join('.')}`;
                 this._builder.add('');
-                this._builder.add(name + ' = ' + name + ' || {};');
+                this._builder.add(`${name} = ${name} || {};`);
             }
         }
         for (const child of namespace.children.values()) {
@@ -887,30 +939,34 @@ flatc.Generator = class {
                 this._buildStruct(child);
             } else if (child instanceof flatc.Union) {
                 this._buildUnion(child);
+            } else if (child instanceof flatc.Alias) {
+                this._buildAlias(child);
             } else if (child instanceof flatc.Enum) {
                 this._buildEnum(child);
+            } else {
+                throw new flatc.Error(`Unsupported type '${child.name}'.`);
             }
         }
     }
 
     _buildTable(type) {
 
-        const typeName = type.parent.name + '.' + type.name;
-        const typeReference = '$root.' + typeName;
+        const typeName = `${type.parent.name}.${type.name}`;
+        const typeReference = `${typeName}`;
 
         /* eslint-disable indent */
         this._builder.add('');
-        this._builder.add(typeReference + ' = class ' + type.name + ' {');
+        this._builder.add(`${typeReference} = class ${type.name} {`);
         this._builder.indent();
 
             if (this._root.root_type.has(type)) {
 
-                const file_identifier = this._root.file_identifier;
+                const file_identifier = type.file_identifier;
                 if (file_identifier) {
                     this._builder.add('');
                     this._builder.add('static identifier(reader) {');
                     this._builder.indent();
-                        this._builder.add("return reader.identifier === '" + file_identifier + "';");
+                        this._builder.add(`return reader.identifier === '${file_identifier}';`);
                     this._builder.outdent();
                     this._builder.add('}');
                 }
@@ -918,7 +974,7 @@ flatc.Generator = class {
                 this._builder.add('');
                 this._builder.add('static create(reader) {');
                 this._builder.indent();
-                    this._builder.add('return ' + typeReference + '.decode(reader, reader.root);');
+                    this._builder.add(`return ${typeReference}.decode(reader, reader.root);`);
                 this._builder.outdent();
                 this._builder.add('}');
 
@@ -926,64 +982,71 @@ flatc.Generator = class {
                     this._builder.add('');
                     this._builder.add('static createText(reader) {');
                     this._builder.indent();
-                        this._builder.add('return ' + typeReference + '.decodeText(reader, reader.root);');
+                        this._builder.add(`return ${typeReference}.decodeText(reader, reader.root);`);
                     this._builder.outdent();
                     this._builder.add('}');
                 }
             }
 
             this._builder.add('');
-            this._builder.add(type.fields.size !== 0 ? 'static decode(reader, position) {' : 'static decode(/* reader, position */) {');
+            if (type.aliases.size > 0) {
+                this._builder.add('static decode(reader, position, $) {');
+            } else if (type.fields.size === 0) {
+                this._builder.add('static decode(/* reader, position */) {');
+            } else {
+                this._builder.add('static decode(reader, position) {');
+            }
             this._builder.indent();
-                this._builder.add('const $ = new ' + typeReference + '();');
+                this._builder.add(type.aliases.size > 0 ? `$ = $ || new ${typeReference}();` : `const $ = new ${typeReference}();`);
                 for (const field of type.fields.values()) {
                     const fieldType = field.type instanceof flatc.Enum ? field.type.base : field.type;
                     if (field.repeated) {
                         if (fieldType instanceof flatc.PrimitiveType) {
                             switch (field.type.name) {
                                 case 'int64': {
-                                    this._builder.add('$.' + field.name + ' = reader.int64s_(position, ' + field.offset + ');');
+                                    this._builder.add(`$.${field.name} = reader.int64s_(position, ${field.offset});`);
                                     break;
                                 }
                                 case 'uint64': {
-                                    this._builder.add('$.' + field.name + ' = reader.uint64s_(position, ' + field.offset + ');');
+                                    this._builder.add(`$.${field.name} = reader.uint64s_(position, ${field.offset});`);
                                     break;
                                 }
                                 case 'string': {
-                                    this._builder.add('$.' + field.name + ' = reader.strings_(position, ' + field.offset + ');');
+                                    this._builder.add(`$.${field.name} = reader.strings_(position, ${field.offset});`);
                                     break;
                                 }
                                 case 'bool': {
-                                    this._builder.add('$.' + field.name + ' = reader.bools_(position, ' + field.offset + ');');
+                                    this._builder.add(`$.${field.name} = reader.bools_(position, ${field.offset});`);
                                     break;
                                 }
                                 default: {
-                                    const arrayType = fieldType.name[0].toUpperCase() + fieldType.name.substring(1) + 'Array';
-                                    this._builder.add('$.' + field.name + ' = reader.typedArray(position, ' + field.offset + ', ' + arrayType + ');');
+                                    const arrayType = `${fieldType.name[0].toUpperCase() + fieldType.name.substring(1)}Array`;
+                                    this._builder.add(`$.${field.name} = reader.array(position, ${field.offset}, ${arrayType});`);
                                     break;
                                 }
                             }
                         } else if (fieldType instanceof flatc.Union) {
-                            const unionType = '$root.' + field.type.parent.name + '.' + field.type.name;
-                            this._builder.add('$.' + field.name + ' = reader.unionArray(position, ' + field.offset + ', ' + unionType + '.decode);');
+                            const unionType = `${field.type.parent.name}.${field.type.name}`;
+                            this._builder.add(`$.${field.name} = reader.unions(position, ${field.offset}, ${unionType});`);
                         } else if (fieldType instanceof flatc.Struct) {
-                            const fieldType = '$root.' + field.type.parent.name + '.' + field.type.name;
-                            this._builder.add('$.' + field.name + ' = reader.structArray(position, ' + field.offset + ', ' + fieldType + '.decode);');
+                            const fieldType = `${field.type.parent.name}.${field.type.name}`;
+                            this._builder.add(`$.${field.name} = reader.structs(position, ${field.offset}, ${fieldType}, ${field.type.size});`);
                         } else {
-                            const fieldType = '$root.' + field.type.parent.name + '.' + field.type.name;
-                            this._builder.add('$.' + field.name + ' = reader.tableArray(position, ' + field.offset + ', ' + fieldType + '.decode);');
+                            const fieldType = `${field.type.parent.name}.${field.type.name}`;
+                            this._builder.add(`$.${field.name} = reader.tables(position, ${field.offset}, ${fieldType});`);
                         }
                     } else if (fieldType instanceof flatc.PrimitiveType) {
-                        this._builder.add('$.' + field.name + ' = reader.' + fieldType.name + '_(position, ' + field.offset + ', ' + field.defaultValue + ');');
+                        const n = fieldType.name === 'uint64' || fieldType.name === 'int64' ? 'n' : '';
+                        this._builder.add(`$.${field.name} = reader.${fieldType.name}_(position, ${field.offset}, ${field.defaultValue}${n});`);
                     } else if (fieldType instanceof flatc.Union) {
-                        const unionType = '$root.' + field.type.parent.name + '.' + field.type.name;
-                        this._builder.add('$.' + field.name + ' = reader.union(position, ' + field.offset + ', ' + unionType + '.decode);');
+                        const unionType = `${field.type.parent.name}.${field.type.name}`;
+                        this._builder.add(`$.${field.name} = reader.union(position, ${field.offset}, ${unionType});`);
                     } else if (fieldType instanceof flatc.Struct) {
-                        const fieldType = '$root.' + field.type.parent.name + '.' + field.type.name;
-                        this._builder.add('$.' + field.name + ' = reader.struct(position, ' + field.offset + ', ' + fieldType + '.decode);');
+                        const fieldType = `${field.type.parent.name}.${field.type.name}`;
+                        this._builder.add(`$.${field.name} = reader.struct(position, ${field.offset}, ${fieldType});`);
                     } else {
-                        const fieldType = '$root.' + field.type.parent.name + '.' + field.type.name;
-                        this._builder.add('$.' + field.name + ' = reader.table(position, ' + field.offset + ', ' + fieldType + '.decode);');
+                        const fieldType = `${field.type.parent.name}.${field.type.name}`;
+                        this._builder.add(`$.${field.name} = reader.table(position, ${field.offset}, ${fieldType});`);
                     }
                 }
                 this._builder.add('return $;');
@@ -992,9 +1055,15 @@ flatc.Generator = class {
 
             if (this._text) {
                 this._builder.add('');
-                this._builder.add(type.fields.size !== 0 ? 'static decodeText(reader, json) {' : 'static decodeText(/* reader, json */) {');
+                if (type.aliases.size > 0) {
+                    this._builder.add('static decodeText(reader, json, $) {');
+                } else if (type.fields.size === 0) {
+                    this._builder.add('static decodeText(/* reader, json */) {');
+                } else {
+                    this._builder.add('static decodeText(reader, json) {');
+                }
                 this._builder.indent();
-                    this._builder.add('const $ = new ' + typeReference + '();');
+                    this._builder.add(type.aliases.size > 0 ? `$ = $ || new ${typeReference}();` : `const $ = new ${typeReference}();`);
                     for (const field of type.fields.values()) {
                         if (field.repeated) {
                             if (field.type instanceof flatc.PrimitiveType) {
@@ -1003,35 +1072,48 @@ flatc.Generator = class {
                                     case 'uint64':
                                     case 'string':
                                     case 'bool': {
-                                        this._builder.add('$.' + field.name + ' = reader.array(json.' + field.name + ');');
+                                        this._builder.add(`$.${field.name} = reader.array(json.${field.name});`);
                                         break;
                                     }
                                     default: {
-                                        const arrayType = field.type.name[0].toUpperCase() + field.type.name.substring(1) + 'Array';
-                                        this._builder.add('$.' + field.name + ' = reader.typedArray(json.' + field.name + ', ' + arrayType + ');');
+                                        const type = `${field.type.name[0].toUpperCase() + field.type.name.substring(1)}Array`;
+                                        this._builder.add(`$.${field.name} = reader.array(json.${field.name}, ${type});`);
                                         break;
                                     }
                                 }
                             } else if (field.type instanceof flatc.Union) {
                                 throw new flatc.Error('Not implemented.');
                             } else if (field.type instanceof flatc.Struct) {
-                                const fieldType = '$root.' + field.type.parent.name + '.' + field.type.name;
-                                this._builder.add('$.' + field.name + ' = ' + fieldType + '.decode(reader, position + ' + field.offset + ');');
+                                const fieldType = `${field.type.parent.name}.${field.type.name}`;
+                                this._builder.add(`$.${field.name} = ${fieldType}.decode(reader, position + ${field.offset});`);
                             } else {
-                                const fieldType = '$root.' + field.type.parent.name + '.' + field.type.name;
-                                this._builder.add('$.' + field.name + ' = reader.objectArray(json.' + field.name + ', ' + fieldType + '.decodeText);');
+                                const fieldType = `${field.type.parent.name}.${field.type.name}`;
+                                this._builder.add(`$.${field.name} = reader.objects(json.${field.name}, ${fieldType});`);
                             }
                         } else if (field.type instanceof flatc.PrimitiveType) {
-                            this._builder.add('$.' + field.name + ' = reader.value(json.' + field.name + ', ' + field.defaultValue + ');');
+                            switch (field.type.name) {
+                                case 'int64': {
+                                    this._builder.add(`$.${field.name} = reader.int64(json.${field.name}, ${field.defaultValue}n);`);
+                                    break;
+                                }
+                                case 'uint64': {
+                                    this._builder.add(`$.${field.name} = reader.uint64(json.${field.name}, ${field.defaultValue}n);`);
+                                    break;
+                                }
+                                default: {
+                                    this._builder.add(`$.${field.name} = reader.value(json.${field.name}, ${field.defaultValue});`);
+                                    break;
+                                }
+                            }
                         } else if (field.type instanceof flatc.Enum) {
-                            const enumName = '$root.' + field.type.parent.name + '.' + field.type.name;
-                            this._builder.add('$.' + field.name + ' = ' + enumName + '[json.' + field.name + '];');
+                            const enumName = `${field.type.parent.name}.${field.type.name}`;
+                            this._builder.add(`$.${field.name} = ${enumName}[json.${field.name}];`);
                         } else if (field.type instanceof flatc.Union) {
-                            const unionType = '$root.' + field.type.parent.name + '.' + field.type.name;
-                            this._builder.add('$.' + field.name + ' = ' + unionType + '.decodeText(reader, json.' + field.name + ', json.' + field.name + '_type' + ');');
+                            const unionType = `${field.type.parent.name}.${field.type.name}`;
+                            this._builder.add(`$.${field.name} = ${unionType}.decodeText(reader, json.${field.name}, json.${field.name}_type);`);
                         } else { // struct | table
-                            const fieldType = '$root.' + field.type.parent.name + '.' + field.type.name;
-                            this._builder.add('$.' + field.name + ' = reader.object(json.' + field.name + ', ' + fieldType + '.decodeText);');
+                            const fieldType = `${field.type.parent.name}.${field.type.name}`;
+                            this._builder.add(`$.${field.name} = reader.object(json.${field.name}, ${fieldType});`);
                         }
                     }
                     this._builder.add('return $;');
@@ -1046,33 +1128,52 @@ flatc.Generator = class {
 
     _buildStruct(type) {
 
-        const typeName = type.parent.name + '.' + type.name;
-        const typeReference = '$root.' + typeName;
+        const typeName = `${type.parent.name}.${type.name}`;
+        const typeReference = `${typeName}`;
 
         /* eslint-disable indent */
         this._builder.add('');
-        this._builder.add(typeReference + ' = class ' + type.name + ' {');
+        this._builder.add(`${typeReference} = class ${type.name} {`);
         this._builder.indent();
 
             this._builder.add('');
-            this._builder.add(type.fields.size !== 0 ? 'static decode(reader, position) {' : 'static decode(/* reader, position */) {');
+            this._builder.add(type.fields.size === 0 ? 'static decode(/* reader, position */) {' : 'static decode(reader, position) {');
             this._builder.indent();
-                this._builder.add('const $ = new ' + typeReference + '();');
+                this._builder.add(`const $ = new ${typeReference}();`);
                 for (const field of type.fields.values()) {
                     if (field.repeated) {
                         if (field.length === undefined) {
-                            throw new flatc.Error("Struct '" + typeName + "' may contain only scalar or struct fields.");
+                            throw new flatc.Error(`Struct '${typeName}' may contain only scalar or struct fields.`);
                         }
-                        this._builder.add('$.' + field.name + ' = undefined; // not implemented');
+                        const fieldType = field.type instanceof flatc.Enum ? field.type.base : field.type;
+                        if (fieldType instanceof flatc.PrimitiveType) {
+                            const totalBytes = field.length * fieldType.size;
+                            if (fieldType.size === 1) {
+                                this._builder.add(`$.${field.name} = reader.read(position + ${field.offset}, ${totalBytes});`);
+                            } else {
+                                const arrayType = `${fieldType.name[0].toUpperCase() + fieldType.name.substring(1)}Array`;
+                                this._builder.add(`$.${field.name} = new ${arrayType}(reader.read(position + ${field.offset}, ${totalBytes}).buffer, 0, ${field.length});`);
+                            }
+                        } else if (field.type instanceof flatc.Struct) {
+                            const fieldRef = `${field.type.parent.name}.${field.type.name}`;
+                            this._builder.add(`$.${field.name} = new Array(${field.length});`);
+                            this._builder.add(`for (let i = 0; i < ${field.length}; i++) {`);
+                            this._builder.indent();
+                            this._builder.add(`$.${field.name}[i] = ${fieldRef}.decode(reader, position + ${field.offset} + i * ${field.type.size});`);
+                            this._builder.outdent();
+                            this._builder.add('}');
+                        } else {
+                            throw new flatc.Error(`Struct '${typeName}' may contain only scalar or struct fields.`);
+                        }
                     } else if (field.type instanceof flatc.PrimitiveType) {
-                        this._builder.add('$.' + field.name + ' = reader.' + field.type.name + '(position + ' + field.offset + ');');
+                        this._builder.add(`$.${field.name} = reader.${field.type.name}(position + ${field.offset});`);
                     } else if (field.type instanceof flatc.Enum) {
-                        this._builder.add('$.' + field.name + ' = reader.' + field.type.base.name + '(position + ' + field.offset + ');');
+                        this._builder.add(`$.${field.name} = reader.${field.type.base.name}(position + ${field.offset});`);
                     } else if (field.type instanceof flatc.Struct) {
-                        const fieldType = '$root.' + field.type.parent.name + '.' + field.type.name;
-                        this._builder.add('$.' + field.name + ' = ' + fieldType + '.decode(reader, position + ' + field.offset + ');');
+                        const fieldType = `${field.type.parent.name}.${field.type.name}`;
+                        this._builder.add(`$.${field.name} = ${fieldType}.decode(reader, position + ${field.offset});`);
                     } else {
-                        throw new flatc.Error("Struct '" + typeName + "' may contain only scalar or struct fields.");
+                        throw new flatc.Error(`Struct '${typeName}' may contain only scalar or struct fields.`);
                     }
                 }
                 this._builder.add('return $;');
@@ -1081,23 +1182,70 @@ flatc.Generator = class {
 
             if (this._text) {
                 this._builder.add('');
-                this._builder.add(type.fields.size !== 0 ? 'static decodeText(reader, json) {' : 'static decodeText(/* reader, json */) {');
+                this._builder.add(type.fields.size === 0 ? 'static decodeText(/* reader, json */) {' : 'static decodeText(reader, json) {');
                 this._builder.indent();
-                    this._builder.add('const $ = new ' + typeReference + '();');
+                    this._builder.add(`const $ = new ${typeReference}();`);
                     for (const field of type.fields.values()) {
                         if (field.repeated) {
-                            throw new flatc.Error("Struct '" + typeName + "' may contain only scalar or struct fields.");
+                            if (field.length === undefined) {
+                                throw new flatc.Error(`Struct '${typeName}' may contain only scalar or struct fields.`);
+                            }
+                            const fieldType = field.type instanceof flatc.Enum ? field.type.base : field.type;
+                            if (fieldType instanceof flatc.PrimitiveType) {
+                                const arrayType = `${fieldType.name[0].toUpperCase() + fieldType.name.substring(1)}Array`;
+                                this._builder.add(`$.${field.name} = reader.array(json.${field.name}, ${arrayType});`);
+                            } else if (field.type instanceof flatc.Struct) {
+                                const fieldRef = `${field.type.parent.name}.${field.type.name}`;
+                                this._builder.add(`$.${field.name} = reader.objects(json.${field.name}, ${fieldRef});`);
+                            } else {
+                                throw new flatc.Error(`Struct '${typeName}' may contain only scalar or struct fields.`);
+                            }
                         } else if (field.type instanceof flatc.PrimitiveType) {
-                            this._builder.add('$.' + field.name + ' = json.' + field.name + ';');
+                            this._builder.add(`$.${field.name} = json.${field.name};`);
                         } else if (field.type instanceof flatc.Enum) {
                             throw new flatc.Error('Not implemented.');
                         } else if (field.type instanceof flatc.Struct) {
-                            const fieldType = '$root.' + field.type.parent.name + '.' + field.type.name;
-                            this._builder.add('$.' + field.name + ' = ' + fieldType + '.decodeText(reader, json.' + field.name + ');');
+                            const fieldType = `${field.type.parent.name}.${field.type.name}`;
+                            this._builder.add(`$.${field.name} = ${fieldType}.decodeText(reader, json.${field.name});`);
                         } else {
-                            throw new flatc.Error("Struct '" + typeName + "' may contain only scalar or struct fields.");
+                            throw new flatc.Error(`Struct '${typeName}' may contain only scalar or struct fields.`);
                         }
                     }
+                    this._builder.add('return $;');
+                this._builder.outdent();
+                this._builder.add('}');
+            }
+
+        this._builder.outdent();
+        this._builder.add('};');
+        /* eslint-enable indent */
+    }
+
+    _buildAlias(type) {
+
+        const typeName = `${type.parent.name}.${type.name}`;
+        const typeReference = `${typeName}`;
+
+        /* eslint-disable indent */
+        this._builder.add('');
+        this._builder.add(`${typeReference} = class ${type.name} {`);
+        this._builder.indent();
+
+            this._builder.add('');
+            this._builder.add('static decode(reader, position) {');
+            this._builder.indent();
+                this._builder.add(`const $ = new ${typeReference}();`);
+                this._builder.add(`${type.type.parent.name}.${type.type.name}.decode(reader, position, $);`);
+                this._builder.add('return $;');
+            this._builder.outdent();
+            this._builder.add('}');
+
+            if (this._text) {
+                this._builder.add('');
+                this._builder.add('static decodeText(reader, json) {');
+                this._builder.indent();
+                    this._builder.add(`const $ = new ${typeReference}();`);
+                    this._builder.add(`${type.type.parent.name}.${type.type.name}.decode(reader, json, $);`);
                     this._builder.add('return $;');
                 this._builder.outdent();
                 this._builder.add('}');
@@ -1112,17 +1260,17 @@ flatc.Generator = class {
 
         /* eslint-disable indent */
         this._builder.add('');
-        this._builder.add('$root.' + type.parent.name + '.' + type.name + ' = class ' + '{');
+        this._builder.add(`${type.parent.name}.${type.name} = class {`);
 
         this._builder.indent();
             this._builder.add('');
-            this._builder.add(type.values.size !== 0 ? 'static decode(reader, position, type) {' : 'static decode(/* reader, position, type */) {');
+            this._builder.add(type.values.length === 0 ? 'static decode(/* reader, position, type */) {' : 'static decode(reader, position, type) {');
             this._builder.indent();
                 this._builder.add('switch (type) {');
                 this._builder.indent();
-                    for (const pair of type.values) {
-                        const valueType = '$root.' + pair[1].parent.name + '.' + pair[1].name;
-                        this._builder.add('case ' + pair[0] + ': return ' + valueType + '.decode(reader, position);');
+                    for (const value of type.values) {
+                        const valueType = `${value.type.parent.name}.${value.type.name}`;
+                        this._builder.add(`case ${value.index}: return ${valueType}.decode(reader, position);`);
                     }
                     this._builder.add('default: return undefined;');
                 this._builder.outdent();
@@ -1132,13 +1280,13 @@ flatc.Generator = class {
 
             if (this._text) {
                 this._builder.add('');
-                this._builder.add(type.values.size !== 0 ? 'static decodeText(reader, json, type) {' : 'static decodeText(/* reader, json, type */) {');
+                this._builder.add(type.values.length === 0 ? 'static decodeText(/* reader, json, type */) {' : 'static decodeText(reader, json, type) {');
                 this._builder.indent();
                     this._builder.add('switch (type) {');
                     this._builder.indent();
-                        for (const pair of type.values) {
-                            const valueType = '$root.' + pair[1].parent.name + '.' + pair[1].name;
-                            this._builder.add('case \'' + pair[1].name + '\': return ' + valueType + '.decodeText(reader, json);');
+                        for (const value of type.values) {
+                            const valueType = `${value.type.parent.name}.${value.type.name}`;
+                            this._builder.add(`case '${value.name}': return ${valueType}.decodeText(reader, json);`);
                         }
                         this._builder.add('default: return undefined;');
                     this._builder.outdent();
@@ -1156,12 +1304,13 @@ flatc.Generator = class {
 
         /* eslint-disable indent */
         this._builder.add('');
-        this._builder.add('$root.' + type.parent.name + '.' + type.name + ' = {');
+        this._builder.add(`${type.parent.name}.${type.name} = {`);
         this._builder.indent();
             const keys = Array.from(type.values.keys());
             for (let i = 0; i < keys.length; i++) {
                 const key = keys[i];
-                this._builder.add(key + ': ' + type.values.get(key) + (i === keys.length - 1 ? '' : ','));
+                const value = type.values.get(key);
+                this._builder.add(`${key}: ${value}, '${value}': '${key}'${i === keys.length - 1 ? '' : ','}`);
             }
         this._builder.outdent();
         this._builder.add('};');
@@ -1173,7 +1322,7 @@ flatc.Generator.StringBuilder = class {
 
     constructor() {
         this._indentation = '';
-        this._lines = [];
+        this._lines = [''];
         this._newline = true;
     }
 
@@ -1211,8 +1360,7 @@ flatc.Error = class extends Error {
     }
 };
 
-const main = (args) => {
-
+const main = async (args) => {
     const options = { verbose: false, root: 'default', out: '', text: false, paths: [], files: [] };
     while (args.length > 0) {
         const arg = args.shift();
@@ -1234,40 +1382,38 @@ const main = (args) => {
                 break;
             default:
                 if (arg.startsWith('-')) {
-                    throw new flatc.Error("Invalid command line argument '" + arg + "'.");
+                    throw new flatc.Error(`Invalid command line argument '${arg}'.`);
                 }
                 options.files.push(arg);
                 break;
         }
     }
-
     try {
-        const root = new flatc.Root(options.root, options.paths, options.files);
+        const root = new flatc.Root(options.root);
+        await root.load(options.paths, options.files);
         const generator = new flatc.Generator(root, options.text);
         if (options.out) {
-            fs.writeFileSync(options.out, generator.content, 'utf-8');
+            await fs.writeFile(options.out, generator.content, 'utf-8');
         }
-    } catch (err) {
-        if (err instanceof flatc.Error && !options.verbose) {
-            process.stderr.write(err.message + '\n');
+    } catch (error) {
+        if (error instanceof flatc.Error && !options.verbose) {
+            process.stderr.write(`${error.message}\n`);
         } else {
-            process.stderr.write(err.stack + '\n');
+            process.stderr.write(`${error.stack}\n`);
         }
-        return 1;
+        process.exit(1);
     }
-    return 0;
+    process.exit(0);
 };
 
-if (typeof process === 'object' && Array.isArray(process.argv) &&
-    process.argv.length > 1 && process.argv[1] === __filename) {
+if (typeof process === 'object' &&
+    Array.isArray(process.argv) && process.argv.length > 1 &&
+    path.basename(process.argv[1]) === 'flatc.js') {
     const args = process.argv.slice(2);
-    const code = main(args);
-    process.exit(code);
+    await main(args);
 }
 
-if (typeof module !== 'undefined' && typeof module.exports === 'object') {
-    module.exports.Root = flatc.Root;
-    module.exports.Namespace = flatc.Namespace;
-    module.exports.Type = flatc.Type;
-    module.exports.Enum = flatc.Enum;
-}
+export const Root = flatc.Root;
+export const Namespace = flatc.Namespace;
+export const Type = flatc.Type;
+export const Enum = flatc.Enum;

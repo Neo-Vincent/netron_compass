@@ -1,8 +1,7 @@
-var $root = protobuf.get('uff');
 
-$root.uff = {};
+export const uff = {};
 
-$root.uff.MetaGraph = class MetaGraph {
+uff.MetaGraph = class MetaGraph {
 
     constructor() {
         this.descriptors = [];
@@ -12,8 +11,8 @@ $root.uff.MetaGraph = class MetaGraph {
     }
 
     static decode(reader, length) {
-        const message = new $root.uff.MetaGraph();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new uff.MetaGraph();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -24,16 +23,16 @@ $root.uff.MetaGraph = class MetaGraph {
                     message.descriptor_core_version = reader.int64();
                     break;
                 case 3:
-                    message.descriptors.push($root.uff.Descriptor.decode(reader, reader.uint32()));
+                    message.descriptors.push(uff.Descriptor.decode(reader, reader.uint32()));
                     break;
                 case 4:
-                    message.graphs.push($root.uff.Graph.decode(reader, reader.uint32()));
+                    message.graphs.push(uff.Graph.decode(reader, reader.uint32()));
                     break;
                 case 5:
-                    message.referenced_data.push($root.uff.MetaGraph.ReferencedDataEntry.decode(reader, reader.uint32()));
+                    message.referenced_data.push(uff.MetaGraph.ReferencedDataEntry.decode(reader, reader.uint32()));
                     break;
                 case 100:
-                    message.extra_fields.push($root.uff.MetaGraph.ExtraFieldsEntry.decode(reader, reader.uint32()));
+                    message.extra_fields.push(uff.MetaGraph.ExtraFieldsEntry.decode(reader, reader.uint32()));
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -44,7 +43,7 @@ $root.uff.MetaGraph = class MetaGraph {
     }
 
     static decodeText(reader) {
-        const message = new $root.uff.MetaGraph();
+        const message = new uff.MetaGraph();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -56,16 +55,16 @@ $root.uff.MetaGraph = class MetaGraph {
                     message.descriptor_core_version = reader.int64();
                     break;
                 case "descriptors":
-                    message.descriptors.push($root.uff.Descriptor.decodeText(reader));
+                    message.descriptors.push(uff.Descriptor.decodeText(reader));
                     break;
                 case "graphs":
-                    message.graphs.push($root.uff.Graph.decodeText(reader));
+                    message.graphs.push(uff.Graph.decodeText(reader));
                     break;
                 case "referenced_data":
-                    message.referenced_data.push($root.uff.MetaGraph.ReferencedDataEntry.decodeText(reader));
+                    message.referenced_data.push(uff.MetaGraph.ReferencedDataEntry.decodeText(reader));
                     break;
                 case "extra_fields":
-                    message.extra_fields.push($root.uff.MetaGraph.ExtraFieldsEntry.decodeText(reader));
+                    message.extra_fields.push(uff.MetaGraph.ExtraFieldsEntry.decodeText(reader));
                     break;
                 default:
                     reader.field(tag, message);
@@ -76,17 +75,14 @@ $root.uff.MetaGraph = class MetaGraph {
     }
 };
 
-$root.uff.MetaGraph.prototype.version = protobuf.Int64.create(0);
-$root.uff.MetaGraph.prototype.descriptor_core_version = protobuf.Int64.create(0);
+uff.MetaGraph.prototype.version = 0n;
+uff.MetaGraph.prototype.descriptor_core_version = 0n;
 
-$root.uff.MetaGraph.ReferencedDataEntry = class ReferencedDataEntry {
-
-    constructor() {
-    }
+uff.MetaGraph.ReferencedDataEntry = class ReferencedDataEntry {
 
     static decode(reader, length) {
-        const message = new $root.uff.MetaGraph.ReferencedDataEntry();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new uff.MetaGraph.ReferencedDataEntry();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -94,7 +90,7 @@ $root.uff.MetaGraph.ReferencedDataEntry = class ReferencedDataEntry {
                     message.key = reader.string();
                     break;
                 case 2:
-                    message.value = $root.uff.Data.decode(reader, reader.uint32());
+                    message.value = uff.Data.decode(reader, reader.uint32());
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -105,7 +101,7 @@ $root.uff.MetaGraph.ReferencedDataEntry = class ReferencedDataEntry {
     }
 
     static decodeText(reader) {
-        const message = new $root.uff.MetaGraph.ReferencedDataEntry();
+        const message = new uff.MetaGraph.ReferencedDataEntry();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -114,7 +110,7 @@ $root.uff.MetaGraph.ReferencedDataEntry = class ReferencedDataEntry {
                     message.key = reader.string();
                     break;
                 case "value":
-                    message.value = $root.uff.Data.decodeText(reader);
+                    message.value = uff.Data.decodeText(reader);
                     break;
                 default:
                     reader.field(tag, message);
@@ -125,17 +121,14 @@ $root.uff.MetaGraph.ReferencedDataEntry = class ReferencedDataEntry {
     }
 };
 
-$root.uff.MetaGraph.ReferencedDataEntry.prototype.key = "";
-$root.uff.MetaGraph.ReferencedDataEntry.prototype.value = null;
+uff.MetaGraph.ReferencedDataEntry.prototype.key = "";
+uff.MetaGraph.ReferencedDataEntry.prototype.value = null;
 
-$root.uff.MetaGraph.ExtraFieldsEntry = class ExtraFieldsEntry {
-
-    constructor() {
-    }
+uff.MetaGraph.ExtraFieldsEntry = class ExtraFieldsEntry {
 
     static decode(reader, length) {
-        const message = new $root.uff.MetaGraph.ExtraFieldsEntry();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new uff.MetaGraph.ExtraFieldsEntry();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -143,7 +136,7 @@ $root.uff.MetaGraph.ExtraFieldsEntry = class ExtraFieldsEntry {
                     message.key = reader.string();
                     break;
                 case 2:
-                    message.value = $root.uff.Data.decode(reader, reader.uint32());
+                    message.value = uff.Data.decode(reader, reader.uint32());
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -154,7 +147,7 @@ $root.uff.MetaGraph.ExtraFieldsEntry = class ExtraFieldsEntry {
     }
 
     static decodeText(reader) {
-        const message = new $root.uff.MetaGraph.ExtraFieldsEntry();
+        const message = new uff.MetaGraph.ExtraFieldsEntry();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -163,7 +156,7 @@ $root.uff.MetaGraph.ExtraFieldsEntry = class ExtraFieldsEntry {
                     message.key = reader.string();
                     break;
                 case "value":
-                    message.value = $root.uff.Data.decodeText(reader);
+                    message.value = uff.Data.decodeText(reader);
                     break;
                 default:
                     reader.field(tag, message);
@@ -174,17 +167,14 @@ $root.uff.MetaGraph.ExtraFieldsEntry = class ExtraFieldsEntry {
     }
 };
 
-$root.uff.MetaGraph.ExtraFieldsEntry.prototype.key = "";
-$root.uff.MetaGraph.ExtraFieldsEntry.prototype.value = null;
+uff.MetaGraph.ExtraFieldsEntry.prototype.key = "";
+uff.MetaGraph.ExtraFieldsEntry.prototype.value = null;
 
-$root.uff.Descriptor = class Descriptor {
-
-    constructor() {
-    }
+uff.Descriptor = class Descriptor {
 
     static decode(reader, length) {
-        const message = new $root.uff.Descriptor();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new uff.Descriptor();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -206,7 +196,7 @@ $root.uff.Descriptor = class Descriptor {
     }
 
     static decodeText(reader) {
-        const message = new $root.uff.Descriptor();
+        const message = new uff.Descriptor();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -229,11 +219,11 @@ $root.uff.Descriptor = class Descriptor {
     }
 };
 
-$root.uff.Descriptor.prototype.id = "";
-$root.uff.Descriptor.prototype.version = protobuf.Int64.create(0);
-$root.uff.Descriptor.prototype.optional = false;
+uff.Descriptor.prototype.id = "";
+uff.Descriptor.prototype.version = 0n;
+uff.Descriptor.prototype.optional = false;
 
-$root.uff.Graph = class Graph {
+uff.Graph = class Graph {
 
     constructor() {
         this.nodes = [];
@@ -241,8 +231,8 @@ $root.uff.Graph = class Graph {
     }
 
     static decode(reader, length) {
-        const message = new $root.uff.Graph();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new uff.Graph();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -250,10 +240,10 @@ $root.uff.Graph = class Graph {
                     message.id = reader.string();
                     break;
                 case 2:
-                    message.nodes.push($root.uff.Node.decode(reader, reader.uint32()));
+                    message.nodes.push(uff.Node.decode(reader, reader.uint32()));
                     break;
                 case 100:
-                    message.extra_fields.push($root.uff.Graph.ExtraFieldsEntry.decode(reader, reader.uint32()));
+                    message.extra_fields.push(uff.Graph.ExtraFieldsEntry.decode(reader, reader.uint32()));
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -264,7 +254,7 @@ $root.uff.Graph = class Graph {
     }
 
     static decodeText(reader) {
-        const message = new $root.uff.Graph();
+        const message = new uff.Graph();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -273,10 +263,10 @@ $root.uff.Graph = class Graph {
                     message.id = reader.string();
                     break;
                 case "nodes":
-                    message.nodes.push($root.uff.Node.decodeText(reader));
+                    message.nodes.push(uff.Node.decodeText(reader));
                     break;
                 case "extra_fields":
-                    message.extra_fields.push($root.uff.Graph.ExtraFieldsEntry.decodeText(reader));
+                    message.extra_fields.push(uff.Graph.ExtraFieldsEntry.decodeText(reader));
                     break;
                 default:
                     reader.field(tag, message);
@@ -287,16 +277,13 @@ $root.uff.Graph = class Graph {
     }
 };
 
-$root.uff.Graph.prototype.id = "";
+uff.Graph.prototype.id = "";
 
-$root.uff.Graph.ExtraFieldsEntry = class ExtraFieldsEntry {
-
-    constructor() {
-    }
+uff.Graph.ExtraFieldsEntry = class ExtraFieldsEntry {
 
     static decode(reader, length) {
-        const message = new $root.uff.Graph.ExtraFieldsEntry();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new uff.Graph.ExtraFieldsEntry();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -304,7 +291,7 @@ $root.uff.Graph.ExtraFieldsEntry = class ExtraFieldsEntry {
                     message.key = reader.string();
                     break;
                 case 2:
-                    message.value = $root.uff.Data.decode(reader, reader.uint32());
+                    message.value = uff.Data.decode(reader, reader.uint32());
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -315,7 +302,7 @@ $root.uff.Graph.ExtraFieldsEntry = class ExtraFieldsEntry {
     }
 
     static decodeText(reader) {
-        const message = new $root.uff.Graph.ExtraFieldsEntry();
+        const message = new uff.Graph.ExtraFieldsEntry();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -324,7 +311,7 @@ $root.uff.Graph.ExtraFieldsEntry = class ExtraFieldsEntry {
                     message.key = reader.string();
                     break;
                 case "value":
-                    message.value = $root.uff.Data.decodeText(reader);
+                    message.value = uff.Data.decodeText(reader);
                     break;
                 default:
                     reader.field(tag, message);
@@ -335,10 +322,10 @@ $root.uff.Graph.ExtraFieldsEntry = class ExtraFieldsEntry {
     }
 };
 
-$root.uff.Graph.ExtraFieldsEntry.prototype.key = "";
-$root.uff.Graph.ExtraFieldsEntry.prototype.value = null;
+uff.Graph.ExtraFieldsEntry.prototype.key = "";
+uff.Graph.ExtraFieldsEntry.prototype.value = null;
 
-$root.uff.Node = class Node {
+uff.Node = class Node {
 
     constructor() {
         this.inputs = [];
@@ -347,8 +334,8 @@ $root.uff.Node = class Node {
     }
 
     static decode(reader, length) {
-        const message = new $root.uff.Node();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new uff.Node();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -362,10 +349,10 @@ $root.uff.Node = class Node {
                     message.operation = reader.string();
                     break;
                 case 4:
-                    message.fields.push($root.uff.Node.FieldsEntry.decode(reader, reader.uint32()));
+                    message.fields.push(uff.Node.FieldsEntry.decode(reader, reader.uint32()));
                     break;
                 case 100:
-                    message.extra_fields.push($root.uff.Node.ExtraFieldsEntry.decode(reader, reader.uint32()));
+                    message.extra_fields.push(uff.Node.ExtraFieldsEntry.decode(reader, reader.uint32()));
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -376,7 +363,7 @@ $root.uff.Node = class Node {
     }
 
     static decodeText(reader) {
-        const message = new $root.uff.Node();
+        const message = new uff.Node();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -391,10 +378,10 @@ $root.uff.Node = class Node {
                     message.operation = reader.string();
                     break;
                 case "fields":
-                    message.fields.push($root.uff.Node.FieldsEntry.decodeText(reader));
+                    message.fields.push(uff.Node.FieldsEntry.decodeText(reader));
                     break;
                 case "extra_fields":
-                    message.extra_fields.push($root.uff.Node.ExtraFieldsEntry.decodeText(reader));
+                    message.extra_fields.push(uff.Node.ExtraFieldsEntry.decodeText(reader));
                     break;
                 default:
                     reader.field(tag, message);
@@ -405,17 +392,14 @@ $root.uff.Node = class Node {
     }
 };
 
-$root.uff.Node.prototype.id = "";
-$root.uff.Node.prototype.operation = "";
+uff.Node.prototype.id = "";
+uff.Node.prototype.operation = "";
 
-$root.uff.Node.FieldsEntry = class FieldsEntry {
-
-    constructor() {
-    }
+uff.Node.FieldsEntry = class FieldsEntry {
 
     static decode(reader, length) {
-        const message = new $root.uff.Node.FieldsEntry();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new uff.Node.FieldsEntry();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -423,7 +407,7 @@ $root.uff.Node.FieldsEntry = class FieldsEntry {
                     message.key = reader.string();
                     break;
                 case 2:
-                    message.value = $root.uff.Data.decode(reader, reader.uint32());
+                    message.value = uff.Data.decode(reader, reader.uint32());
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -434,7 +418,7 @@ $root.uff.Node.FieldsEntry = class FieldsEntry {
     }
 
     static decodeText(reader) {
-        const message = new $root.uff.Node.FieldsEntry();
+        const message = new uff.Node.FieldsEntry();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -443,7 +427,7 @@ $root.uff.Node.FieldsEntry = class FieldsEntry {
                     message.key = reader.string();
                     break;
                 case "value":
-                    message.value = $root.uff.Data.decodeText(reader);
+                    message.value = uff.Data.decodeText(reader);
                     break;
                 default:
                     reader.field(tag, message);
@@ -454,17 +438,14 @@ $root.uff.Node.FieldsEntry = class FieldsEntry {
     }
 };
 
-$root.uff.Node.FieldsEntry.prototype.key = "";
-$root.uff.Node.FieldsEntry.prototype.value = null;
+uff.Node.FieldsEntry.prototype.key = "";
+uff.Node.FieldsEntry.prototype.value = null;
 
-$root.uff.Node.ExtraFieldsEntry = class ExtraFieldsEntry {
-
-    constructor() {
-    }
+uff.Node.ExtraFieldsEntry = class ExtraFieldsEntry {
 
     static decode(reader, length) {
-        const message = new $root.uff.Node.ExtraFieldsEntry();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new uff.Node.ExtraFieldsEntry();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -472,7 +453,7 @@ $root.uff.Node.ExtraFieldsEntry = class ExtraFieldsEntry {
                     message.key = reader.string();
                     break;
                 case 2:
-                    message.value = $root.uff.Data.decode(reader, reader.uint32());
+                    message.value = uff.Data.decode(reader, reader.uint32());
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -483,7 +464,7 @@ $root.uff.Node.ExtraFieldsEntry = class ExtraFieldsEntry {
     }
 
     static decodeText(reader) {
-        const message = new $root.uff.Node.ExtraFieldsEntry();
+        const message = new uff.Node.ExtraFieldsEntry();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -492,7 +473,7 @@ $root.uff.Node.ExtraFieldsEntry = class ExtraFieldsEntry {
                     message.key = reader.string();
                     break;
                 case "value":
-                    message.value = $root.uff.Data.decodeText(reader);
+                    message.value = uff.Data.decodeText(reader);
                     break;
                 default:
                     reader.field(tag, message);
@@ -503,22 +484,19 @@ $root.uff.Node.ExtraFieldsEntry = class ExtraFieldsEntry {
     }
 };
 
-$root.uff.Node.ExtraFieldsEntry.prototype.key = "";
-$root.uff.Node.ExtraFieldsEntry.prototype.value = null;
+uff.Node.ExtraFieldsEntry.prototype.key = "";
+uff.Node.ExtraFieldsEntry.prototype.value = null;
 
-$root.uff.Data = class Data {
-
-    constructor() {
-    }
+uff.Data = class Data {
 
     get type() {
-        $root.uff.Data.typeSet = $root.uff.Data.typeSet || new Set([ "s", "s_list", "d", "d_list", "b", "b_list", "i", "i_list", "blob", "ref", "dtype", "dtype_list", "dim_orders", "dim_orders_list"]);
-        return Object.keys(this).find((key) => $root.uff.Data.typeSet.has(key) && this[key] != null);
+        uff.Data.typeSet = uff.Data.typeSet || new Set(["s", "s_list", "d", "d_list", "b", "b_list", "i", "i_list", "blob", "ref", "dtype", "dtype_list", "dim_orders", "dim_orders_list"]);
+        return Object.keys(this).find((key) => uff.Data.typeSet.has(key) && this[key] !== null);
     }
 
     static decode(reader, length) {
-        const message = new $root.uff.Data();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new uff.Data();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -526,25 +504,25 @@ $root.uff.Data = class Data {
                     message.s = reader.string();
                     break;
                 case 2:
-                    message.s_list = $root.uff.ListString.decode(reader, reader.uint32());
+                    message.s_list = uff.ListString.decode(reader, reader.uint32());
                     break;
                 case 3:
                     message.d = reader.double();
                     break;
                 case 4:
-                    message.d_list = $root.uff.ListDouble.decode(reader, reader.uint32());
+                    message.d_list = uff.ListDouble.decode(reader, reader.uint32());
                     break;
                 case 5:
                     message.b = reader.bool();
                     break;
                 case 6:
-                    message.b_list = $root.uff.ListBool.decode(reader, reader.uint32());
+                    message.b_list = uff.ListBool.decode(reader, reader.uint32());
                     break;
                 case 7:
                     message.i = reader.int64();
                     break;
                 case 8:
-                    message.i_list = $root.uff.ListInt64.decode(reader, reader.uint32());
+                    message.i_list = uff.ListInt64.decode(reader, reader.uint32());
                     break;
                 case 9:
                     message.blob = reader.bytes();
@@ -556,13 +534,13 @@ $root.uff.Data = class Data {
                     message.dtype = reader.int32();
                     break;
                 case 102:
-                    message.dtype_list = $root.uff.ListDataType.decode(reader, reader.uint32());
+                    message.dtype_list = uff.ListDataType.decode(reader, reader.uint32());
                     break;
                 case 103:
-                    message.dim_orders = $root.uff.DimensionOrders.decode(reader, reader.uint32());
+                    message.dim_orders = uff.DimensionOrders.decode(reader, reader.uint32());
                     break;
                 case 104:
-                    message.dim_orders_list = $root.uff.ListDimensionOrders.decode(reader, reader.uint32());
+                    message.dim_orders_list = uff.ListDimensionOrders.decode(reader, reader.uint32());
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -573,7 +551,7 @@ $root.uff.Data = class Data {
     }
 
     static decodeText(reader) {
-        const message = new $root.uff.Data();
+        const message = new uff.Data();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -582,25 +560,25 @@ $root.uff.Data = class Data {
                     message.s = reader.string();
                     break;
                 case "s_list":
-                    message.s_list = $root.uff.ListString.decodeText(reader);
+                    message.s_list = uff.ListString.decodeText(reader);
                     break;
                 case "d":
                     message.d = reader.double();
                     break;
                 case "d_list":
-                    message.d_list = $root.uff.ListDouble.decodeText(reader);
+                    message.d_list = uff.ListDouble.decodeText(reader);
                     break;
                 case "b":
                     message.b = reader.bool();
                     break;
                 case "b_list":
-                    message.b_list = $root.uff.ListBool.decodeText(reader);
+                    message.b_list = uff.ListBool.decodeText(reader);
                     break;
                 case "i":
                     message.i = reader.int64();
                     break;
                 case "i_list":
-                    message.i_list = $root.uff.ListInt64.decodeText(reader);
+                    message.i_list = uff.ListInt64.decodeText(reader);
                     break;
                 case "blob":
                     message.blob = reader.bytes();
@@ -609,16 +587,16 @@ $root.uff.Data = class Data {
                     message.ref = reader.string();
                     break;
                 case "dtype":
-                    message.dtype = reader.enum($root.uff.DataType);
+                    message.dtype = reader.enum(uff.DataType);
                     break;
                 case "dtype_list":
-                    message.dtype_list = $root.uff.ListDataType.decodeText(reader);
+                    message.dtype_list = uff.ListDataType.decodeText(reader);
                     break;
                 case "dim_orders":
-                    message.dim_orders = $root.uff.DimensionOrders.decodeText(reader);
+                    message.dim_orders = uff.DimensionOrders.decodeText(reader);
                     break;
                 case "dim_orders_list":
-                    message.dim_orders_list = $root.uff.ListDimensionOrders.decodeText(reader);
+                    message.dim_orders_list = uff.ListDimensionOrders.decodeText(reader);
                     break;
                 default:
                     reader.field(tag, message);
@@ -629,7 +607,7 @@ $root.uff.Data = class Data {
     }
 };
 
-$root.uff.DataType = {
+uff.DataType = {
     "DT_INVALID": 0,
     "DT_INT8": 65544,
     "DT_INT16": 65552,
@@ -639,27 +617,27 @@ $root.uff.DataType = {
     "DT_FLOAT32": 131104
 };
 
-$root.uff.OrderEnum = {
+uff.OrderEnum = {
     "OE_ZERO": 0,
     "OE_SPECIAL": -1,
     "OE_INCREMENT": 2147483647,
     "OE_DECREMENT": -2147483648
 };
 
-$root.uff.DimensionOrders = class DimensionOrders {
+uff.DimensionOrders = class DimensionOrders {
 
     constructor() {
         this.orders = [];
     }
 
     static decode(reader, length) {
-        const message = new $root.uff.DimensionOrders();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new uff.DimensionOrders();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
                 case 1:
-                    message.orders.push($root.uff.DimensionOrders.OrdersEntry.decode(reader, reader.uint32()));
+                    message.orders.push(uff.DimensionOrders.OrdersEntry.decode(reader, reader.uint32()));
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -670,13 +648,13 @@ $root.uff.DimensionOrders = class DimensionOrders {
     }
 
     static decodeText(reader) {
-        const message = new $root.uff.DimensionOrders();
+        const message = new uff.DimensionOrders();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
             switch (tag) {
                 case "orders":
-                    message.orders.push($root.uff.DimensionOrders.OrdersEntry.decodeText(reader));
+                    message.orders.push(uff.DimensionOrders.OrdersEntry.decodeText(reader));
                     break;
                 default:
                     reader.field(tag, message);
@@ -687,14 +665,11 @@ $root.uff.DimensionOrders = class DimensionOrders {
     }
 };
 
-$root.uff.DimensionOrders.OrdersEntry = class OrdersEntry {
-
-    constructor() {
-    }
+uff.DimensionOrders.OrdersEntry = class OrdersEntry {
 
     static decode(reader, length) {
-        const message = new $root.uff.DimensionOrders.OrdersEntry();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new uff.DimensionOrders.OrdersEntry();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -702,7 +677,7 @@ $root.uff.DimensionOrders.OrdersEntry = class OrdersEntry {
                     message.key = reader.int32();
                     break;
                 case 2:
-                    message.value = $root.uff.ListInt64.decode(reader, reader.uint32());
+                    message.value = uff.ListInt64.decode(reader, reader.uint32());
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -713,16 +688,16 @@ $root.uff.DimensionOrders.OrdersEntry = class OrdersEntry {
     }
 
     static decodeText(reader) {
-        const message = new $root.uff.DimensionOrders.OrdersEntry();
+        const message = new uff.DimensionOrders.OrdersEntry();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
             switch (tag) {
                 case "key":
-                    message.key = reader.enum($root.uff.OrderEnum);
+                    message.key = reader.enum(uff.OrderEnum);
                     break;
                 case "value":
-                    message.value = $root.uff.ListInt64.decodeText(reader);
+                    message.value = uff.ListInt64.decodeText(reader);
                     break;
                 default:
                     reader.field(tag, message);
@@ -733,18 +708,18 @@ $root.uff.DimensionOrders.OrdersEntry = class OrdersEntry {
     }
 };
 
-$root.uff.DimensionOrders.OrdersEntry.prototype.key = 0;
-$root.uff.DimensionOrders.OrdersEntry.prototype.value = null;
+uff.DimensionOrders.OrdersEntry.prototype.key = 0;
+uff.DimensionOrders.OrdersEntry.prototype.value = null;
 
-$root.uff.ListString = class ListString {
+uff.ListString = class ListString {
 
     constructor() {
         this.val = [];
     }
 
     static decode(reader, length) {
-        const message = new $root.uff.ListString();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new uff.ListString();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -760,7 +735,7 @@ $root.uff.ListString = class ListString {
     }
 
     static decodeText(reader) {
-        const message = new $root.uff.ListString();
+        const message = new uff.ListString();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -777,15 +752,15 @@ $root.uff.ListString = class ListString {
     }
 };
 
-$root.uff.ListDouble = class ListDouble {
+uff.ListDouble = class ListDouble {
 
     constructor() {
         this.val = [];
     }
 
     static decode(reader, length) {
-        const message = new $root.uff.ListDouble();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new uff.ListDouble();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -801,7 +776,7 @@ $root.uff.ListDouble = class ListDouble {
     }
 
     static decodeText(reader) {
-        const message = new $root.uff.ListDouble();
+        const message = new uff.ListDouble();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -818,15 +793,15 @@ $root.uff.ListDouble = class ListDouble {
     }
 };
 
-$root.uff.ListBool = class ListBool {
+uff.ListBool = class ListBool {
 
     constructor() {
         this.val = [];
     }
 
     static decode(reader, length) {
-        const message = new $root.uff.ListBool();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new uff.ListBool();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -842,7 +817,7 @@ $root.uff.ListBool = class ListBool {
     }
 
     static decodeText(reader) {
-        const message = new $root.uff.ListBool();
+        const message = new uff.ListBool();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -859,15 +834,15 @@ $root.uff.ListBool = class ListBool {
     }
 };
 
-$root.uff.ListInt64 = class ListInt64 {
+uff.ListInt64 = class ListInt64 {
 
     constructor() {
         this.val = [];
     }
 
     static decode(reader, length) {
-        const message = new $root.uff.ListInt64();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new uff.ListInt64();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -883,7 +858,7 @@ $root.uff.ListInt64 = class ListInt64 {
     }
 
     static decodeText(reader) {
-        const message = new $root.uff.ListInt64();
+        const message = new uff.ListInt64();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -900,15 +875,15 @@ $root.uff.ListInt64 = class ListInt64 {
     }
 };
 
-$root.uff.ListDataType = class ListDataType {
+uff.ListDataType = class ListDataType {
 
     constructor() {
         this.val = [];
     }
 
     static decode(reader, length) {
-        const message = new $root.uff.ListDataType();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new uff.ListDataType();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -924,13 +899,13 @@ $root.uff.ListDataType = class ListDataType {
     }
 
     static decodeText(reader) {
-        const message = new $root.uff.ListDataType();
+        const message = new uff.ListDataType();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
             switch (tag) {
                 case "val":
-                    reader.array(message.val, () => reader.enum($root.uff.DataType));
+                    reader.array(message.val, () => reader.enum(uff.DataType));
                     break;
                 default:
                     reader.field(tag, message);
@@ -941,20 +916,20 @@ $root.uff.ListDataType = class ListDataType {
     }
 };
 
-$root.uff.ListDimensionOrders = class ListDimensionOrders {
+uff.ListDimensionOrders = class ListDimensionOrders {
 
     constructor() {
         this.val = [];
     }
 
     static decode(reader, length) {
-        const message = new $root.uff.ListDimensionOrders();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new uff.ListDimensionOrders();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
                 case 1:
-                    message.val.push($root.uff.DimensionOrders.decode(reader, reader.uint32()));
+                    message.val.push(uff.DimensionOrders.decode(reader, reader.uint32()));
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -965,13 +940,13 @@ $root.uff.ListDimensionOrders = class ListDimensionOrders {
     }
 
     static decodeText(reader) {
-        const message = new $root.uff.ListDimensionOrders();
+        const message = new uff.ListDimensionOrders();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
             switch (tag) {
                 case "val":
-                    message.val.push($root.uff.DimensionOrders.decodeText(reader));
+                    message.val.push(uff.DimensionOrders.decodeText(reader));
                     break;
                 default:
                     reader.field(tag, message);

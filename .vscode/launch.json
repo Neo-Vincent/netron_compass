@@ -2,7 +2,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Electron View",
+            "name": "Desktop View",
             "type": "chrome",
             "request": "launch",
             "runtimeExecutable": "${workspaceRoot}/node_modules/.bin/electron",
@@ -17,18 +17,18 @@
             "webRoot": "${workspaceRoot}"
         },
         {
-            "name": "Electron App",
+            "name": "Desktop App",
             "type": "node",
             "request": "launch",
             "program": "${workspaceFolder}/source/app.js",
-            "runtimeExecutable": "${workspaceRoot}/node_modules/.bin/electron",
-            "windows": {
-                "runtimeExecutable": "${workspaceRoot}/node_modules/.bin/electron.cmd"
+            "runtimeExecutable": "electron",
+            "osx": {
+                "runtimeExecutable": "${workspaceFolder}/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
             }
         },
         {
-            "name": "Python Server",
-            "type": "python",
+            "name": "Browser",
+            "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/package.py",
             "args": [ "build", "start" ],
@@ -51,17 +51,33 @@
             "type": "node",
             "request": "launch",
             "program": "${workspaceFolder}/test/models.js",
-            "args": [],
+            "args": [ "tag:validation" ],
+            "console": "integratedTerminal",
+        },
+        {
+            "name": "Test Desktop",
+            "type": "node",
+            "request": "launch",
+            "runtimeExecutable": "npm",
+            "runtimeArgs": ["run", "test", "desktop"],
+            "console": "integratedTerminal",
+        },
+        {
+            "name": "Test Browser",
+            "type": "node",
+            "request": "launch",
+            "runtimeExecutable": "npm",
+            "runtimeArgs": ["run", "test", "browser"],
             "console": "integratedTerminal",
         },
         {
             "name": "Test Backend",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/test/backend.py",
             "args": [],
             "console": "integratedTerminal",
-            "justMyCode": false,
+            "justMyCode": true,
             "serverReadyAction": {
                 "action": "debugWithChrome",
                 "pattern": "Serving .*at http://localhost:([0-9]+)",
@@ -71,20 +87,20 @@
         },
         {
             "name": "Tools Python",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "${file}",
             "args": [],
             "console": "integratedTerminal",
-            "justMyCode": false
+            "justMyCode": true
         },
         {
-            "name": "Package.js",
+            "name": "Tools JavaScript",
             "type": "node",
             "request": "launch",
-            "program": "${workspaceFolder}/package.js",
+            "program": "${file}",
             "args": [],
             "console": "integratedTerminal",
-        },
+        }
     ]
 }

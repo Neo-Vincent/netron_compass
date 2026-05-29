@@ -1,5 +1,5 @@
 
-var text = text || {};
+const text = {};
 
 text.Decoder = class {
 
@@ -9,7 +9,7 @@ text.Decoder = class {
         }
         const assert = (encoding, condition) => {
             if (encoding && encoding !== condition) {
-                throw new text.Error("Invalid encoding '" + encoding + "'.");
+                throw new text.Error(`Invalid encoding '${encoding}'.`);
             }
         };
         const buffer = data instanceof Uint8Array ? data : data.peek();
@@ -18,6 +18,14 @@ text.Decoder = class {
             assert(encoding, 'utf-8');
             return new text.Decoder.Utf8(buffer, 3, true);
         }
+        if (length >= 4 && buffer[0] === 0x00 && buffer[1] === 0x00 && buffer[2] === 0xfe && buffer[3] === 0xff) {
+            assert(encoding, 'utf-32');
+            return new text.Decoder.Utf32BE(buffer, 4);
+        }
+        if (length >= 4 && buffer[0] === 0xff && buffer[1] === 0xfe && buffer[2] === 0x00 && buffer[3] === 0x00) {
+            assert(encoding, 'utf-32');
+            return new text.Decoder.Utf32LE(buffer, 4);
+        }
         if (length >= 2 && buffer[0] === 0xff && buffer[1] === 0xfe) {
             assert(encoding, 'utf-16');
             return new text.Decoder.Utf16LE(buffer, 2);
@@ -25,14 +33,6 @@ text.Decoder = class {
         if (length >= 2 && buffer[0] === 0xfe && buffer[1] === 0xff) {
             assert(encoding, 'utf-16');
             return new text.Decoder.Utf16BE(buffer, 2);
-        }
-        if (length >= 4 && buffer[0] === 0x00 && buffer[1] === 0x00 && buffer[2] === 0xfe && buffer[3] === 0xff) {
-            assert(encoding, 'utf-32');
-            return new text.Decoder.Utf32LE(buffer, 2);
-        }
-        if (length >= 4 && buffer[0] === 0xff && buffer[1] === 0xfe && buffer[2] === 0x00 && buffer[3] === 0x00) {
-            assert(encoding, 'utf-32');
-            return new text.Decoder.Utf32BE(buffer, 2);
         }
         if (length >= 5 && buffer[0] === 0x2B && buffer[1] === 0x2F && buffer[2] === 0x76 && buffer[3] === 0x38 && buffer[4] === 0x2D) {
             throw new text.Error("Unsupported UTF-7 encoding.");
@@ -43,18 +43,19 @@ text.Decoder = class {
         if (length >= 4 && buffer[0] === 0x84 && buffer[1] === 0x31 && buffer[2] === 0x95 && buffer[3] === 0x33) {
             throw new text.Error("Unsupported GB-18030 encoding.");
         }
-        if (length > 4 && (length % 2) == 0 && (buffer[0] === 0x00 || buffer[1] === 0x00 || buffer[2] === 0x00 || buffer[3] === 0x00)) {
+        if (length > 4 && (length % 2) === 0 && (buffer[0] === 0x00 || buffer[1] === 0x00 || buffer[2] === 0x00 || buffer[3] === 0x00)) {
             const lo = new Uint32Array(256);
             const hi = new Uint32Array(256);
-            for (let i = 0; i < length; i += 2) {
+            const size = Math.min(1024, length);
+            for (let i = 0; i < size; i += 2) {
                 lo[buffer[i]]++;
                 hi[buffer[i + 1]]++;
             }
-            if (lo[0x00] === 0 && (hi[0x00] / (length >> 1)) > 0.5) {
+            if (lo[0x00] === 0 && (hi[0x00] / (size >> 1)) > 0.5) {
                 assert(encoding, 'utf-16');
                 return new text.Decoder.Utf16LE(buffer, 0);
             }
-            if (hi[0x00] === 0 && (lo[0x00] / (length >> 1)) > 0.5) {
+            if (hi[0x00] === 0 && (lo[0x00] / (size >> 1)) > 0.5) {
                 assert(encoding, 'utf-16');
                 return new text.Decoder.Utf16BE(buffer, 0);
             }
@@ -90,7 +91,7 @@ text.Decoder.String = class {
 text.Decoder.Utf8 = class {
 
     constructor(buffer, position, fatal) {
-        this.position = position || 0;
+        this.position = position;
         this.buffer = buffer;
         this.fatal = fatal;
     }
@@ -111,16 +112,20 @@ text.Decoder.Utf8 = class {
         if (c >= 0xC2 && c <= 0xDF) {
             if (this.buffer[this.position] !== undefined) {
                 const c2 = this.buffer[this.position];
-                this.position++;
-                return String.fromCharCode(((c & 0x1F) << 6) | (c2 & 0x3F));
+                if (c2 >= 0x80 && c2 <= 0xBF) {
+                    this.position++;
+                    return String.fromCharCode(((c & 0x1F) << 6) | (c2 & 0x3F));
+                }
             }
         }
         if (c >= 0xE0 && c <= 0xEF) {
             if (this.buffer[this.position + 1] !== undefined) {
                 const c2 = this.buffer[this.position];
-                if ((c !== 0xE0 || c2 >= 0xA0) && (c !== 0xED || c2 <= 0x9f)) {
+                if (c2 >= 0x80 && c2 <= 0xBF &&
+                    (c !== 0xE0 || c2 >= 0xA0) &&
+                    (c !== 0xED || c2 <= 0x9f)) {
                     const c3 = this.buffer[this.position + 1];
-                    if (c3 >= 0x80 && c3 < 0xFB) {
+                    if (c3 >= 0x80 && c3 <= 0xBF) {
                         this.position += 2;
                         return String.fromCharCode(((c & 0x0F) << 12) | ((c2 & 0x3F) << 6) | ((c3 & 0x3F) << 0));
                     }
@@ -155,7 +160,7 @@ text.Decoder.Utf8 = class {
 text.Decoder.Latin1 = class {
 
     constructor(buffer, position) {
-        this.position = position || 0;
+        this.position = position;
         this.buffer = buffer;
     }
 
@@ -175,9 +180,9 @@ text.Decoder.Latin1 = class {
 
 text.Decoder.Utf16LE = class {
 
-    constructor(buffer, position) {
+    constructor(buffer, position = 0) {
         this.buffer = buffer;
-        this.position = position || 0;
+        this.position = position;
         this.length = buffer.length;
     }
 
@@ -188,13 +193,13 @@ text.Decoder.Utf16LE = class {
     decode() {
         if (this.position + 1 < this.length) {
             const c = this.buffer[this.position++] | (this.buffer[this.position++] << 8);
-            if (c < 0xD800 || c >= 0xDFFF) {
+            if (c < 0xD800 || c > 0xDFFF) {
                 return String.fromCharCode(c);
             }
-            if (c >= 0xD800 && c < 0xDBFF) {
-                if (this._position + 1 < this._length) {
-                    const c2 = this._buffer[this._position++] | (this._buffer[this._position++] << 8);
-                    if (c >= 0xDC00 || c < 0xDFFF) {
+            if (c >= 0xD800 && c <= 0xDBFF) {
+                if (this.position + 1 < this.length) {
+                    const c2 = this.buffer[this.position++] | (this.buffer[this.position++] << 8);
+                    if (c2 >= 0xDC00 && c2 <= 0xDFFF) {
                         return String.fromCodePoint(0x10000 + ((c & 0x3ff) << 10) + (c2 & 0x3ff));
                     }
                 }
@@ -207,9 +212,9 @@ text.Decoder.Utf16LE = class {
 
 text.Decoder.Utf16BE = class {
 
-    constructor(buffer, position) {
+    constructor(buffer, position = 0) {
         this.buffer = buffer;
-        this.position = position || 0;
+        this.position = position;
         this.length = buffer.length;
     }
 
@@ -220,13 +225,13 @@ text.Decoder.Utf16BE = class {
     decode() {
         if (this.position + 1 < this.length) {
             const c = (this.buffer[this.position++] << 8) | this.buffer[this.position++];
-            if (c < 0xD800 || c >= 0xDFFF) {
+            if (c < 0xD800 || c > 0xDFFF) {
                 return String.fromCharCode(c);
             }
-            if (c >= 0xD800 && c < 0xDBFF) {
-                if (this._position + 1 < this._length) {
-                    const c2 = (this._buffer[this._position++] << 8) | this._buffer[this._position++];
-                    if (c >= 0xDC00 || c < 0xDFFF) {
+            if (c >= 0xD800 && c <= 0xDBFF) {
+                if (this.position + 1 < this.length) {
+                    const c2 = (this.buffer[this.position++] << 8) | this.buffer[this.position++];
+                    if (c2 >= 0xDC00 && c2 <= 0xDFFF) {
                         return String.fromCodePoint(0x10000 + ((c & 0x3ff) << 10) + (c2 & 0x3ff));
                     }
                 }
@@ -239,9 +244,9 @@ text.Decoder.Utf16BE = class {
 
 text.Decoder.Utf32LE = class {
 
-    constructor(buffer, position) {
+    constructor(buffer, position = 0) {
         this.buffer = buffer;
-        this.position = position || 0;
+        this.position = position;
         this.length = buffer.length;
     }
 
@@ -251,8 +256,16 @@ text.Decoder.Utf32LE = class {
 
     decode() {
         if (this.position + 3 < this.length) {
-            const c = this.buffer[this.position++] | (this.buffer[this.position++] << 8) || (this.buffer[this.position++] << 16) || (this.buffer[this.position++] << 24);
-            if (c < 0x10FFFF) {
+            const c = (
+                (this.buffer[this.position++]) |
+                (this.buffer[this.position++] << 8) |
+                (this.buffer[this.position++] << 16) |
+                (this.buffer[this.position++] << 24)
+            ) >>> 0;
+            if (c >= 0xD800 && c <= 0xDFFF) {
+                return String.fromCharCode(0xfffd);
+            }
+            if (c <= 0x10FFFF) {
                 return String.fromCodePoint(c);
             }
             return String.fromCharCode(0xfffd);
@@ -263,9 +276,9 @@ text.Decoder.Utf32LE = class {
 
 text.Decoder.Utf32BE = class {
 
-    constructor(buffer, position) {
+    constructor(buffer, position = 0) {
         this.buffer = buffer;
-        this.position = position || 0;
+        this.position = position;
         this.length = buffer.length;
     }
 
@@ -275,8 +288,16 @@ text.Decoder.Utf32BE = class {
 
     decode() {
         if (this.position + 3 < this.length) {
-            const c = (this.buffer[this.position++] << 24) || (this.buffer[this.position++] << 16) || (this.buffer[this.position++] << 8) | this.buffer[this.position++];
-            if (c < 0x10FFFF) {
+            const c = (
+                (this.buffer[this.position++] << 24) |
+                (this.buffer[this.position++] << 16) |
+                (this.buffer[this.position++] << 8) |
+                (this.buffer[this.position++])
+            ) >>> 0;
+            if (c >= 0xD800 && c <= 0xDFFF) {
+                return String.fromCharCode(0xfffd);
+            }
+            if (c <= 0x10FFFF) {
                 return String.fromCodePoint(c);
             }
             return String.fromCharCode(0xfffd);
@@ -288,36 +309,33 @@ text.Decoder.Utf32BE = class {
 text.Reader = class {
 
     constructor(data, length) {
-        this._decoder = text.Decoder.open(data);
-        this._position = 0;
-        this._length = length || Number.MAX_SAFE_INTEGER;
+        this.decoder = text.Decoder.open(data);
+        this.position = 0;
+        this.length = length === undefined ? Number.MAX_SAFE_INTEGER : length;
     }
 
     static open(data, length) {
         return new text.Reader(data, length);
     }
 
-    read() {
-        if (this._position >= this._length) {
+    read(terminal) {
+        if (this.position >= this.length) {
             return undefined;
         }
         let line = '';
         let buffer = null;
         for (;;) {
-            const c = this._decoder.decode();
+            const c = this.decoder.decode();
             if (c === undefined) {
-                this._length = this._position;
+                this.length = this.position;
                 break;
             }
-            this._position++;
-            if (this._position > this._length) {
-                break;
-            }
-            if (c === '\n') {
+            this.position++;
+            if (c === terminal || this.position > this.length) {
                 break;
             }
             line += c;
-            if (line.length >= 32) {
+            if (line.length >= 64) {
                 buffer = buffer || [];
                 buffer.push(line);
                 line = '';
@@ -339,7 +357,5 @@ text.Error = class extends Error {
     }
 };
 
-if (typeof module !== 'undefined' && typeof module.exports === 'object') {
-    module.exports.Decoder = text.Decoder;
-    module.exports.Reader = text.Reader;
-}
+export const Decoder = text.Decoder;
+export const Reader = text.Reader;

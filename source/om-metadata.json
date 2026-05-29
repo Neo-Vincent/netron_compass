@@ -405,7 +405,7 @@
     "name": "Concat",
     "category": "Tensor",
     "inputs": [
-      { "name": "x" }
+      { "name": "x", "type": "Tensor[]" }
     ],
     "outputs": [
       { "name": "y" }
@@ -415,7 +415,17 @@
     "name": "ConcatD",
     "category": "Tensor",
     "inputs": [
-      { "name": "x" }
+      { "name": "x", "type": "Tensor[]" }
+    ],
+    "outputs": [
+      { "name": "y" }
+    ]
+  },
+  {
+    "name": "ConcatV2D",
+    "category": "Tensor",
+    "inputs": [
+      { "name": "x", "type": "Tensor[]" }
     ],
     "outputs": [
       { "name": "y" }
@@ -673,7 +683,7 @@
   },
   {
     "name": "Dequantize",
-    "category": "Tensor",
+    "category": "Quantization",
     "inputs": [
       { "name": "x" },
       { "name": "min_range" },
@@ -1417,6 +1427,16 @@
     ]
   },
   {
+    "name": "MaxPoolV3",
+    "category": "Pool",
+    "inputs": [
+      { "name": "input" }
+    ],
+    "outputs": [
+      { "name": "output" }
+    ]
+  },
+  {
     "name": "AvgPool",
     "category": "Pool",
     "inputs": [
@@ -1819,6 +1839,7 @@
   },
   {
     "name": "Quantize",
+    "category": "Quantization",
     "inputs": [
       { "name": "x" },
       { "name": "min_range" },
@@ -2705,7 +2726,7 @@
   },
   {
     "name": "Squeeze",
-    "category": "Shape",
+    "category": "Transform",
     "inputs": [
       { "name": "x" }
     ],
@@ -2930,7 +2951,7 @@
   },
   {
     "name": "Transpose",
-    "category": "Shape",
+    "category": "Transform",
     "inputs": [
       { "name": "x" },
       { "name": "w" }

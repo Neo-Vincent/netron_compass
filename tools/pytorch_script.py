@@ -1,0 +1,488 @@
+""" TorchScript metadata script """
+
+import json
+import logging
+import os
+import platform
+import re
+import sys
+import warnings
+
+root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(root_dir)
+sys.pycache_prefix = os.path.join(root_dir, "dist", "pycache", "pytorch_script")
+
+source_dir = os.path.join(root_dir, "source")
+third_party_dir = os.path.join(root_dir, "third_party")
+metadata_file = os.path.join(source_dir, "pytorch-metadata.json")
+pytorch_source_dir = os.path.join(third_party_dir, "source", "pytorch")
+
+skip_torchvision = platform.system() == "Windows" and platform.machine() == "ARM64"
+skip_xnnpack = platform.system() == "Windows" and platform.machine() == "ARM64"
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+
+def _read(path):
+    with open(path, encoding="utf-8") as file:
+        return file.read()
+
+def _write(path, content):
+    with open(path, "w", encoding="utf-8") as file:
+        file.write(content)
+
+def _read_metadata():
+    metadata = {}
+    for value in json.loads(_read(metadata_file)):
+        key = value["name"]
+        key = key.split("(")[0]
+        if key in metadata:
+            raise ValueError(f"Duplicate key '{key}'")
+        metadata[key] = value
+    return metadata
+
+def _write_metadata(metadata):
+    content = json.dumps(metadata, indent=2, ensure_ascii=False)
+    content = re.sub(r"\s {8}", " ", content)
+    content = re.sub(r",\s {8}", ", ", content)
+    content = re.sub(r"\s {6}}", " }", content)
+    _write(metadata_file, content)
+
+
+known_schema_definitions = [
+    "_caffe2::BBoxTransform(Tensor rois, Tensor deltas, Tensor im_info, float[] weights, bool apply_scale, bool rotated, bool angle_bound_on, int angle_bound_lo, int angle_bound_hi, float clip_angle_thresh, bool legacy_plus_one, Tensor[]? _caffe2_preallocated_outputs=None) -> (Tensor output_0, Tensor output_1)", # noqa E501
+    "_caffe2::BatchPermutation(Tensor X, Tensor indices, Tensor[]? _caffe2_preallocated_outputs=None) -> Tensor", # noqa E501
+    "_caffe2::BoxWithNMSLimit(Tensor scores, Tensor boxes, Tensor batch_splits, float score_thresh, float nms, int detections_per_im, bool soft_nms_enabled, str soft_nms_method, float soft_nms_sigma, float soft_nms_min_score_thres, bool rotated, bool cls_agnostic_bbox_reg, bool input_boxes_include_bg_cls, bool output_classes_include_bg_cls, bool legacy_plus_one, Tensor[]? _caffe2_preallocated_outputs=None) -> (Tensor scores, Tensor boxes, Tensor classes, Tensor batch_splits, Tensor keeps, Tensor keeps_size)", # noqa E501
+    "_caffe2::CollectAndDistributeFpnRpnProposals(Tensor[] input_list, int roi_canonical_scale, int roi_canonical_level, int roi_max_level, int roi_min_level, int rpn_max_level, int rpn_min_level, int rpn_post_nms_topN, bool legacy_plus_one, Tensor[]? _caffe2_preallocated_outputs=None) -> (Tensor rois, Tensor rois_fpn2, Tensor rois_fpn3, Tensor rois_fpn4, Tensor rois_fpn5, Tensor rois_idx_restore_int32)", # noqa E501
+    "_caffe2::CollectRpnProposals(Tensor[] input_list, int rpn_max_level, int rpn_min_level, int rpn_post_nms_topN, Tensor[]? _caffe2_preallocated_outputs=None) -> (Tensor rois)", # noqa E501
+    "_caffe2::CopyCPUToGPU(Tensor input, Tensor[]? _caffe2_preallocated_outputs=None) -> Tensor", # noqa E501
+    "_caffe2::CopyGPUToCPU(Tensor input, Tensor[]? _caffe2_preallocated_outputs=None) -> Tensor", # noqa E501
+    "_caffe2::DistributeFpnProposals(Tensor rois, int roi_canonical_scale, int roi_canonical_level, int roi_max_level, int roi_min_level, bool legacy_plus_one, Tensor[]? _caffe2_preallocated_outputs=None) -> (Tensor rois_fpn2, Tensor rois_fpn3, Tensor rois_fpn4, Tensor rois_fpn5, Tensor rois_idx_restore_int32)", # noqa E501
+    "_caffe2::GenerateProposals(Tensor scores, Tensor bbox_deltas, Tensor im_info, Tensor anchors, float spatial_scale, int pre_nms_topN, int post_nms_topN, float nms_thresh, float min_size, bool angle_bound_on, int angle_bound_lo, int angle_bound_hi, float clip_angle_thresh, bool legacy_plus_one, Tensor[]? _caffe2_preallocated_outputs=None) -> (Tensor output_0, Tensor output_1)", # noqa E501
+    "_caffe2::RoIAlign(Tensor features, Tensor rois, str order, float spatial_scale, int pooled_h, int pooled_w, int sampling_ratio, bool aligned, Tensor[]? _caffe2_preallocated_outputs=None) -> Tensor", # noqa E501
+    "aten::_cat.out(Tensor[] tensors, int dim=0, *, Tensor(a!) out) -> Tensor(a!)",
+    "aten::_cat(Tensor[] tensors, int dim=0) -> Tensor",
+    "aten::arange.start_out_(Scalar start, Scalar end) -> Tensor",
+    "aten::fft(Tensor self, int signal_ndim, bool normalized=False) -> Tensor",
+    "aten::grid_sampler.legacy(Tensor input, Tensor grid, int interpolation_mode, int padding_mode) -> Tensor", # noqa E501
+    "aten::get_num_threads() -> int",
+    "aten::greater(Tensor self, Tensor other) -> Tensor",
+    "cuda::_current_device() -> int",
+    "aten::list_with_default(int[] list, int[] defaults) -> int[]",
+    "aten::randint_like.generator_with_low_dtype(Tensor self, SymInt low, SymInt high, *, Generator? generator, ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? pin_memory=None, MemoryFormat? memory_format=None) -> Tensor", # noqa E501
+    "aten::randint_like.generator_with_low_dtype_out(Tensor self, SymInt low, SymInt high, *, Generator? generator, MemoryFormat? memory_format=None, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "aten::set_num_threads(int nthreads) -> ()",
+    "aqlm::code2x8_lut_matmat.out(Tensor input, Tensor codes, Tensor codebooks, Tensor scales, Tensor? bias, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "cadence::conv2d.out(Tensor input, Tensor weight, Tensor bias, int[2] stride, SymInt[2] padding, int[2] dilation, int groups, *, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "cadence::quantize_per_tensor.out(Tensor input, float scale, int zero_point, int quant_min, int quant_max, ScalarType dtype, *, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "cadence::quantized_conv2d_nchw.per_tensor_out(Tensor input, Tensor weight, Tensor bias, int[] stride, SymInt[] padding, int[] dilation, int groups, int input_zero_point, int weight_zero_point, float bias_scale, float out_scale, int out_zero_point, int out_multiplier, int out_shift, *, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "cadence::quantized_linear.out(Tensor src, Tensor weight, Tensor bias, int src_zero_point, Tensor weight_zero_point, Tensor out_multiplier, Tensor out_shift, int out_zero_point, Tensor? offset, *, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "cadence::quantized_linear.per_tensor_out(Tensor src, Tensor weight, Tensor bias, SymInt src_zero_point, SymInt weight_zero_point, SymInt out_multiplier, SymInt out_shift, SymInt out_zero_point, Tensor? offset, *, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "cadence::quantized_relu.out(Tensor X, Tensor X_zero_point, int out_zero_point, Tensor out_multiplier, Tensor out_shift, *, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "cortex_m::quantize_per_tensor.out(Tensor input, float scale, int zero_point, int quant_min, int quant_max, ScalarType dtype, *, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "cortex_m::dequantize_per_tensor.out(Tensor input, float scale, int zero_point, int quant_min, int quant_max, ScalarType dtype, *, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "cortex_m::quantized_add.out(Tensor self, Scalar self_zero_point, Scalar self_multiplier, Scalar self_shift, Tensor other, Scalar other_zero_point, Scalar other_multiplier, Scalar other_shift, Scalar output_zero_point, Scalar output_multiplier, Scalar output_shift, *, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "cortex_m::quantized_mul.out(Tensor self, Scalar self_zero_point, Tensor other, Scalar other_zero_point, Scalar output_zero_point, Scalar output_multiplier, Scalar output_shift, *, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "cortex_m::minimum.out(Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "cortex_m::maximum.out(Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "cortex_m::quantized_linear.out(Tensor input, Tensor weights, Tensor? bias, Tensor? kernel_sum, Scalar input_offset, Scalar filter_offset, Scalar output_offset, int[] requantize_multipliers, int[] requantize_shifts, Scalar activation_max, Scalar activation_min, *, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "cortex_m::transpose.out(Tensor input, int[] perm, *, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "cortex_m::quantized_avg_pool2d.out(Tensor input, int[] kernel_size, int[] stride, int[] padding, int zero_point, int multiplier, int shift, *, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "cortex_m::quantized_conv2d.out(Tensor input, Tensor weight, Tensor? bias, int[] stride, int[] padding, int[] dilation, int input_offset, int output_offset, Tensor requantize_multipliers, Tensor requantize_shifts, int activation_min, int activation_max, *, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "cortex_m::quantized_depthwise_conv2d.out(Tensor input, Tensor weight, Tensor? bias, int[] stride, int[] padding, int[] dilation, int depth_multiplier, int input_offset, int output_offset, Tensor requantize_multipliers, Tensor requantize_shifts, int activation_min, int activation_max, *, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "cortex_m::quantized_max_pool2d.out(Tensor input, int[] kernel_size, int[] stride, int[] padding, int[] dilation, bool ceil_mode, int input_zero_point, int output_zero_point, int activation_min, int activation_max, *, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "cortex_m::quantized_transpose_conv2d.out(Tensor input, Tensor weight, Tensor? bias, int[] stride, int[] padding, int[] output_padding, int[] dilation, int input_offset, int output_offset, Tensor requantize_multipliers, Tensor requantize_shifts, int activation_min, int activation_max, *, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "detectron2::nms_rotated(Tensor boxes, Tensor scores, float iou_threshold) -> Tensor", # noqa E501
+    "detectron2::roi_align_rotated_forward(Tensor input, Tensor rois, float spatial_scale, int pooled_height, int pooled_width, int sampling_ratio) -> Tensor", # noqa E501
+    "et_vk::conv_with_clamp(Tensor input, Tensor weight, Tensor? bias, SymInt[] stride, SymInt[] padding, SymInt[] dilation, bool transposed, SymInt[] output_padding, SymInt groups, Scalar? output_min, Scalar? output_max) -> Tensor", # noqa E501
+    "et_vk::prepack(Tensor x) -> Tensor",
+    "dim_order_ops::_clone_dim_order.out(Tensor self, *, bool non_blocking=False, int[]? dim_order=None, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "dim_order_ops::_empty_dim_order.out(int[] size, *, int[]? dim_order=None, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "dim_order_ops::_to_dim_order_copy.out(Tensor self, *, bool non_blocking=False, int[]? dim_order=None, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "executorch_prim::et_copy_index.tensor(Tensor(a!) copy_to, Tensor copy_from, int index) -> Tensor(a!)",  # noqa: E501
+    "executorch_prim::et_view.default(Tensor self, int[] size) -> (Tensor out)",
+    "executorch_prim::add.Scalar(Scalar a, Scalar b) -> Scalar",
+    "executorch_prim::sub.Scalar(Scalar a, Scalar b) -> Scalar",
+    "executorch_prim::mul.Scalar(Scalar a, Scalar b) -> Scalar",
+    "executorch_prim::floordiv.Scalar(Scalar a, Scalar b) -> Scalar",
+    "executorch_prim::truediv.Scalar(Scalar a, Scalar b) -> Scalar",
+    "executorch_prim::sym_float.Scalar(Scalar a) -> Scalar",
+    "executorch_prim::gt.Scalar(Scalar a, Scalar b) -> bool",
+    "executorch_prim::lt.Scalar(Scalar a, Scalar b) -> bool",
+    "executorch_prim::ge.Scalar(Scalar a, Scalar b) -> bool",
+    "executorch_prim::le.Scalar(Scalar a, Scalar b) -> bool",
+    "executorch_prim::eq.Scalar(Scalar a, Scalar b) -> bool",
+    "executorch_prim::mod.Scalar(SymInt a, SymInt b) -> SymInt",
+    "executorch_prim::neg.Scalar(Scalar a) -> Scalar",
+    "executorch_prim::ceil.Scalar(Scalar a) -> Scalar",
+    "executorch_prim::round.Scalar(Scalar a) -> Scalar",
+    "executorch_prim::trunc.Scalar(Scalar a) -> Scalar",
+    "executorch_prim::sym_max.Scalar(Scalar a, Scalar b) -> Scalar",
+    "executorch_prim::sym_min.Scalar(Scalar a, Scalar b) -> Scalar",
+    "fbgemm::asynchronous_complete_cumsum(Tensor t_in) -> Tensor",
+    "fbgemm::nccl_allreduce(Tensor dst, Tensor src, Tensor? bias=None, int comm_idx=0) -> ()", # noqa E501
+    "fbgemm::jagged_to_padded_dense(Tensor values, Tensor[] offsets, SymInt[] max_lengths, float padding_value=0.) -> Tensor", # noqa E501
+    "fbgemm::quantize_fp8_per_tensor(Tensor input, Tensor? bs=None, Tensor? scale_ub=None, bool stochastic_rounding=False) -> Tensor[]", # noqa E501
+    "fbgemm::segment_sum_csr(SymInt batch_size, Tensor csr_seg, Tensor values) -> Tensor", # noqa E501
+    "fbgemm::per_tensor_dynamic_quantize_i8(Tensor X) -> (Tensor, Tensor)",
+    "fbgemm::nccl_reducescatter(Tensor dst, Tensor src, int comm_idx=0) -> ()",
+    "fbgemm::nccl_allgather(Tensor dst, Tensor src, int comm_idx=0) -> ()",
+    "fbgemm::nccl_get_unique_id() -> Tensor",
+    "fbgemm::nccl_comm_init_rank(int world_size, int rank, Tensor id_, int comm_idx=0) -> ()", # noqa E501
+    "fbgemm::car_init(int rank, int world_size, Tensor local_barrier, Tensor[] all_barrier_handles, Tensor local_buffer, Tensor[] all_buffer_handles) -> ()", # noqa E501
+    "fbgemm::gqa_attn_splitk(Tensor XQ, Tensor cache_K, Tensor cache_V, Tensor seq_positions, float qk_scale, int num_split_ks, int kv_cache_quant_num_groups=1, bool use_tensor_cores=True, int cache_logical_dtype_int=0) -> (Tensor, Tensor, Tensor)", # noqa E501
+    "fbgemm::i8i8bf16(Tensor XQ, Tensor WQ, float scale, int split_k=1) -> Tensor",
+    "fbgemm::dequantize_fp8_cache(Tensor cache_K, Tensor cache_V, Tensor kv_seqlen, Tensor? qparam_k=None, Tensor? qparam_v=None) -> (Tensor, Tensor)", # noqa E501
+    "fbgemm::car_ipc_handle(Tensor buffer) -> Tensor",
+    "fbgemm::nccl_init(int rank, int world_size, str rendevouz, int comm_idx=0) -> ()",
+    "fbgemm::mqa_attn(Tensor XQ, Tensor cache_K, Tensor cache_V, Tensor seq_positions, float qk_scale, int? num_groups=1, int cache_logical_dtype_int=0) -> Tensor", # noqa E501
+    "fbgemm::car_tensor() -> Tensor",
+    "fbgemm::f8f8bf16(Tensor XQ, Tensor WQ, Tensor scale, bool use_fast_accum=True) -> Tensor", # noqa E501
+    "fbgemm::xpos_qkv_varseq_prefill(Tensor XQ, Tensor XK, Tensor XV, Tensor(a!) cache_K, Tensor(b!) cache_V, Tensor varseq_batch, Tensor varseq_seqpos, float theta, float gamma, float scale_base, float exponent_offset, int? num_groups=1, Tensor? block_tables=None, int page_size=64, Tensor? varseq_cache_seqpos=None, int cache_logical_dtype_int=0, bool rope_scaling=False, int old_context_len=8192, float scaling_factor=16., float lo_freq_factor=1., float hi_freq_factor=32., Tensor? qparam_k=None, Tensor? qparam_v=None) -> Tensor", # noqa E501
+    "fbgemm::f8f8bf16_blockwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, int block_m=128, int block_n=128, int block_k=128) -> Tensor", # noqa E501
+    "fbgemm::f8f8bf16_cublas(Tensor A, Tensor B, Tensor? Ainvs=None, Tensor? Binvs=None, bool use_fast_accum=True, Tensor(a!)? output=None) -> Tensor", # noqa E501
+    "fbgemm::bf16i4bf16_rowwise(Tensor X, Tensor WQ, Tensor w_scale, Tensor w_zp) -> Tensor", # noqa E501
+    "fbgemm::nccl_alltoall(Tensor dst, Tensor src, int world_size, int comm_idx=0) -> ()", # noqa E501
+    "fbgemm::one_shot_car_allreduce(Tensor dst, Tensor src, Tensor? bias=None, int comm_idx=0) -> ()", # noqa E501
+    "fbgemm::rope_qkv_varseq_prefill(Tensor XQ, Tensor XK, Tensor XV, Tensor(a!) cache_K, Tensor(b!) cache_V, Tensor varseq_batch, Tensor varseq_seqpos, float theta, int? num_groups=1, Tensor? block_tables=None, int page_size=64, Tensor? varseq_cache_seqpos=None, int cache_logical_dtype_int=0, bool rope_scaling=False, int old_context_len=8192, float scaling_factor=16., float lo_freq_factor=1., float hi_freq_factor=32., Tensor? qparam_k=None, Tensor? qparam_v=None) -> Tensor", # noqa E501
+    "fbgemm::silu_mul_quantize_i8(Tensor X1, Tensor X2, float scale) -> Tensor",
+    "fbgemm::get_fp8_per_tensor_scale(Tensor input, Tensor? bs=None, Tensor? scale_ub=None) -> Tensor", # noqa E501
+    "fbgemm::f8i4bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor w_zp) -> Tensor", # noqa E501
+    "fbgemm::f8f8bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor? bias=None, bool use_fast_accum=True, Tensor(a!)? output=None) -> Tensor", # noqa E501
+    "fbgemm::per_tensor_quantize_i8(Tensor X, float scale) -> Tensor",
+    "fbgemm::quantize_fp8_per_row(Tensor input, Tensor? bs=None, Tensor? scale_ub=None, ScalarType? output_dtype=None, bool stochastic_rounding=False) -> Tensor[]", # noqa E501
+    "fbgemm::quantize_fp8_per_col(Tensor input, Tensor? bs=None, Tensor? scale_ub=None) -> Tensor[]", # noqa E501
+    "fbgemm::quantize_fp8_per_tensor_fixed_scale(Tensor input, Tensor scale, Tensor? bs=None, bool stochatic_rounding=False) -> Tensor", # noqa E501
+    "fbgemm::f8f8bf16_tensorwise(Tensor XQ, Tensor WQ, float scale, bool use_fast_accum=True) -> Tensor", # noqa E501
+    "fbgemm::xpos_qkv_decoding(Tensor XQ, Tensor XK, Tensor XV, Tensor(a!) cache_K, Tensor(b!) cache_V, Tensor seqpos, float theta, float gamma, float scale_base, float exponent_offset, int? num_groups=1, Tensor? block_tables=None, int page_size=64, Tensor? actual_batch_size=None, Tensor? batch=None, Tensor? cache_seqpos=None, int cache_logical_dtype_int=0, bool rope_scaling=False, int old_context_len=8192, float scaling_factor=16., float lo_freq_factor=1., float hi_freq_factor=32., Tensor? qparam_k=None, Tensor? qparam_v=None) -> Tensor", # noqa E501
+    "fbgemm::i8i8bf16_dynamic(Tensor XQ, Tensor WQ, Tensor scale, int split_k=1) -> Tensor", # noqa E501
+    "fbgemm::dequantize_int4_cache(Tensor cache_K, Tensor cache_V, Tensor kv_seqlen, int? num_groups=1) -> (Tensor, Tensor)", # noqa E501
+    "fbgemm::two_shot_car_allreduce(Tensor dst, Tensor src, Tensor? bias=None, int comm_idx=0) -> ()", # noqa E501
+    "fbgemm::rope_qkv_decoding(Tensor XQ, Tensor XK, Tensor XV, Tensor(a!) cache_K, Tensor(b!) cache_V, Tensor seqpos, float theta, int? num_groups=1, Tensor? block_tables=None, int page_size=64, Tensor? actual_batch_size=None, Tensor? batch=None, Tensor? cache_seqpos=None, int cache_logical_dtype_int=0, bool rope_scaling=False, int old_context_len=8192, float scaling_factor=16., float lo_freq_factor=1., float hi_freq_factor=32., Tensor? qparam_k=None, Tensor? qparam_v=None) -> Tensor", # noqa E501
+    "neuron::_execute_neuron(__torch__.torch.classes.neuron.Model _0, Tensor[] _1) -> Tensor[] _0", # noqa E501
+    "neuron::_from_neuron(Tensor _0) -> Tensor _0",
+    "neuron::_init_neuron() -> ()",
+    "neuron::_load_collectives_neuron(__torch__.torch.classes.neuron.Model _0, int _1, int _2, int _3, int _4) -> ()", # noqa E501
+    "neuron::_load_neuron(__torch__.torch.classes.neuron.Model _0) -> ()",
+    "neuron::_parallel_executor_run(__torch__.torch.classes.neuron.ParallelExecutor _0, Tensor[] _1, int _2) -> Tensor[] _0", # noqa E501
+    "neuron::_parallel_from_neuron(Tensor _0) -> Tensor[] _0",
+    "neuron::_parallel_load(Dict(str, Tensor)[] _0) -> Dict(str, Tensor)[] _0",
+    "neuron::_parallel_profile_start_neuron(__torch__.torch.classes.neuron.ParallelModel _0, str _1, int _2) -> str[] _0", # noqa E501
+    "neuron::_parallel_profile_stop_neuron(str[] _0) -> ()",
+    "neuron::_parallel_run_neuron(__torch__.torch.classes.neuron.ParallelModel _0, __torch__.torch.classes.neuron.ParallelTensorSet _1, __torch__.torch.classes.neuron.ParallelTensorSet _2) -> ()", # noqa E501
+    "neuron::_parallel_slice_neuron(Tensor _0, int _1, int _2, int _3, int _4) -> Tensor _0", # noqa E501
+    "neuron::_parallel_to_neuron(Tensor[] _0) -> Tensor _0",
+    "neuron::_parallel_write_neuron(Tensor _0, Tensor[] _1) -> ()",
+    "neuron::_profile_start_neuron(__torch__.torch.classes.neuron.Model _0, str _1) -> ()", # noqa E501
+    "neuron::_profile_stop_neuron(str _0) -> ()",
+    "neuron::_slice_neuron(Tensor _0, int _1, int _2, int _3, int _4) -> Tensor _0",
+    "neuron::_to_neuron(Tensor _0, int _1) -> Tensor _0",
+    "neuron::create_module_from_graph(str _0, str _1) -> str _0",
+    "neuron::forward_1(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> Tensor _0",
+    "neuron::forward_10(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9)", # noqa E501
+    "neuron::forward_11(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10)", # noqa E501
+    "neuron::forward_12(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11)", # noqa E501
+    "neuron::forward_13(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12)", # noqa E501
+    "neuron::forward_14(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13)", # noqa E501
+    "neuron::forward_15(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14)", # noqa E501
+    "neuron::forward_16(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15)", # noqa E501
+    "neuron::forward_17(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16)", # noqa E501
+    "neuron::forward_18(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17)", # noqa E501
+    "neuron::forward_19(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18)", # noqa E501
+    "neuron::forward_2(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1)", # noqa E501
+    "neuron::forward_20(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19)", # noqa E501
+    "neuron::forward_21(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20)", # noqa E501
+    "neuron::forward_22(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21)", # noqa E501
+    "neuron::forward_23(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22)", # noqa E501
+    "neuron::forward_24(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23)", # noqa E501
+    "neuron::forward_25(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24)", # noqa E501
+    "neuron::forward_26(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25)", # noqa E501
+    "neuron::forward_27(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26)", # noqa E501
+    "neuron::forward_28(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27)", # noqa E501
+    "neuron::forward_29(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28)", # noqa E501
+    "neuron::forward_3(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2)", # noqa E501
+    "neuron::forward_30(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29)", # noqa E501
+    "neuron::forward_31(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30)", # noqa E501
+    "neuron::forward_32(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31)", # noqa E501
+    "neuron::forward_33(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32)", # noqa E501
+    "neuron::forward_34(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33)", # noqa E501
+    "neuron::forward_35(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34)", # noqa E501
+    "neuron::forward_36(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35)", # noqa E501
+    "neuron::forward_37(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36)", # noqa E501
+    "neuron::forward_38(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37)", # noqa E501
+    "neuron::forward_39(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38)", # noqa E501
+    "neuron::forward_4(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3)", # noqa E501
+    "neuron::forward_40(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39)", # noqa E501
+    "neuron::forward_41(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40)", # noqa E501
+    "neuron::forward_42(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41)", # noqa E501
+    "neuron::forward_43(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42)", # noqa E501
+    "neuron::forward_44(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43)", # noqa E501
+    "neuron::forward_45(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44)", # noqa E501
+    "neuron::forward_46(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45)", # noqa E501
+    "neuron::forward_47(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46)", # noqa E501
+    "neuron::forward_48(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47)", # noqa E501
+    "neuron::forward_49(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48)", # noqa E501
+    "neuron::forward_5(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4)", # noqa E501
+    "neuron::forward_50(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49)", # noqa E501
+    "neuron::forward_51(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50)", # noqa E501
+    "neuron::forward_52(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50, Tensor _51)", # noqa E501
+    "neuron::forward_53(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50, Tensor _51, Tensor _52)", # noqa E501
+    "neuron::forward_54(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50, Tensor _51, Tensor _52, Tensor _53)", # noqa E501
+    "neuron::forward_55(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50, Tensor _51, Tensor _52, Tensor _53, Tensor _54)", # noqa E501
+    "neuron::forward_56(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50, Tensor _51, Tensor _52, Tensor _53, Tensor _54, Tensor _55)", # noqa E501
+    "neuron::forward_57(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50, Tensor _51, Tensor _52, Tensor _53, Tensor _54, Tensor _55, Tensor _56)", # noqa E501
+    "neuron::forward_58(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50, Tensor _51, Tensor _52, Tensor _53, Tensor _54, Tensor _55, Tensor _56, Tensor _57)", # noqa E501
+    "neuron::forward_59(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50, Tensor _51, Tensor _52, Tensor _53, Tensor _54, Tensor _55, Tensor _56, Tensor _57, Tensor _58)", # noqa E501
+    "neuron::forward_6(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5)", # noqa E501
+    "neuron::forward_60(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50, Tensor _51, Tensor _52, Tensor _53, Tensor _54, Tensor _55, Tensor _56, Tensor _57, Tensor _58, Tensor _59)", # noqa E501
+    "neuron::forward_61(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50, Tensor _51, Tensor _52, Tensor _53, Tensor _54, Tensor _55, Tensor _56, Tensor _57, Tensor _58, Tensor _59, Tensor _60)", # noqa E501
+    "neuron::forward_62(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50, Tensor _51, Tensor _52, Tensor _53, Tensor _54, Tensor _55, Tensor _56, Tensor _57, Tensor _58, Tensor _59, Tensor _60, Tensor _61)", # noqa E501
+    "neuron::forward_63(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50, Tensor _51, Tensor _52, Tensor _53, Tensor _54, Tensor _55, Tensor _56, Tensor _57, Tensor _58, Tensor _59, Tensor _60, Tensor _61, Tensor _62)", # noqa E501
+    "neuron::forward_64(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50, Tensor _51, Tensor _52, Tensor _53, Tensor _54, Tensor _55, Tensor _56, Tensor _57, Tensor _58, Tensor _59, Tensor _60, Tensor _61, Tensor _62, Tensor _63)", # noqa E501
+    "neuron::forward_7(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6)", # noqa E501
+    "neuron::forward_8(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7)", # noqa E501
+    "neuron::forward_9(Tensor[] _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8)", # noqa E501
+    "neuron::forward_v2(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> Tensor[] _0", # noqa E501
+    "neuron::forward_v2_1(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> Tensor _0", # noqa E501
+    "neuron::forward_v2_10(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9)", # noqa E501
+    "neuron::forward_v2_11(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10)", # noqa E501
+    "neuron::forward_v2_12(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11)", # noqa E501
+    "neuron::forward_v2_13(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12)", # noqa E501
+    "neuron::forward_v2_14(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13)", # noqa E501
+    "neuron::forward_v2_15(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14)", # noqa E501
+    "neuron::forward_v2_16(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15)", # noqa E501
+    "neuron::forward_v2_17(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16)", # noqa E501
+    "neuron::forward_v2_18(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17)", # noqa E501
+    "neuron::forward_v2_19(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18)", # noqa E501
+    "neuron::forward_v2_2(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1)", # noqa E501
+    "neuron::forward_v2_20(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19)", # noqa E501
+    "neuron::forward_v2_21(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20)", # noqa E501
+    "neuron::forward_v2_22(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21)", # noqa E501
+    "neuron::forward_v2_23(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22)", # noqa E501
+    "neuron::forward_v2_24(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23)", # noqa E501
+    "neuron::forward_v2_25(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24)", # noqa E501
+    "neuron::forward_v2_26(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25)", # noqa E501
+    "neuron::forward_v2_27(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26)", # noqa E501
+    "neuron::forward_v2_28(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27)", # noqa E501
+    "neuron::forward_v2_29(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28)", # noqa E501
+    "neuron::forward_v2_3(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2)", # noqa E501
+    "neuron::forward_v2_30(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29)", # noqa E501
+    "neuron::forward_v2_31(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30)", # noqa E501
+    "neuron::forward_v2_32(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31)", # noqa E501
+    "neuron::forward_v2_33(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32)", # noqa E501
+    "neuron::forward_v2_35(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34)", # noqa E501
+    "neuron::forward_v2_36(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35)", # noqa E501
+    "neuron::forward_v2_37(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36)", # noqa E501
+    "neuron::forward_v2_38(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37)", # noqa E501
+    "neuron::forward_v2_39(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38)", # noqa E501
+    "neuron::forward_v2_4(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3)", # noqa E501
+    "neuron::forward_v2_40(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39)", # noqa E501
+    "neuron::forward_v2_41(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40)", # noqa E501
+    "neuron::forward_v2_42(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41)", # noqa E501
+    "neuron::forward_v2_43(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42)", # noqa E501
+    "neuron::forward_v2_44(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43)", # noqa E501
+    "neuron::forward_v2_45(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44)", # noqa E501
+    "neuron::forward_v2_46(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45)", # noqa E501
+    "neuron::forward_v2_47(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46)", # noqa E501
+    "neuron::forward_v2_48(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47)", # noqa E501
+    "neuron::forward_v2_49(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48)", # noqa E501
+    "neuron::forward_v2_5(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4)", # noqa E501
+    "neuron::forward_v2_50(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49)", # noqa E501
+    "neuron::forward_v2_51(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50)", # noqa E501
+    "neuron::forward_v2_52(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50, Tensor _51)", # noqa E501
+    "neuron::forward_v2_53(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50, Tensor _51, Tensor _52)", # noqa E501
+    "neuron::forward_v2_54(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50, Tensor _51, Tensor _52, Tensor _53)", # noqa E501
+    "neuron::forward_v2_55(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50, Tensor _51, Tensor _52, Tensor _53, Tensor _54)", # noqa E501
+    "neuron::forward_v2_56(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50, Tensor _51, Tensor _52, Tensor _53, Tensor _54, Tensor _55)", # noqa E501
+    "neuron::forward_v2_57(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50, Tensor _51, Tensor _52, Tensor _53, Tensor _54, Tensor _55, Tensor _56)", # noqa E501
+    "neuron::forward_v2_58(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50, Tensor _51, Tensor _52, Tensor _53, Tensor _54, Tensor _55, Tensor _56, Tensor _57)", # noqa E501
+    "neuron::forward_v2_59(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50, Tensor _51, Tensor _52, Tensor _53, Tensor _54, Tensor _55, Tensor _56, Tensor _57, Tensor _58)", # noqa E501
+    "neuron::forward_v2_6(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5)", # noqa E501
+    "neuron::forward_v2_60(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50, Tensor _51, Tensor _52, Tensor _53, Tensor _54, Tensor _55, Tensor _56, Tensor _57, Tensor _58, Tensor _59)", # noqa E501
+    "neuron::forward_v2_61(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50, Tensor _51, Tensor _52, Tensor _53, Tensor _54, Tensor _55, Tensor _56, Tensor _57, Tensor _58, Tensor _59, Tensor _60)", # noqa E501
+    "neuron::forward_v2_62(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50, Tensor _51, Tensor _52, Tensor _53, Tensor _54, Tensor _55, Tensor _56, Tensor _57, Tensor _58, Tensor _59, Tensor _60, Tensor _61)", # noqa E501
+    "neuron::forward_v2_63(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50, Tensor _51, Tensor _52, Tensor _53, Tensor _54, Tensor _55, Tensor _56, Tensor _57, Tensor _58, Tensor _59, Tensor _60, Tensor _61, Tensor _62)", # noqa E501
+    "neuron::forward_v2_64(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8, Tensor _9, Tensor _10, Tensor _11, Tensor _12, Tensor _13, Tensor _14, Tensor _15, Tensor _16, Tensor _17, Tensor _18, Tensor _19, Tensor _20, Tensor _21, Tensor _22, Tensor _23, Tensor _24, Tensor _25, Tensor _26, Tensor _27, Tensor _28, Tensor _29, Tensor _30, Tensor _31, Tensor _32, Tensor _33, Tensor _34, Tensor _35, Tensor _36, Tensor _37, Tensor _38, Tensor _39, Tensor _40, Tensor _41, Tensor _42, Tensor _43, Tensor _44, Tensor _45, Tensor _46, Tensor _47, Tensor _48, Tensor _49, Tensor _50, Tensor _51, Tensor _52, Tensor _53, Tensor _54, Tensor _55, Tensor _56, Tensor _57, Tensor _58, Tensor _59, Tensor _60, Tensor _61, Tensor _62, Tensor _63)", # noqa E501
+    "neuron::forward_v2_7(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6)", # noqa E501
+    "neuron::forward_v2_8(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7)", # noqa E501
+    "neuron::forward_v2_9(Tensor[] _0, __torch__.torch.classes.neuron.Model _1) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5, Tensor _6, Tensor _7, Tensor _8)", # noqa E501
+    "neuron::rnn(Tensor _0, Tensor[] _1, __torch__.torch.classes.neuron.RnnBinding _2, int _3) -> (Tensor _0, Tensor[] _1)", # noqa E501
+    "neuron::rnn_v2(Tensor _0, Tensor _1, Tensor _2, int _3, __torch__.torch.classes.neuron.RnnBinding_v2[] _4) -> (Tensor _0, Tensor _1, Tensor _2)", # noqa E501
+    "horizon::scale_quanti(Tensor x, Tensor scale, Tensor zero_point, int d, int min, int max, bool flag1, bool flat2, str str1, str str2) -> Tensor", # noqa E501
+    "prim::ConstantMKLDNNTensor(...) -> ...",
+    "prim::isinstance(Any to_check) -> bool",
+    "prim::mkldnn_convolution(Tensor input, Tensor weight, Tensor? bias, int[] stride, int[] padding, int[] dilation, int groups) -> Tensor", # noqa E501
+    "prim::shape(Tensor self) -> int[]",
+    "llama::custom_sdpa.out(Tensor query, Tensor key, Tensor value, SymInt start_pos, Tensor? attn_mask=None, float drpout_p=0.0, bool is_causal=False, float? scale=None, *, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "llama::custom_sdpa(Tensor query, Tensor key, Tensor value, SymInt start_pos, Tensor? attn_mask=None, float drpout_p=0.0, bool is_causal=False, float? scale=None) -> Tensor", # noqa E501
+    "llama::fast_hadamard_transform.out(Tensor mat, *, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "llama::sdpa_with_kv_cache.out(Tensor query, Tensor key, Tensor value, Tensor(a!) key_cache, Tensor(b!) value_cache, SymInt start_pos, SymInt seq_len, Tensor? attn_mask=None, float drpout_p=0.0, bool is_causal=False, float? scale=None, *, Tensor(c!) out) -> Tensor(c!)", # noqa E501
+    "llama::sdpa_with_kv_cache(Tensor query, Tensor key, Tensor value, Tensor(a!) key_cache, Tensor(b!) value_cache, SymInt start_pos, SymInt seq_len, Tensor? attn_mask=None, float drpout_p=0.0, bool is_causal=False, float? scale=None) -> Tensor", # noqa E501
+    "llama::sdpa.out(Tensor query, Tensor key, Tensor value, Tensor? attn_mask=None, float drpout_p=0.0, bool is_causal=False, float? scale=None, *, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "llama::update_cache.out(Tensor value, Tensor(a!) cache, SymInt start_pos, *, Tensor(b!) out) -> Tensor(b!)", # noqa E501
+    "llama::update_cache(Tensor value, Tensor(a!) cache, SymInt start_pos) -> Tensor",
+    "llama::update_cache_with_indices.out(Tensor value, Tensor(a!) cache, SymInt start_pos, Tensor indices, *, Tensor(b!) out) -> Tensor(b!)", # noqa E501
+    "llama::update_cache_with_indices(Tensor value, Tensor(a!) cache, SymInt start_pos, Tensor indices) -> Tensor", # noqa E501
+    "quantized_decomposed::quantize_per_tensor.out(Tensor input, float scale, int zero_point, int quant_min, int quant_max, ScalarType dtype, *, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "quantized_decomposed::dequantize_per_tensor.out(Tensor input, float scale, int zero_point, int quant_min, int quant_max, ScalarType dtype, *, ScalarType? out_dtype=None, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "quantized_decomposed::dequantize_per_tensor.Tensor_out(Tensor input, Tensor scale, Tensor zero_point, int quant_min, int quant_max, ScalarType dtype, *, ScalarType? out_dtype=None, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "quantized_decomposed::embedding_4bit(Tensor weight, Tensor weight_scales, Tensor? weight_zero_points, int weight_quant_min, int weight_quant_max, Tensor indices) -> Tensor", # noqa E501
+    "quantized_decomposed::embedding_4bit.dtype(Tensor weight, Tensor weight_scales, Tensor? weight_zero_points, int weight_quant_min, int weight_quant_max, Tensor indices, *, ScalarType? dtype=None) -> Tensor", # noqa E501
+    "quantized_decomposed::embedding_4bit.out(Tensor weight, Tensor weight_scales, Tensor? weight_zero_points, int weight_quant_min, int weight_quant_max, Tensor indices, *, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "quantized_decomposed::embedding_4bit.dtype_out(Tensor weight, Tensor weight_scales, Tensor? weight_zero_points, int weight_quant_min, int weight_quant_max, Tensor indices, *, ScalarType? dtype=None, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "quantized_decomposed::add(Tensor a, float a_scale, int a_zero_point, int a_quant_min, int a_quant_max, Tensor b, float b_scale, int b_zero_point, int b_quant_min, int b_quant_max, float out_scale, int out_zero_point, int out_quant_min, int out_quant_max) -> Tensor qc", # noqa E501
+    "quantized_decomposed::add.scalar(Tensor qa, float a_scale, int a_zero_point, int a_quant_min, int a_quant_max, ScalarType a_dtype, Scalar b, float out_scale, int out_zero_point, int out_quant_min, int out_quant_max, ScalarType out_dtype) -> Tensor", # noqa E501
+    "quantized_decomposed::add_relu(Tensor a, float a_scale, int a_zero_point, int a_quant_min, int a_quant_max, Tensor b, float b_scale, int b_zero_point, int b_quant_min, int b_quant_max, float out_scale, int out_zero_point, int out_quant_min, int out_quant_max) -> Tensor qc", # noqa E501
+    "quantized_decomposed::dequantize_per_channel.out(Tensor input, Tensor scales, Tensor? zero_points, int axis, int quant_min, int quant_max, ScalarType dtype, *, ScalarType? out_dtype=None, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "quantized_decomposed::mixed_linear(Tensor input, Tensor weight, Tensor weight_scales, Tensor? weight_zero_points, ScalarType? dtype=None) -> Tensor", # noqa E501
+    "quantized_decomposed::embedding_byte(Tensor weight, Tensor weight_scales, Tensor? weight_zero_points, int weight_quant_min, int weight_quant_max, Tensor indices) -> Tensor", # noqa E501
+    "quantized_decomposed::embedding_byte.dtype(Tensor weight, Tensor weight_scales, Tensor? weight_zero_points, int weight_quant_min, int weight_quant_max, Tensor indices, *, ScalarType? dtype=None) -> Tensor", # noqa E501
+    "quantized_decomposed::embedding_byte.out(Tensor weight, Tensor weight_scales, Tensor? weight_zero_points, int weight_quant_min, int weight_quant_max, Tensor indices, *, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "quantized_decomposed::embedding_byte.dtype_out(Tensor weight, Tensor weight_scales, Tensor? weight_zero_points, int weight_quant_min, int weight_quant_max, Tensor indices, *, ScalarType? dtype=None, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "quantized_decomposed::mixed_mm(Tensor input, Tensor weight, Tensor weight_scales, Tensor? weight_zero_points) -> Tensor", # noqa E501
+    "quantized_decomposed::choose_qparams_per_token_asymmetric.out(Tensor input, ScalarType dtype, *, Tensor(a!) scale_out, Tensor(b!) zero_point_out) -> (Tensor(a!), Tensor(b!))", # noqa E501
+    "tensorrt::execute_engine(Tensor[] inputs, __torch__.torch.classes.tensorrt.Engine engine) -> Tensor[]", # noqa E501
+    "torch_sparse::hgt_sample(Dict(str, Tensor) _0, Dict(str, Tensor) _1, Dict(str, Tensor) _2, Dict(str, int[]) _3, int _4) -> (Dict(str, Tensor) _0, Dict(str, Tensor) _1, Dict(str, Tensor) _2, Dict(str, Tensor) _3)", # noqa E501
+    "torch_sparse::cuda_version() -> int _0",
+    "torch_sparse::random_walk(Tensor _0, Tensor _1, Tensor _2, int _3) -> Tensor _0",
+    "torch_scatter::segment_min_csr(Tensor _0, Tensor _1, Tensor? _2) -> (Tensor _0, Tensor _1)", # noqa E501
+    "torch_sparse::partition2(Tensor _0, Tensor _1, Tensor? _2, Tensor? _3, int _4, bool _5) -> Tensor _0", # noqa E501
+    "torch_sparse::ego_k_hop_sample_adj(Tensor _0, Tensor _1, Tensor _2, int _3, int _4, bool _5) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3, Tensor _4, Tensor _5)", # noqa E501
+    "torch_scatter::segment_sum_csr(Tensor _0, Tensor _1, Tensor? _2) -> Tensor _0",
+    "torch_sparse::sample_adj(Tensor _0, Tensor _1, Tensor _2, int _3, bool _4) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3)", # noqa E501
+    "torch_scatter::segment_max_coo(Tensor _0, Tensor _1, Tensor? _2, int? _3) -> (Tensor _0, Tensor _1)", # noqa E501
+    "torch_scatter::gather_coo(Tensor _0, Tensor _1, Tensor? _2) -> Tensor _0",
+    "torch_sparse::neighbor_sample(Tensor _0, Tensor _1, Tensor _2, int[] _3, bool _4, bool _5) -> (Tensor _0, Tensor _1, Tensor _2, Tensor _3)", # noqa E501
+    "torch_sparse::hetero_temporal_neighbor_sample(str[] _0, (str, str, str)[] _1, Dict(str, Tensor) _2, Dict(str, Tensor) _3, Dict(str, Tensor) _4, Dict(str, int[]) _5, Dict(str, Tensor) _6, int _7, bool _8, bool _9) -> (Dict(str, Tensor) _0, Dict(str, Tensor) _1, Dict(str, Tensor) _2, Dict(str, Tensor) _3)", # noqa E501
+    "torch_sparse::partition(Tensor _0, Tensor _1, Tensor? _2, int _3, bool _4) -> Tensor _0", # noqa E501
+    "torch_scatter::segment_min_coo(Tensor _0, Tensor _1, Tensor? _2, int? _3) -> (Tensor _0, Tensor _1)", # noqa E501
+    "torch_sparse::hetero_neighbor_sample(str[] _0, (str, str, str)[] _1, Dict(str, Tensor) _2, Dict(str, Tensor) _3, Dict(str, Tensor) _4, Dict(str, int[]) _5, int _6, bool _7, bool _8) -> (Dict(str, Tensor) _0, Dict(str, Tensor) _1, Dict(str, Tensor) _2, Dict(str, Tensor) _3)", # noqa E501
+    "torch_sparse::spmm_mean(Tensor? _0, Tensor _1, Tensor _2, Tensor? _3, Tensor? _4, Tensor? _5, Tensor? _6, Tensor _7) -> Tensor _0", # noqa E501
+    "torch_sparse::spmm_max(Tensor _0, Tensor _1, Tensor? _2, Tensor _3) -> (Tensor _0, Tensor _1)", # noqa E501
+    "torch_sparse::relabel(Tensor _0, Tensor _1) -> (Tensor _0, Tensor _1)",
+    "torch_sparse::relabel_one_hop(Tensor _0, Tensor _1, Tensor? _2, Tensor _3, bool _4) -> (Tensor _0, Tensor _1, Tensor? _2, Tensor _3)", # noqa E501
+    "torch_scatter::scatter_mul(Tensor _0, Tensor _1, int _2, Tensor? _3, int? _4) -> Tensor _0", # noqa E501
+    "torch_sparse::ind2ptr(Tensor _0, int _1) -> Tensor _0",
+    "torch_scatter::cuda_version() -> int _0",
+    "torch_sparse::spmm_sum(Tensor? _0, Tensor _1, Tensor _2, Tensor? _3, Tensor? _4, Tensor? _5, Tensor _6) -> Tensor _0", # noqa E501
+    "torch_sparse::ptr2ind(Tensor _0, int _1) -> Tensor _0",
+    "torch_scatter::segment_mean_csr(Tensor _0, Tensor _1, Tensor? _2) -> Tensor _0",
+    "torch_sparse::spmm_min(Tensor _0, Tensor _1, Tensor? _2, Tensor _3) -> (Tensor _0, Tensor _1)", # noqa E501
+    "torch_scatter::segment_sum_coo(Tensor _0, Tensor _1, Tensor? _2, int? _3) -> Tensor _0", # noqa E501
+    "torch_scatter::scatter_mean(Tensor _0, Tensor _1, int _2, Tensor? _3, int? _4) -> Tensor _0", # noqa E501
+    "torch_scatter::scatter_max(Tensor _0, Tensor _1, int _2, Tensor? _3, int? _4) -> (Tensor _0, Tensor _1)", # noqa E501
+    "torch_scatter::segment_max_csr(Tensor _0, Tensor _1, Tensor? _2) -> (Tensor _0, Tensor _1)", # noqa E501
+    "torch_scatter::gather_csr(Tensor _0, Tensor _1, Tensor? _2) -> Tensor _0",
+    "torch_scatter::segment_mean_coo(Tensor _0, Tensor _1, Tensor? _2, int? _3) -> Tensor _0", # noqa E501
+    "torch_scatter::scatter_min(Tensor _0, Tensor _1, int _2, Tensor? _3, int? _4) -> (Tensor _0, Tensor _1)", # noqa E501
+    "torch_sparse::mt_partition(Tensor _0, Tensor _1, Tensor? _2, Tensor? _3, int _4, bool _5, int _6) -> Tensor _0", # noqa E501
+    "torch_sparse::saint_subgraph(Tensor _0, Tensor _1, Tensor _2, Tensor _3) -> (Tensor _0, Tensor _1, Tensor _2)", # noqa E501
+    "torch_scatter::scatter_sum(Tensor _0, Tensor _1, int _2, Tensor? _3, int? _4) -> Tensor _0", # noqa E501
+    "torch_sparse::non_diag_mask(Tensor _0, Tensor _1, int _2, int _3, int _4) -> Tensor _0", # noqa E501
+    "torchaudio::forced_align(Tensor log_probs, Tensor targets, Tensor input_lengths, Tensor target_lengths, int blank) -> (Tensor, Tensor)", # noqa E501
+    "torchaudio::sox_effects_apply_effects_tensor(Tensor tensor, int sample_rate, str[][] effects, bool channels_first=True) -> (Tensor, int)", # noqa E501
+    "torchvision::_interpolate_bilinear2d_aa(Tensor input, int[] size, bool align_corners) -> Tensor", # noqa E501
+    "torchvision::deform_conv2d.out(Tensor input, Tensor weight, Tensor offset, Tensor mask, Tensor bias, SymInt stride_h, SymInt stride_w, SymInt pad_h, SymInt pad_w, SymInt dilation_h, SymInt dilation_w, SymInt groups, SymInt offset_groups, bool use_mask, *, Tensor(a!) out) -> Tensor(a!)", # noqa E501
+    "sgl_kernel::extend_attention_cpu(Tensor q_extend, Tensor k_extend, Tensor v_extend, Tensor(a!) o_extend, Tensor k_buffer, Tensor v_buffer, Tensor req_to_token, Tensor req_pool_indices, Tensor seq_lens, Tensor extend_seq_lens, Tensor extend_start_loc, int max_len_extend, float sm_scale, float logit_cap) -> ()", # noqa E501
+    "vai::fix_neuron(Tensor input, int valmin, int valmax, float valamp, int zero_point, int method, int device_id, int inplace) -> Tensor" # noqa E501
+]
+
+
+def _identifier(schema):
+    return schema.split("(", 1)[0].strip()
+
+def _all_schemas():
+    logging.getLogger("torch.utils._pytree").setLevel(logging.ERROR)
+    logging.getLogger("torch.distributed.elastic.multiprocessing").setLevel(logging.ERROR)
+    logging.getLogger("torchao").setLevel(logging.ERROR)
+    torch = __import__("torch")
+    if not skip_torchvision:
+        __import__("torchvision")
+    with warnings.catch_warnings(action="ignore"):
+        __import__("torchao")
+    logging.getLogger("torchao").setLevel(logging.NOTSET)
+    logging.getLogger("torch.distributed.elastic.multiprocessing").setLevel(logging.NOTSET)
+    logging.getLogger("torch.utils._pytree").setLevel(logging.NOTSET)
+    return list(torch._C._jit_get_all_schemas())
+
+def _parse_schemas():
+    schemas = {}
+    for schema in _all_schemas():
+        definition = str(schema)
+        definition = definition.replace("(b|a)", "(a|b)")
+        key = _identifier(definition)
+        schemas[key] = definition
+    for schema in known_schema_definitions:
+        key = _identifier(schema)
+        if key not in schemas:
+            schemas[key] = schema
+        else:
+            logging.warning(f"-> {key}")
+    return schemas
+
+def _filter_schemas(schemas, types):
+    names = set(map(lambda _: _.split(".")[0], types.keys()))
+    for key in known_schema_definitions:
+        names.add(re.sub(r"[\.(].*$", "", key))
+    filtered_schemas = set()
+    for schema in schemas.values():
+        for name in names:
+            key = _identifier(schema)
+            if key == name or key.startswith(name + "."):
+                filtered_schemas.add(key)
+    return dict(filter(lambda _: _[0] in filtered_schemas, schemas.items()))
+
+def _check_types(types, schemas):
+    types = dict(types.items())
+    for schema in schemas.values():
+        key = _identifier(schema)
+        if key in types:
+            types.pop(key)
+    skip = ["torch.nn", "__torch__."]
+    if skip_torchvision:
+        skip.append("torchvision::")
+    if skip_xnnpack:
+        skip.append("prepacked::")
+    for key in list(types.keys()):
+        for prefix in skip:
+            if key.startswith(prefix):
+                types.pop(key)
+                break
+    if len(types) > 0:
+        raise Exception("\n".join(list(types.keys())))
+
+def _sort_types(types):
+    keys = {}
+    for index, item in enumerate(types):
+        key = _identifier(item["name"])
+        if key not in keys:
+            keys[key] = index
+    def custom_key(x):
+        name = x["name"]
+        key = _identifier(name)
+        has_namespace = 0 if "::" in name else 1
+        base = key.split(".")[0] if has_namespace == 0 else key
+        return (has_namespace, base, keys.get(key, len(types)))
+    return sorted(types, key=custom_key)
+
+
+def _metadata():
+    types = _read_metadata()
+    schemas = _parse_schemas()
+    _check_types(types, schemas)
+    filtered_schemas = _filter_schemas(schemas, types)
+    for schema in filtered_schemas.values():
+        key = _identifier(schema)
+        if key in types:
+            types[key]["name"] = schema
+        else:
+            types[key] = { "name": schema }
+    types = _sort_types(list(types.values()))
+    _write_metadata(types)
+
+def main():
+    _metadata()
+
+if __name__ == "__main__":
+    main()

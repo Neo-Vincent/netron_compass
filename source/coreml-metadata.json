@@ -139,6 +139,15 @@
     ]
   },
   {
+    "name": "gather",
+    "category": "Transform",
+    "description": "Gather layer that gathers elements from the first input, along a specified axis, at indices specified in the second input.",
+    "inputs": [
+      { "name": "input", "type": "Tensor" },
+      { "name": "indices", "type": "Tensor" }
+    ]
+  },
+  {
     "name": "gelu",
     "category": "Activation",
     "description": "Gaussian error linear unit activation.",
@@ -237,10 +246,6 @@
   },
   {
     "name": "mvn",
-    "description": "Fill a constant value in the padded region."
-  },
-  {
-    "name": "mvn",
     "category": "Normalization",
     "description": "A layer that performs mean variance normalization, along axis = -3."
   },
@@ -319,10 +324,6 @@
     "name": "sequenceRepeat",
     "category": "Shape",
     "description": "A layer that repeats a sequence."
-  },
-  {
-    "name": "slice",
-    "description": "A layer that slices the input data along a given axis."
   },
   {
     "name": "slice",
@@ -484,5 +485,13 @@
   {
     "name": "program:layer_norm",
     "category": "Normalization"
+  },
+  {
+    "name": "program:max_pool",
+    "category": "Pool"
+  },
+  {
+    "name": "program:gather",
+    "category": "Transform"
   }
 ]

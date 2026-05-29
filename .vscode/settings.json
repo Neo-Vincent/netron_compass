@@ -1,11 +1,13 @@
 {
+    "eslint.lintTask.enable": true,
     "files.exclude": {
         "dist": true,
         "node_modules": true,
         "third_party": true
     },
-    "python.linting.enabled": true,
-    "python.linting.pylintEnabled": true,
-    "python.linting.pylintCategorySeverity.convention": "Warning",
-    "python.linting.pylintCategorySeverity.refactor": "Warning"
+    "search.exclude": {
+        "dist": true,
+        "node_modules": true,
+        "third_party": true
+    }
 }

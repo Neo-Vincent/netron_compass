@@ -1,0 +1,411 @@
+
+import * as fs from 'fs/promises';
+import * as node from '../source/node.js';
+import * as path from 'path';
+import * as url from 'url';
+import * as worker_threads from 'worker_threads';
+
+const mock = {};
+
+mock.Context = class {
+
+    constructor(host, folder, identifier, stream, entries) {
+        this._host = host;
+        this._folder = folder;
+        this._identifier = identifier;
+        this._stream = stream;
+        this._entries = entries;
+    }
+
+    get identifier() {
+        return this._identifier;
+    }
+
+    get stream() {
+        return this._stream;
+    }
+
+    get entries() {
+        return this._entries;
+    }
+
+    async asset(file) {
+        return this._host.asset(file);
+    }
+
+    async fetch(file, encoding, base) {
+        return this._host.fetch(file, encoding, base === undefined ? this._folder : base);
+    }
+
+    async require(id) {
+        return this._host.require(id);
+    }
+
+    error(error, fatal) {
+        this._host.exception(error, fatal);
+    }
+};
+
+class CSSStyleDeclaration {
+
+    constructor() {
+        this._properties = new Map();
+    }
+
+    setProperty(name, value) {
+        this._properties.set(name, value);
+    }
+
+    removeProperty(name) {
+        this._properties.delete(name);
+    }
+}
+
+class DOMTokenList {
+
+    constructor(element) {
+        this._element = element;
+    }
+
+    add(...tokens) {
+        const value = this._element.getAttribute('class') || '';
+        const set = new Set(value.split(' ').concat(...tokens));
+        this._element.setAttribute('class', Array.from(set).filter((s) => s).join(' '));
+    }
+
+    contains(token) {
+        const value = this._element.getAttribute('class');
+        if (value === null || value.indexOf(token) === -1) {
+            return false;
+        }
+        return value.split(' ').some((s) => s === token);
+    }
+}
+
+class HTMLElement {
+
+    constructor(document) {
+        this._document = document;
+        this._childNodes = [];
+        this._attributes = new Map();
+        this._style = new CSSStyleDeclaration();
+    }
+
+    get style() {
+        return this._style;
+
+    }
+
+    get childNodes() {
+        return this._childNodes;
+    }
+
+    get firstChild() {
+        return this._childNodes.length > 0 ? this._childNodes[0] : null;
+    }
+
+    get lastChild() {
+        const index = this._childNodes.length - 1;
+        if (index >= 0) {
+            return this._childNodes[index];
+        }
+        return null;
+    }
+
+    appendChild(node) {
+        this._childNodes.push(node);
+    }
+
+    insertBefore(newNode, referenceNode) {
+        const index = this._childNodes.indexOf(referenceNode);
+        if (index !== -1) {
+            this._childNodes.splice(index, 0, newNode);
+        }
+    }
+
+    removeChild(node) {
+        const index = this._childNodes.lastIndexOf(node);
+        if (index !== -1) {
+            this._childNodes.splice(index, 1);
+            this._document._removeElement(node);
+        }
+    }
+
+    replaceChildren(...nodes) {
+        for (const child of this._childNodes) {
+            this._document._removeElement(child);
+        }
+        this._childNodes = [...nodes];
+    }
+
+    replaceChild(newChild, oldChild) {
+        const index = this._childNodes.indexOf(oldChild);
+        if (index !== -1) {
+            this._childNodes[index] = newChild;
+        }
+        return oldChild;
+    }
+
+    setAttribute(name, value) {
+        if (name === 'id') {
+            this._document._updateElementId(this, value);
+        }
+        this._attributes.set(name, value);
+    }
+
+    hasAttribute(name) {
+        return this._attributes.has(name);
+    }
+
+    getAttribute(name) {
+        return this._attributes.has(name) ? this._attributes.get(name) : null;
+    }
+
+    getElementsByClassName(name) {
+        const elements = [];
+        for (const node of this._childNodes) {
+            if (node instanceof HTMLElement) {
+                elements.push(...node.getElementsByClassName(name));
+                if (node.classList.contains(name)) {
+                    elements.push(node);
+                }
+            }
+        }
+        return elements;
+    }
+
+    addEventListener(/* event, callback */) {
+    }
+
+    removeEventListener(/* event, callback */) {
+    }
+
+    get classList() {
+        this._classList = this._classList || new DOMTokenList(this);
+        return this._classList;
+    }
+
+    getBBox() {
+        return { x: 0, y: 0, width: 10, height: 10 };
+    }
+
+    getBoundingClientRect() {
+        return { left: 0, top: 0, width: 0, height: 0 };
+    }
+
+    scrollTo() {
+    }
+
+    focus() {
+    }
+}
+
+class Document {
+
+    constructor() {
+        this._elements = new Map();
+        this._documentElement = new HTMLElement(this);
+        this._body = new HTMLElement(this);
+        this._documentElement.appendChild(this._body);
+    }
+
+    get documentElement() {
+        return this._documentElement;
+    }
+
+    get body() {
+        return this._body;
+    }
+
+    createElement(name) {
+        const element = new HTMLElement(this);
+        element.tagName = name.toUpperCase();
+        return element;
+    }
+
+    createElementNS(namespace, name) {
+        const element = new HTMLElement(this);
+        element.namespaceURI = namespace;
+        element.tagName = name;
+        return element;
+    }
+
+    createTextNode(text) {
+        const element = new HTMLElement(this);
+        element.textContent = text;
+        return element;
+    }
+
+    addEventListener(/* event, callback */) {
+    }
+
+    removeEventListener(/* event, callback */) {
+    }
+
+    getElementById(id) {
+        return this._elements.get(id) || null;
+    }
+
+    _removeElement(element) {
+        this._updateElementId(element, null);
+        for (const child of element.childNodes) {
+            this._removeElement(child);
+        }
+    }
+
+    _updateElementId(element, newId) {
+        const previous = element.getAttribute('id');
+        if (previous) {
+            this._elements.delete(previous);
+        }
+        if (newId) {
+            this._elements.set(newId, element);
+        }
+    }
+}
+
+class Window {
+
+    constructor() {
+        this._document = new Document();
+    }
+
+    get document() {
+        return this._document;
+    }
+
+    addEventListener(/* event, callback */) {
+    }
+
+    removeEventListener(/* event, callback */) {
+    }
+
+    requestAnimationFrame(callback) {
+        callback();
+    }
+
+    setTimeout(code, delay) {
+        return global.setTimeout(code, delay);
+    }
+
+    clearTimeout(timeoutID) {
+        global.clearTimeout(timeoutID);
+    }
+}
+
+mock.Host = class {
+
+    constructor(environment) {
+        this._environment = environment;
+        this._errors = [];
+        mock.Host.source = mock.Host.source || this._dirname('..', 'source');
+        if (!mock.Host.window) {
+            mock.Host.window = new Window();
+            const document = mock.Host.window.document;
+            for (const id of ['target', 'sidebar']) {
+                const element = document.createElement('div');
+                element.setAttribute('id', id);
+                document.body.appendChild(element);
+            }
+        }
+    }
+
+    async view(/* view */) {
+    }
+
+    async start() {
+    }
+
+    get window() {
+        return mock.Host.window;
+    }
+
+    get document() {
+        return this.window.document;
+    }
+
+    get errors() {
+        return this._errors;
+    }
+
+    get type() {
+        return 'Test';
+    }
+
+    environment(name) {
+        return this._environment[name];
+    }
+
+    update() {
+    }
+
+    screen(/* name */) {
+    }
+
+    async require(id) {
+        const file = path.join(mock.Host.source, `${id}.js`);
+        return await import(`file://${file}`);
+    }
+
+    worker(id) {
+        const file = path.join(mock.Host.source, `${id}.js`);
+        const worker = new worker_threads.Worker(file);
+        worker.addEventListener = (type, listener) => {
+            worker.on(type, (message) => listener({ data: message }));
+        };
+        return worker;
+    }
+
+    async asset(file) {
+        return this.fetch(file, 'utf-8', null);
+    }
+
+    async fetch(file, encoding, basename) {
+        const root = path.resolve(basename || mock.Host.source);
+        const pathname = path.resolve(root, file);
+        const relative = path.relative(root, pathname);
+        if (relative !== '' && (relative.startsWith('..') || path.isAbsolute(relative))) {
+            throw new Error(`The path '${pathname}' is invalid.`);
+        }
+        const exists = await this._access(pathname);
+        if (!exists) {
+            throw new Error(`The file '${file}' does not exist.`);
+        }
+        const stats = await fs.stat(pathname);
+        if (stats.isDirectory()) {
+            throw new Error(`The path '${file}' is a directory.`);
+        }
+        if (encoding) {
+            return await fs.readFile(pathname, encoding);
+        }
+        return new node.FileStream(pathname, 0, stats.size, stats.mtimeMs);
+    }
+
+    event(/* name, params */) {
+    }
+
+    exception(error /*, fatal */) {
+        this._errors.push(error);
+    }
+
+    message() {
+    }
+
+    async _access(path) {
+        try {
+            await fs.access(path);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    _dirname(...args) {
+        const file = url.fileURLToPath(import.meta.url);
+        const dir = path.dirname(file);
+        return path.join(dir, ...args);
+    }
+};
+
+export const Host = mock.Host;
+export const Context = mock.Context;

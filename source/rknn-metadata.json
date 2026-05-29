@@ -165,6 +165,60 @@
     ]
   },
   {
+    "name": "ConvReluAdd",
+    "category": "Layer",
+    "inputs": [
+      { "name": "input" },
+      { "name": "weights" },
+      { "name": "bias" }
+    ]
+  },
+  {
+    "name": "ConvAddRelu",
+    "category": "Layer",
+    "inputs": [
+      { "name": "input" },
+      { "name": "weights" },
+      { "name": "bias" }
+    ]
+  },
+  {
+    "name": "ConvLeakyRelu",
+    "category": "Layer",
+    "inputs": [
+      { "name": "input" },
+      { "name": "weights" },
+      { "name": "bias" }
+    ]
+  },
+  {
+    "name": "ConvLeakyReluAdd",
+    "category": "Layer",
+    "inputs": [
+      { "name": "input" },
+      { "name": "weights" },
+      { "name": "bias" }
+    ]
+  },
+  {
+    "name": "ConvExSwish",
+    "category": "Layer",
+    "inputs": [
+      { "name": "input" },
+      { "name": "weights" },
+      { "name": "bias" }
+    ]
+  },
+  {
+    "name": "ConvSigmoid",
+    "category": "Layer",
+    "inputs": [
+      { "name": "input" },
+      { "name": "weights" },
+      { "name": "bias" }
+    ]
+  },
+  {
     "name": "ConvTranspose",
     "category": "Layer",
     "inputs": [
@@ -309,5 +363,13 @@
   {
     "name": "Slice",
     "category": "Tensor"
+  },
+  {
+    "name": "Pad",
+    "category": "Tensor"
+  },
+  {
+    "name": "exSoftmax13",
+    "category": "Activation"
   }
 ]

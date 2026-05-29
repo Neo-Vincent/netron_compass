@@ -1,112 +1,89 @@
 
-var rknn = {};
-var base = require('./base');
-var flatbuffers = require('./flatbuffers');
-var json = require('./json');
+import * as base from './base.js';
+import * as flatbuffers from './flatbuffers.js';
+import * as json from './json.js';
+
+const rknn = {};
+const openvx = {};
 
 rknn.ModelFactory = class {
 
-    match(context) {
-        return rknn.Container.open(context);
+    async match(context) {
+        const container = await rknn.Container.open(context);
+        if (container) {
+            return context.set('rknn', container);
+        }
+        return null;
     }
 
-    async open(context, match) {
-        await context.require('./rknn-schema');
-        rknn.schema = flatbuffers.get('rknn').rknn;
+    async open(context) {
+        rknn.schema = await context.require('./rknn-schema');
+        rknn.schema = rknn.schema.rknn;
         const metadata = await context.metadata('rknn-metadata.json');
-        const container = match;
-        const type = container.type;
-        switch (type) {
-            case 'json': {
-                const buffer = container.value;
-                const reader = json.TextReader.open(buffer);
-                const model = reader.read();
-                return new rknn.Model(metadata, type, model, container.next);
-            }
-            case 'flatbuffers': {
-                const buffer = container.value;
-                const reader = flatbuffers.BinaryReader.open(buffer);
-                const model = rknn.schema.Model.create(reader);
-                return new rknn.Model(metadata, type, model, null);
-            }
-            case 'openvx': {
-                const buffer = container.value;
-                const model = new openvx.Model(buffer);
-                return new rknn.Model(metadata, type, model, null);
-            }
-            default: {
-                throw new rknn.Error("Unsupported RKNN format '" + container.type + "'.");
-            }
+        const target = context.value;
+        target.read();
+        if (target.has('json')) {
+            const buffer = target.get('json');
+            const reader = json.TextReader.open(buffer);
+            const model = reader.read();
+            return new rknn.Model(metadata, 'json', model, target);
         }
+        if (target.has('flatbuffers')) {
+            const buffer = target.get('flatbuffers');
+            const reader = flatbuffers.BinaryReader.open(buffer);
+            const model = rknn.schema.Model.create(reader);
+            return new rknn.Model(metadata, 'flatbuffers', model, null);
+        }
+        if (target.has('openvx')) {
+            const buffer = target.get('openvx');
+            const model = new openvx.Model(buffer);
+            return new rknn.Model(metadata, 'openvx', model, null);
+        }
+        throw new rknn.Error("Unsupported RKNN format.");
     }
 };
 
 rknn.Model = class {
 
-    constructor(metadata, type, model, next) {
+    constructor(metadata, type, model, container) {
         switch (type) {
             case 'json': {
-                this._format = 'RKNN v' + model.version.split('-').shift();
-                this._name = model.name || '';
-                this._producer = model.ori_network_platform || model.network_platform || '';
-                this._runtime = model.target_platform ? model.target_platform.join(',') : '';
-                this._graphs = [ new rknn.Graph(metadata, type, model.name || '', model, next) ];
+                this.format = `RKNN v${model.version.split('-').shift()}`;
+                this.name = model.name || '';
+                this.producer = model.ori_network_platform || model.network_platform || '';
+                this.runtime = model.target_platform ? model.target_platform.join(',') : '';
+                this.modules = [new rknn.Graph(metadata, type, model.name || '', model, container)];
                 break;
             }
             case 'flatbuffers': {
                 const version = model.compiler.split('-').shift();
-                this._format = 'RKNN Lite' + (version ? ' v' + version : '');
-                this._runtime = model.runtime;
-                this._name = model.name || '';
-                this._graphs = model.graphs.map((graph) => new rknn.Graph(metadata, type, '', graph, null));
-                this._metadata = [];
-                this._metadata.push({ name: 'source', value: model.source });
+                this.format = `RKNN Lite${version ? ` v${version}` : ''}`;
+                this.runtime = model.runtime;
+                this.name = model.name || '';
+                this.modules = model.graphs.map((graph) => new rknn.Graph(metadata, type, '', graph, null));
+                this.source = model.source;
                 break;
             }
             case 'openvx': {
-                this._format = 'RKNN OpenVX';
-                this._name = model.name || '';
-                this._graphs = [ new rknn.Graph(metadata, type, '', model, next) ];
+                this.format = 'RKNN OpenVX';
+                this.name = model.name || '';
+                this.modules = [new rknn.Graph(metadata, type, '', model, container)];
                 break;
             }
             default: {
-                throw new rknn.Error("Unsupported RKNN model type '" + type + "'.");
+                throw new rknn.Error(`Unsupported RKNN model type '${type}'.`);
             }
         }
-    }
-
-    get format() {
-        return this._format;
-    }
-
-    get name() {
-        return this._name;
-    }
-
-    get producer() {
-        return this._producer;
-    }
-
-    get runtime() {
-        return this._runtime;
-    }
-
-    get metadata() {
-        return this._metadata;
-    }
-
-    get graphs() {
-        return this._graphs;
     }
 };
 
 rknn.Graph = class {
 
-    constructor(metadata, type, name, obj, next) {
-        this._name = name;
-        this._inputs = [];
-        this._outputs = [];
-        this._nodes = [];
+    constructor(metadata, type, name, obj, container) {
+        this.name = name;
+        this.inputs = [];
+        this.outputs = [];
+        this.nodes = [];
         switch (type) {
             case 'json': {
                 const dataType = (value) => {
@@ -124,38 +101,48 @@ rknn.Graph = class {
                             return type;
                         default:
                             if (value.vx_type !== '') {
-                                throw new rknn.Error("Invalid data type '" + JSON.stringify(dataType) + "'.");
+                                throw new rknn.Error(`Invalid data type '${JSON.stringify(dataType)}'.`);
                             }
                             return '?';
                     }
                 };
                 const model = obj;
-                const args = new Map();
+                const values = new Map();
                 for (const const_tensor of model.const_tensor) {
-                    const name = 'const_tensor:' + const_tensor.tensor_id.toString();
+                    const name = `const_tensor:${const_tensor.tensor_id}`;
                     const shape = new rknn.TensorShape(const_tensor.size);
-                    const type = new rknn.TensorType(dataType(const_tensor.dtype), shape);
-                    const tensor = new rknn.Tensor(type, const_tensor.offset, next.value);
-                    const value = new rknn.Value(name, type, tensor);
-                    args.set(name, value);
+                    if (const_tensor.data_type === 0) {
+                        const value = new rknn.Value(name, null, null);
+                        values.set(name, value);
+                    } else {
+                        const type = new rknn.TensorType(dataType(const_tensor.dtype), shape);
+                        const tensor = new rknn.Tensor(type, const_tensor.offset, undefined, null);
+                        const value = new rknn.Value(name, type, tensor);
+                        values.set(name, value);
+                    }
                 }
                 for (const virtual_tensor of model.virtual_tensor) {
-                    const name = virtual_tensor.node_id.toString() + ':' + virtual_tensor.output_port.toString();
+                    const name = `${virtual_tensor.node_id}:${virtual_tensor.output_port}`;
                     const value = new rknn.Value(name, null, null);
-                    args.set(name, value);
+                    values.set(name, value);
                 }
                 for (const norm_tensor of model.norm_tensor) {
-                    const name = 'norm_tensor:' + norm_tensor.tensor_id.toString();
+                    const name = `norm_tensor:${norm_tensor.tensor_id}`;
                     const shape = new rknn.TensorShape(norm_tensor.size);
-                    const type = new rknn.TensorType(dataType(norm_tensor.dtype), shape);
-                    const value = new rknn.Value(name, type, null);
-                    args.set(name, value);
-                }
-                const arg = (name) => {
-                    if (!args.has(name)) {
-                        args.set(name, new rknn.Value(name, null, null));
+                    if (norm_tensor.dtype === 0) {
+                        const value = new rknn.Value(name, null, null);
+                        values.set(name, value);
+                    } else {
+                        const type = new rknn.TensorType(dataType(norm_tensor.dtype), shape);
+                        const value = new rknn.Value(name, type, null);
+                        values.set(name, value);
                     }
-                    return args.get(name);
+                }
+                const value = (name) => {
+                    if (!values.has(name)) {
+                        values.set(name, new rknn.Value(name, null, null));
+                    }
+                    return values.get(name);
                 };
                 for (const node of model.nodes) {
                     node.input = [];
@@ -173,463 +160,400 @@ rknn.Graph = class {
                             model.nodes[connection.node_id].output.push(connection);
                             break;
                         default:
-                            throw new rknn.Error("Unsupported left connection '" + connection.left + "'.");
+                            throw new rknn.Error(`Unsupported left connection '${connection.left}'.`);
                     }
                 }
                 for (const graph of model.graph) {
-                    const key = graph.right + ':' + graph.right_tensor_id.toString();
-                    const value = arg(key);
+                    const key = `${graph.right}:${graph.right_tensor_id}`;
                     const name = graph.left + (graph.left_tensor_id === 0 ? '' : graph.left_tensor_id.toString());
-                    const argument = new rknn.Argument(name, [ value ]);
+                    const argument = new rknn.Argument(name, [value(key)]);
                     switch (graph.left) {
                         case 'input':
-                            this._inputs.push(argument);
+                            this.inputs.push(argument);
                             break;
                         case 'output':
-                            this._outputs.push(argument);
+                            this.outputs.push(argument);
                             break;
                         default:
-                            throw new rknn.Error("Unsupported left graph connection '" + graph.left + "'.");
+                            throw new rknn.Error(`Unsupported left graph connection '${graph.left}'.`);
                     }
                 }
-                this._nodes = model.nodes.map((node) => new rknn.Node(metadata, type, node, arg, next));
+                this.nodes = model.nodes.map((node) => new rknn.Node(metadata, type, node, value, container));
                 break;
             }
             case 'flatbuffers': {
                 const graph = obj;
-                const dataTypes = [ 'unk0', 'int32', '?', 'int8', '?', 'int16', 'float32', 'int64', '?', '?', 'float16', '?', '?', 'unk13' ];
+                const dataTypes = ['?', 'float32', 'uint8', 'int8', 'uint16', 'int16', 'int32', 'int64', 'string', 'boolean', 'float16', 'float64', 'uint32', 'uint64', 'complex<float32>', 'complex<float64>', 'bfloat16'];
                 const args = graph.tensors.map((tensor) => {
                     const shape = new rknn.TensorShape(Array.from(tensor.shape));
                     const dataType = tensor.data_type < dataTypes.length ? dataTypes[tensor.data_type] : '?';
-                    if (dataType === '?') {
-                        throw new rknn.Error("Unsupported tensor data type '" + tensor.data_type + "'.");
-                    }
                     const type = new rknn.TensorType(dataType, shape);
-                    const initializer = tensor.kind !== 4 && tensor.kind !== 5 ? null : new rknn.Tensor(type, 0, null);
+                    const initializer = tensor.kind !== 4 && tensor.kind !== 5 ? null : new rknn.Tensor(type, 0, tensor.size, null);
                     return new rknn.Value(tensor.name, type, initializer);
                 });
                 const arg = (index) => {
                     if (index >= args.length) {
-                        throw new rknn.Error("Invalid tensor index '" + index.toString() + "'.");
+                        throw new rknn.Error(`Invalid tensor index '${index}'.`);
                     }
                     return args[index];
                 };
-                this._nodes = graph.nodes.map((node) => new rknn.Node(metadata, type, node, arg, next));
+                this.nodes = graph.nodes.map((node) => new rknn.Node(metadata, type, node, arg, container));
                 break;
             }
             case 'openvx': {
                 const model = obj;
-                this._nodes = model.nodes.map((node) => new rknn.Node(metadata, type, node, null, next));
+                this.nodes = model.nodes.map((node) => new rknn.Node(metadata, type, node, null, container));
                 break;
             }
             default: {
-                throw new rknn.Error("Unsupported RKNN graph type '" + type + "'.");
+                throw new rknn.Error(`Unsupported RKNN graph type '${type}'.`);
             }
         }
-    }
-
-    get name() {
-        return this._name;
-    }
-
-    get inputs() {
-        return this._inputs;
-    }
-
-    get outputs() {
-        return this._outputs;
-    }
-
-    get nodes() {
-        return this._nodes;
     }
 };
 
 rknn.Argument = class {
 
     constructor(name, value) {
-        this._name = name;
-        this._value = value;
-    }
-
-    get name() {
-        return this._name;
-    }
-
-    get value() {
-        return this._value;
+        this.name = name;
+        this.value = value;
     }
 };
 
 rknn.Value = class {
 
-    constructor(name, type, initializer) {
+    constructor(name, type = null, initializer = null) {
         if (typeof name !== 'string') {
-            throw new rknn.Error("Invalid value identifier '" + JSON.stringify(name) + "'.");
+            throw new rknn.Error(`Invalid value identifier '${JSON.stringify(name)}'.`);
         }
-        this._name = name;
-        this._type = type || null;
-        this._initializer = initializer || null;
-    }
-
-    get name() {
-        return this._name;
-    }
-
-    get type() {
-        return this._type;
-    }
-
-    get initializer() {
-        return this._initializer;
+        this.name = name;
+        this.type = type;
+        this.initializer = initializer;
     }
 };
 
 rknn.Node = class {
 
-    constructor(metadata, type, node, arg, next) {
-        this._inputs = [];
-        this._outputs = [];
-        this._attributes = [];
+    constructor(metadata, type, node, value, container) {
+        this.inputs = [];
+        this.outputs = [];
+        this.attributes = [];
         switch (type) {
             case 'json': {
-                this._name = node.name || '';
-                if (node.op === 'VSI_NN_OP_NBG' && next && next.type === 'openvx') {
-                    const buffer = next.value;
+                this.name = node.name || '';
+                if (node.op === 'VSI_NN_OP_NBG' && container && container.has('openvx')) {
+                    const buffer = container.get('openvx');
                     const model = new openvx.Model(buffer);
-                    this._type = new rknn.Graph(metadata, next.type, 'NBG', model, null);
-                } else if (node.op === 'RKNN_OP_NNBG' && next && next.type === 'flatbuffers') {
-                    const buffer = next.value;
+                    this.type = new rknn.Graph(metadata, 'openvx', 'NBG', model, null);
+                } else if (node.op === 'RKNN_OP_NNBG' && container && container.has('flatbuffers')) {
+                    const buffer = container.get('flatbuffers');
                     const reader = flatbuffers.BinaryReader.open(buffer);
                     const model = rknn.schema.Model.create(reader);
-                    this._type = new rknn.Graph(metadata, next.type, 'NNBG', model.graphs[0], null);
+                    this.type = new rknn.Graph(metadata, 'flatbuffers', 'NNBG', model.graphs[0], null);
                 } else {
-                    this._type = Object.assign({}, metadata.type(node.op) || { name: node.op });
-                    for (const prefix of [ 'VSI_NN_OP_', 'RKNN_OP_' ]) {
-                        this._type.name = this._type.name.startsWith(prefix) ? this._type.name.substring(prefix.length) : this._type.name;
+                    const type = metadata.type(node.op);
+                    this.type = type ? { ...type } : { name: node.op };
+                    for (const prefix of ['VSI_NN_OP_', 'RKNN_OP_']) {
+                        this.type.name = this.type.name.startsWith(prefix) ? this.type.name.substring(prefix.length) : this.type.name;
                     }
                 }
                 node.input = node.input || [];
                 for (let i = 0; i < node.input.length;) {
-                    const input = this._type && this._type.inputs && i < this._type.inputs.length ? this._type.inputs[i] : { name: i === 0 ? 'input' : i.toString() };
+                    const input = this.type && this.type.inputs && i < this.type.inputs.length ? this.type.inputs[i] : { name: i === 0 ? 'input' : i.toString() };
                     const count = input.list ? node.input.length - i : 1;
                     const list = node.input.slice(i, i + count).map((input) => {
                         if (input.right_tensor) {
-                            return arg(input.right_tensor.type + ':' + input.right_tensor.tensor_id.toString());
+                            return value(`${input.right_tensor.type}:${input.right_tensor.tensor_id}`);
                         }
                         if (input.right_node) {
-                            return arg(input.right_node.node_id.toString() + ':' + input.right_node.tensor_id.toString());
+                            return value(`${input.right_node.node_id}:${input.right_node.tensor_id}`);
                         }
                         throw new rknn.Error('Invalid input argument.');
                     });
-                    this._inputs.push(new rknn.Argument(input.name, list));
+                    this.inputs.push(new rknn.Argument(input.name, list));
                     i += count;
                 }
                 node.output = node.output || [];
                 for (let i = 0; i < node.output.length;) {
-                    const output = this._metadata && this._metadata.outputs && i < this._metadata.outputs.length ? this._metadata.outputs[i] : { name: i === 0 ? 'output' : i.toString() };
+                    const output = this.type.outputs && i < this.type.outputs.length ? this.type.outputs[i] : { name: i === 0 ? 'output' : i.toString() };
                     const count = output.list ? node.output.length - i : 1;
                     const list = node.output.slice(i, i + count).map((output) => {
                         if (output.right_tensor) {
-                            return arg(output.right_tensor.type + ':' + output.right_tensor.tensor_id.toString());
+                            return value(`${output.right_tensor.type}:${output.right_tensor.tensor_id}`);
                         }
                         if (output.right_node) {
-                            return arg(output.right_node.node_id.toString() + ':' + output.right_node.tensor_id.toString());
+                            return value(`${output.right_node.node_id}:${output.right_node.tensor_id}`);
                         }
                         throw new rknn.Error('Invalid output argument.');
                     });
-                    this._outputs.push(new rknn.Argument(output.name, list));
+                    this.outputs.push(new rknn.Argument(output.name, list));
                     i += count;
                 }
                 if (node.nn) {
-                    const nn = node.nn;
-                    for (const key of Object.keys(nn)) {
-                        const params = nn[key];
-                        for (const name of Object.keys(params)) {
-                            const value = params[name];
-                            this._attributes.push(new rknn.Attribute(name, value));
+                    for (const params of Object.values(node.nn)) {
+                        for (const [name, value] of Object.entries(params)) {
+                            const attribute = new rknn.Argument(name, value);
+                            this.attributes.push(attribute);
                         }
                     }
                 }
                 break;
             }
             case 'flatbuffers': {
-                this._name = node.name;
-                this._type = metadata.type(node.type);
+                this.name = node.name;
+                this.type = metadata.type(node.type);
                 if (node.inputs.length > 0) {
-                    const inputs = this._type.inputs || (node.inputs.length === 1 ? [ { name: "input" } ] : [ { name: "inputs", list: true } ]);
+                    const inputs = this.type.inputs || (node.inputs.length === 1 ? [{ name: "input" }] : [{ name: "inputs", list: true }]);
                     if (Array.isArray(inputs) && inputs.length > 0 && inputs[0].list === true) {
-                        this._inputs = [new rknn.Argument(inputs[0].name, Array.from(node.inputs).map((input) => arg(input))) ];
+                        this.inputs = [new rknn.Argument(inputs[0].name, Array.from(node.inputs).map((input) => value(input)))];
                     } else {
-                        this._inputs = Array.from(node.inputs).map((input, index) => {
-                            const value = arg(input);
-                            return new rknn.Argument(index < inputs.length ? inputs[index].name : index.toString(), [ value ]);
+                        this.inputs = Array.from(node.inputs).map((input, index) => {
+                            return new rknn.Argument(index < inputs.length ? inputs[index].name : index.toString(), [value(input)]);
                         });
                     }
                 }
                 if (node.outputs.length > 0) {
-                    const outputs = this._type.outputs || (node.outputs.length === 1 ? [ { name: "output" } ] : [ { name: "outputs", list: true } ]);
+                    const outputs = this.type.outputs || (node.outputs.length === 1 ? [{ name: "output" }] : [{ name: "outputs", list: true }]);
                     if (Array.isArray(outputs) && outputs.length > 0 && outputs[0].list === true) {
-                        this._outputs = [ new rknn.Argument(outputs[0].name, Array.from(node.outputs).map((output) => arg(output))) ];
+                        const values = Array.from(node.outputs).map((output) => value(output));
+                        const argument = new rknn.Argument(outputs[0].name, values);
+                        this.outputs = [argument];
                     } else {
-                        this._outputs = Array.from(node.outputs).map((output, index) => {
-                            const value = arg(output);
-                            return new rknn.Argument(index < outputs.length ? outputs[index].name : index.toString(), [ value ]);
+                        this.outputs = Array.from(node.outputs).map((output, index) => {
+                            return new rknn.Argument(index < outputs.length ? outputs[index].name : index.toString(), [value(output)]);
                         });
                     }
                 }
                 break;
             }
             case 'openvx': {
-                this._name = '';
-                this._type = metadata.type(node.type);
+                this.name = '';
+                this.type = metadata.type(node.type);
                 break;
             }
             default: {
-                throw new rknn.Error("Unsupported RKNN node type '" + type + "'.");
+                throw new rknn.Error(`Unsupported RKNN node type '${type}'.`);
             }
         }
-    }
-
-    get name() {
-        return this._name;
-    }
-
-    get type() {
-        return this._type;
-    }
-
-    get inputs() {
-        return this._inputs;
-    }
-
-    get outputs() {
-        return this._outputs;
-    }
-
-    get attributes() {
-        return this._attributes;
-    }
-};
-
-rknn.Attribute = class {
-
-    constructor(name, value) {
-        this._name = name;
-        this._value = value;
-    }
-
-    get name() {
-        return this._name;
-    }
-
-    get value() {
-        return this._value;
     }
 };
 
 rknn.Tensor = class {
 
-    constructor(type, offset, weights) {
-        this._type = type;
-        this._data = null;
+    constructor(type, offset, size, weights) {
+        this.type = type;
+        this.values = null;
         let itemsize = 0;
-        switch (this._type.dataType) {
+        switch (this.type.dataType) {
             case 'uint8': itemsize = 1; break;
             case 'int8': itemsize = 1; break;
             case 'int16': itemsize = 2; break;
             case 'int32': itemsize = 4; break;
             case 'int64': itemsize = 8; break;
+            case 'uint16': itemsize = 2; break;
+            case 'uint32': itemsize = 4; break;
+            case 'uint64': itemsize = 8; break;
             case 'float16': itemsize = 2; break;
+            case 'bfloat16': itemsize = 2; break;
             case 'float32': itemsize = 4; break;
             case 'float64': itemsize = 8; break;
+            case 'boolean': itemsize = 1; break;
             case 'vdata': itemsize = 1; break;
-            default: throw new rknn.Error("Unsupported tensor data type '" + this._type.dataType + "'.");
+            case 'string': itemsize = 1; break;
+            case '?': itemsize = 0; break;
+            default: throw new rknn.Error(`Unsupported tensor data type '${this.type.dataType}'.`);
         }
         if (weights) {
             const shape = type.shape.dimensions;
-            const size = itemsize * shape.reduce((a, b) => a * b, 1);
-            if (size > 0) {
-                this._data = weights.slice(offset, offset + size);
+            const count = shape.reduce((a, b) => a * b, 1);
+            const length = itemsize * count;
+            if (length > 0) {
+                if (size !== undefined && size !== length) {
+                    throw new rknn.Error(`Tensor size mismatch for '${this.type.dataType}'. Expected '${length}' bytes but got '${size}' bytes.`);
+                }
+                this.values = weights.slice(offset, offset + length);
             }
         }
-    }
-
-    get type() {
-        return this._type;
-    }
-
-    get values() {
-        return this._data;
     }
 };
 
 rknn.TensorType = class {
 
     constructor(dataType, shape) {
-        this._dataType = dataType;
-        this._shape = shape;
-    }
-
-    get dataType() {
-        return this._dataType;
-    }
-
-    get shape() {
-        return this._shape;
+        this.dataType = dataType;
+        this.shape = shape;
     }
 
     toString() {
-        return this.dataType + this._shape.toString();
+        return this.dataType + this.shape.toString();
     }
 };
 
 rknn.TensorShape = class {
 
-    constructor(shape) {
-        this._dimensions = shape;
-    }
-
-    get dimensions() {
-        return this._dimensions;
+    constructor(dimensions) {
+        this.dimensions = dimensions;
     }
 
     toString() {
-        if (!this._dimensions || this._dimensions.length == 0) {
+        if (!this.dimensions || this.dimensions.length === 0) {
             return '';
         }
-        return '[' + this._dimensions.join(',') + ']';
+        return `[${this.dimensions.join(',')}]`;
     }
 };
 
-rknn.Container = class {
+rknn.Container = class extends Map {
 
-    static open(context) {
+    static async open(context) {
         const stream = context.stream;
         if (stream) {
-            const container = new rknn.Container(stream, stream.length);
-            if (container.type) {
-                return container;
+            const signature = rknn.Container.signature(stream);
+            switch (signature) {
+                case 'rknn':
+                case 'openvx':
+                case 'flatbuffers':
+                case 'cyptrknn':
+                    return new rknn.Container(stream, signature);
+                default:
+                    break;
+            }
+            const obj = await context.peek('json');
+            if (obj && obj.version && Array.isArray(obj.nodes) && obj.network_platform) {
+                const entries = new Map();
+                entries.set('json', stream);
+                return new rknn.Container(null, null, entries);
             }
         }
         return null;
     }
 
-    constructor(stream, length) {
-        this._stream = stream;
-        this._length = length;
-        this._type = '';
-        if ((stream.position + 16) <= this._length) {
-            const signature = [ 0x52, 0x4B, 0x4E, 0x4E ]; // RKNN
-            if (stream.peek(signature.length).every((value, index) => value === signature[index])) {
-                this._type = 'json';
-            }
-        }
-        if ((stream.position + 16) <= this._length) {
-            const signature = [ 0x43, 0x59, 0x50, 0x54, 0x52, 0x4B, 0x4E, 0x4E ]; // CYPTRKNN
-            if (stream.peek(signature.length).every((value, index) => value === signature[index])) {
-                this._type = 'crypt';
-            }
-        }
-        if ((stream.position + 8) <= this._length) {
-            const signature = [ 0x52, 0x4B, 0x4E, 0x4E ]; // RKNN
-            if (stream.peek(8).subarray(4, 8).every((value, index) => value === signature[index])) {
-                this._type = 'flatbuffers';
-            }
-        }
-        if ((stream.position + 8) <= this._length) {
-            const signature = [ 0x56, 0x50, 0x4D, 0x4E ]; // VPMN
-            if (stream.peek(signature.length).every((value, index) => value === signature[index])) {
-                this._type = 'openvx';
-            }
-        }
-    }
-
-    get type() {
-        return this._type;
-    }
-
-    get value() {
-        this.read();
-        return this._value;
-    }
-
-    get next() {
-        this.read();
-        return this._next;
+    constructor(stream, signature, entries) {
+        super(entries);
+        this.stream = stream;
+        this.signature = signature;
     }
 
     read() {
-        if (this._stream) {
-            const stream = this._stream;
-            delete this._stream;
-            switch (this._type) {
-                case 'crypt': {
-                    throw new rknn.Error('Invalid file content. File contains undocumented encrypted RKNN data.');
-                }
-                case 'json': {
+        const stream = this.stream;
+        if (stream) {
+            switch (this.signature) {
+                case 'rknn': {
                     const uint64 = () => {
                         const buffer = stream.read(8);
-                        const reader = new base.BinaryReader(buffer);
+                        const reader = base.BinaryReader.open(buffer);
                         return reader.uint64();
                     };
                     stream.skip(8);
                     const version = uint64();
-                    const data_size = uint64();
-                    switch (version) {
-                        case 0x0001:
-                        case 0x1001:
-                            break;
-                        case 0x0002:
-                        case 0x0004:
-                            if (data_size > 0) {
-                                stream.skip(40);
-                            }
-                            break;
-                        default:
-                            throw new rknn.Error("Unsupported RKNN container version '" + version + "'.");
+                    if ((version >> 8n) !== 0n && (version >> 8n) !== 0x10n) {
+                        throw new rknn.Error(`Unsupported RKNN container version '${version}'.`);
                     }
-                    this._next = new rknn.Container(stream, data_size);
-                    this._next.read();
-                    const value_size = uint64();
-                    this._value = stream.read(value_size);
+                    const data_size = uint64().toNumber();
+                    if ((version & 0xffn) > 1n && data_size > 0) {
+                        stream.skip(40);
+                    }
+                    const signature = rknn.Container.signature(stream, data_size);
+                    const data = stream.read(data_size);
+                    const json_size = uint64().toNumber();
+                    const json = stream.read(json_size);
+                    this.set('json', json);
+                    if (signature) {
+                        this.set(signature, data);
+                    }
                     break;
                 }
+                case 'openvx':
                 case 'flatbuffers': {
-                    this._value = stream.read(this._length);
-                    this._next = null;
+                    this.set(this.signature, stream.peek());
                     break;
                 }
-                case 'openvx': {
-                    this._value = stream.read(this._length);
-                    this._next = null;
-                    break;
-                }
-                case '': {
-                    this._value = stream.read(this._length);
-                    this._next = null;
-                    break;
+                case 'cyptrknn': {
+                    throw new rknn.Error('Invalid file content. File contains undocumented encrypted RKNN data.');
                 }
                 default: {
-                    throw new rknn.Error("Unsupported container type '" + this._format + "'.");
+                    break;
                 }
             }
+            delete this.stream;
         }
+    }
+
+    static signature(stream, length) {
+        length = length || stream.length;
+        if (stream && (stream.position + 16) <= length) {
+            const signature = [0x52, 0x4B, 0x4E, 0x4E]; // RKNN
+            if (stream.peek(signature.length).every((value, index) => value === signature[index])) {
+                return 'rknn';
+            }
+        }
+        if (stream && (stream.position + 16) <= length) {
+            const signature = [0x43, 0x59, 0x50, 0x54, 0x52, 0x4B, 0x4E, 0x4E]; // CYPTRKNN
+            if (stream.peek(signature.length).every((value, index) => value === signature[index])) {
+                return 'cyptrknn';
+            }
+        }
+        if (stream && (stream.position + 8) <= length) {
+            const signature = [0x52, 0x4B, 0x4E, 0x4E]; // RKNN
+            if (stream.peek(8).subarray(4, 8).every((value, index) => value === signature[index])) {
+                return 'flatbuffers';
+            }
+        }
+        if (stream && (stream.position + 8) <= length) {
+            const signature = [0x56, 0x50, 0x4D, 0x4E]; // VPMN
+            if (stream.peek(signature.length).every((value, index) => value === signature[index])) {
+                return 'openvx';
+            }
+        }
+        return undefined;
     }
 };
 
-var openvx = openvx || {};
+openvx.BufferReader = class {
+
+    constructor(buffer) {
+        this._reader = base.BinaryReader.open(buffer);
+    }
+
+    seek(position) {
+        this._reader.seek(position);
+    }
+
+    skip(offset) {
+        this._reader.skip(offset);
+    }
+
+    read(length) {
+        return this._reader.read(length);
+    }
+
+    uint16() {
+        return this._reader.uint16();
+    }
+
+    uint32() {
+        return this._reader.uint32();
+    }
+
+    string(length) {
+        const buffer = this.read(length);
+        const index = buffer.indexOf(0);
+        const data = index === -1 ? buffer : buffer.subarray(0, index);
+        this._decoder = this._decoder || new TextDecoder('ascii');
+        return this._decoder.decode(data);
+    }
+};
 
 openvx.Model = class {
 
     constructor(buffer) {
-        const reader = new openvx.BinaryReader(buffer);
+        const reader = new openvx.BufferReader(buffer);
         reader.skip(4); // signature
         const major = reader.uint16();
         /* const minor = */ reader.uint16();
         reader.skip(4);
-        this._name = reader.string(64);
-        this._nodes = new Array(reader.uint32());
+        this.name = reader.string(64);
+        this.nodes = new Array(reader.uint32());
         if (major > 3) {
             reader.skip(296);
         } else if (major > 1) {
@@ -644,35 +568,16 @@ openvx.Model = class {
         const nodeOffset = reader.uint32();
         /* const nodeSize = */ reader.uint32();
         reader.seek(nodeOffset);
-        for (let i = 0; i < this._nodes.length; i++) {
+        for (let i = 0; i < this.nodes.length; i++) {
             const type = reader.string(64);
-            const node = { type: type };
+            const node = { type };
             node.index = reader.uint32();
             node.c = reader.uint32();
             if (major > 3) {
                 node.d = reader.uint32();
             }
-            this._nodes[i] = node;
+            this.nodes[i] = node;
         }
-    }
-
-    get name() {
-        return this._name;
-    }
-
-    get nodes() {
-        return this._nodes;
-    }
-};
-
-openvx.BinaryReader = class extends base.BinaryReader {
-
-    string(length) {
-        const buffer = this.read(length);
-        const index = buffer.indexOf(0);
-        const data = index === -1 ? buffer : buffer.subarray(0, index);
-        this._decoder = this._decoder || new TextDecoder('ascii');
-        return this._decoder.decode(data);
     }
 };
 
@@ -684,6 +589,4 @@ rknn.Error = class extends Error {
     }
 };
 
-if (typeof module !== 'undefined' && typeof module.exports === 'object') {
-    module.exports.ModelFactory = rknn.ModelFactory;
-}
+export const ModelFactory = rknn.ModelFactory;

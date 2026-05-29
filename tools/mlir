@@ -1,0 +1,127 @@
+#!/bin/bash
+
+set -e
+pushd $(cd $(dirname ${0})/..; pwd) > /dev/null
+
+src_dir=./third_party/source/mlir
+
+entries=(
+    "https://github.com/llvm/llvm-project.git|main|${src_dir}/llvm-project|mlir"
+    "https://github.com/openxla/stablehlo.git|main|${src_dir}/stablehlo|stablehlo"
+    "https://github.com/openxla/shardy.git|main|${src_dir}/shardy|shardy"
+    "https://github.com/openxla/xla.git|main|${src_dir}/xla|xla"
+    "https://github.com/onnx/onnx-mlir.git|main|${src_dir}/onnx-mlir|"
+    "https://github.com/llvm/torch-mlir.git|main|${src_dir}/torch-mlir|"
+    "https://github.com/triton-lang/triton|main|${src_dir}/triton|"
+    "https://github.com/tensorflow/tensorflow.git|master|${src_dir}/tensorflow|tensorflow/compiler/mlir tensorflow/core/ir"
+    "https://github.com/tensorflow/runtime.git|master|${src_dir}/runtime|"
+    "https://github.com/NVIDIA/TensorRT-Incubator.git|main|${src_dir}/TensorRT-Incubator|mlir-tensorrt"
+    "https://github.com/iree-org/iree.git|main|${src_dir}/iree|"
+    "https://github.com/monellz/FlashTensor.git|main|${src_dir}/FlashTensor|"
+    "https://github.com/plaidml/plaidml.git|plaidml-v1|${src_dir}/plaidml|pmlc"
+    "https://github.com/sophgo/tpu-mlir.git|master|${src_dir}/tpu-mlir|include"
+    "https://github.com/spcl/mlir-dace.git|main|${src_dir}/mlir-dace|"
+    "https://github.com/woxjro/lltz.git|master|${src_dir}/lltz|"
+    "https://github.com/pengmai/lagrad.git|main|${src_dir}/lagrad|include"
+    "https://github.com/llvm/clangir.git|main|${src_dir}/clangir|clang/include/clang/CIR"
+    "https://github.com/ROCm/rocMLIR.git|develop|${src_dir}/rocMLIR|mlir/include/mlir/Dialect"
+    "https://github.com/SashwatAnagolum/ensemble-compilation.git|main|${src_dir}/ensemble-compilation|"
+    "https://github.com/j2kun/mlir-tutorial.git|main|${src_dir}/mlir-tutorial|"
+    "https://github.com/Xilinx/mlir-xten.git|feature/fused-ops|${src_dir}/mlir-xten|"
+    "https://github.com/tenstorrent/tt-mlir.git|main|${src_dir}/tt-mlir|include"
+)
+
+clean() {
+    echo "mlir clean"
+    for entry in "${entries[@]}"; do
+        IFS='|' read -r url branch dir root <<< "${entry}"
+        rm -rf "${dir}"
+    done
+}
+
+sync() {
+    echo "mlir sync"
+    for entry in "${entries[@]}"; do
+        IFS='|' read -r url branch dir root <<< "${entry}"
+        if [ ! -d "${dir}" ]; then
+            if [ -n "${root}" ]; then
+                if ! stderr=$(git clone --quiet --depth=1 --branch "${branch}" --single-branch --filter=blob:none --sparse "${url}" "${dir}" 2>&1); then
+                    echo "${stderr}" >&2
+                    exit 1
+                fi
+                if ! stderr=$(git -C "${dir}" sparse-checkout set ${root} 2>&1); then
+                    echo "${stderr}" >&2
+                    exit 1
+                fi
+            else
+                if ! stderr=$(git clone --quiet --depth=1 --branch "${branch}" --single-branch "${url}" "${dir}" 2>&1); then
+                    echo "${stderr}" >&2
+                    exit 1
+                fi
+            fi
+        else
+            if [ -n "${root}" ]; then
+                if ! stderr=$(git -C "${dir}" sparse-checkout set ${root} 2>&1); then
+                    echo "${stderr}" >&2
+                    exit 1
+                fi
+            fi
+            if ! stderr=$(git -C "${dir}" fetch --quiet --depth=1 origin "${branch}" 2>&1); then
+                echo "${stderr}" >&2
+                exit 1
+            fi
+            head_before=$(git -C "${dir}" rev-parse HEAD)
+            head_after=$(git -C "${dir}" rev-parse FETCH_HEAD)
+            if [ "${head_before}" != "${head_after}" ]; then
+                if ! stderr=$(git -C "${dir}" reset --quiet --hard FETCH_HEAD 2>&1); then
+                    echo "${stderr}" >&2
+                    exit 1
+                fi
+                if ! stderr=$(git -C "${dir}" gc --quiet --prune=all 2>&1); then
+                    echo "${stderr}" >&2
+                    exit 1
+                fi
+            fi
+        fi
+    done
+    mkdir -p "${src_dir}/_/llvm-project/mlir/include/mlir/Interfaces"
+    curl --silent --show-error --location --output "${src_dir}/_/llvm-project/mlir/include/mlir/Interfaces/CopyOpInterface.td" "https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-14.0.0/mlir/include/mlir/Interfaces/CopyOpInterface.td"
+    mkdir -p "${src_dir}/_/llvm-project/mlir/include/mlir/Dialect/Arithmetic/IR"
+    curl --silent --show-error --location --output "${src_dir}/_/llvm-project/mlir/include/mlir/Dialect/Arithmetic/IR/ArithmeticBase.td" "https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-14.0.0/mlir/include/mlir/Dialect/Arithmetic/IR/ArithmeticBase.td"
+    mkdir -p "${src_dir}/_/llvm-project/mlir/include/mlir/Dialect/OpenACC"
+    echo '#ifndef ACCCOMMON_TD
+#define ACCCOMMON_TD
+#endif // ACCCOMMON_TD' > "${src_dir}/_/llvm-project/mlir/include/mlir/Dialect/OpenACC/AccCommon.td"
+    mkdir -p "${src_dir}/_/llvm-project/mlir/include/mlir/Dialect/OpenMP"
+    echo '#ifndef OMPCOMMON_TD
+#define OMPCOMMON_TD
+#endif // OMPCOMMON_TD' > "${src_dir}/_/llvm-project/mlir/include/mlir/Dialect/OpenMP/OmpCommon.td"
+    mkdir -p "${src_dir}/_/llvm-project/mlir/include/mlir/Dialect/Linalg/IR"
+    echo '#ifndef LINALG_NAMED_STRUCTURED_OPS_YAMLGEN_TD
+#define LINALG_NAMED_STRUCTURED_OPS_YAMLGEN_TD
+#endif // LINALG_NAMED_STRUCTURED_OPS_YAMLGEN_TD' > "${src_dir}/_/llvm-project/mlir/include/mlir/Dialect/Linalg/IR/LinalgNamedStructuredOps.yamlgen.td"
+    mkdir -p "${src_dir}/_/mlir-hlo/thlo/IR"
+    curl --silent --show-error --location --output "${src_dir}/_/mlir-hlo/thlo/IR/thlo_ops.td" "https://raw.githubusercontent.com/rengolin/mlir-hlo/08ce879a5a04ea95dd02515baadc1796901546c5/thlo/IR/thlo_ops.td"
+    mkdir -p "${src_dir}/_/mlir-hlo/gml_st/interfaces"
+    curl --silent --show-error --location --output "${src_dir}/_/mlir-hlo/gml_st/interfaces/tiling_interface.td" "https://raw.githubusercontent.com/rengolin/mlir-hlo/08ce879a5a04ea95dd02515baadc1796901546c5/gml_st/interfaces/tiling_interface.td"
+}
+
+schema() {
+    echo "mlir schema"
+    node ./tools/mlir-script.js schema
+}
+
+test() {
+    echo "mlir test"
+    node ./tools/mlir-script.js test "$@"
+}
+
+while [ "$#" != 0 ]; do
+    command="$1" && shift
+    case "${command}" in
+        "clean") clean;;
+        "sync") sync;;
+        "schema") schema;;
+        "test") test "$@";;
+    esac
+done

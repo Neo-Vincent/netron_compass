@@ -1,8 +1,7 @@
-var $root = protobuf.get('xmodel');
 
-$root.serial_v2 = {};
+export const serial_v2 = {};
 
-$root.serial_v2.Graph = class Graph {
+serial_v2.Graph = class Graph {
 
     constructor() {
         this.op_node = [];
@@ -11,8 +10,8 @@ $root.serial_v2.Graph = class Graph {
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.Graph();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.Graph();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -20,16 +19,16 @@ $root.serial_v2.Graph = class Graph {
                     message.graph_name = reader.string();
                     break;
                 case 5:
-                    message.op_node.push($root.serial_v2.OPNode.decode(reader, reader.uint32()));
+                    message.op_node.push(serial_v2.OPNode.decode(reader, reader.uint32()));
                     break;
                 case 10:
-                    message.subg_root = $root.serial_v2.SubGraph.decode(reader, reader.uint32());
+                    message.subg_root = serial_v2.SubGraph.decode(reader, reader.uint32());
                     break;
                 case 11:
-                    reader.entry(message.graph_attr, () => reader.string(), () => $root.serial_v2.AttrValue.decode(reader, reader.uint32()));
+                    reader.entry(message.graph_attr, () => reader.string(), () => serial_v2.AttrValue.decode(reader, reader.uint32()));
                     break;
                 case 101:
-                    message.op_defs.push($root.serial_v2.OpDef.decode(reader, reader.uint32()));
+                    message.op_defs.push(serial_v2.OpDef.decode(reader, reader.uint32()));
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -40,7 +39,7 @@ $root.serial_v2.Graph = class Graph {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.Graph();
+        const message = new serial_v2.Graph();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -49,16 +48,16 @@ $root.serial_v2.Graph = class Graph {
                     message.graph_name = reader.string();
                     break;
                 case "op_node":
-                    message.op_node.push($root.serial_v2.OPNode.decodeText(reader));
+                    message.op_node.push(serial_v2.OPNode.decodeText(reader));
                     break;
                 case "subg_root":
-                    message.subg_root = $root.serial_v2.SubGraph.decodeText(reader);
+                    message.subg_root = serial_v2.SubGraph.decodeText(reader);
                     break;
                 case "graph_attr":
-                    reader.entry(message.graph_attr, () => reader.string(), () => $root.serial_v2.AttrValue.decodeText(reader));
+                    reader.entry(message.graph_attr, () => reader.string(), () => serial_v2.AttrValue.decodeText(reader));
                     break;
                 case "op_defs":
-                    message.op_defs.push($root.serial_v2.OpDef.decodeText(reader));
+                    message.op_defs.push(serial_v2.OpDef.decodeText(reader));
                     break;
                 default:
                     reader.field(tag, message);
@@ -69,10 +68,10 @@ $root.serial_v2.Graph = class Graph {
     }
 };
 
-$root.serial_v2.Graph.prototype.graph_name = "";
-$root.serial_v2.Graph.prototype.subg_root = null;
+serial_v2.Graph.prototype.graph_name = "";
+serial_v2.Graph.prototype.subg_root = null;
 
-$root.serial_v2.OPNode = class OPNode {
+serial_v2.OPNode = class OPNode {
 
     constructor() {
         this.op_attr = {};
@@ -80,8 +79,8 @@ $root.serial_v2.OPNode = class OPNode {
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.OPNode();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.OPNode();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -92,13 +91,13 @@ $root.serial_v2.OPNode = class OPNode {
                     message.op_type = reader.string();
                     break;
                 case 3:
-                    reader.entry(message.op_attr, () => reader.string(), () => $root.serial_v2.AttrValue.decode(reader, reader.uint32()));
+                    reader.entry(message.op_attr, () => reader.string(), () => serial_v2.AttrValue.decode(reader, reader.uint32()));
                     break;
                 case 4:
-                    message.args.push($root.serial_v2.OpArg.decode(reader, reader.uint32()));
+                    message.args.push(serial_v2.OpArg.decode(reader, reader.uint32()));
                     break;
                 case 5:
-                    message.output_tensor = $root.serial_v2.Tensor.decode(reader, reader.uint32());
+                    message.output_tensor = serial_v2.Tensor.decode(reader, reader.uint32());
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -109,7 +108,7 @@ $root.serial_v2.OPNode = class OPNode {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.OPNode();
+        const message = new serial_v2.OPNode();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -121,13 +120,13 @@ $root.serial_v2.OPNode = class OPNode {
                     message.op_type = reader.string();
                     break;
                 case "op_attr":
-                    reader.entry(message.op_attr, () => reader.string(), () => $root.serial_v2.AttrValue.decodeText(reader));
+                    reader.entry(message.op_attr, () => reader.string(), () => serial_v2.AttrValue.decodeText(reader));
                     break;
                 case "args":
-                    message.args.push($root.serial_v2.OpArg.decodeText(reader));
+                    message.args.push(serial_v2.OpArg.decodeText(reader));
                     break;
                 case "output_tensor":
-                    message.output_tensor = $root.serial_v2.Tensor.decodeText(reader);
+                    message.output_tensor = serial_v2.Tensor.decodeText(reader);
                     break;
                 default:
                     reader.field(tag, message);
@@ -138,19 +137,19 @@ $root.serial_v2.OPNode = class OPNode {
     }
 };
 
-$root.serial_v2.OPNode.prototype.op_name = "";
-$root.serial_v2.OPNode.prototype.op_type = "";
-$root.serial_v2.OPNode.prototype.output_tensor = null;
+serial_v2.OPNode.prototype.op_name = "";
+serial_v2.OPNode.prototype.op_type = "";
+serial_v2.OPNode.prototype.output_tensor = null;
 
-$root.serial_v2.OpArg = class OpArg {
+serial_v2.OpArg = class OpArg {
 
     constructor() {
         this.arg_ops = [];
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.OpArg();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.OpArg();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -169,7 +168,7 @@ $root.serial_v2.OpArg = class OpArg {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.OpArg();
+        const message = new serial_v2.OpArg();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -189,9 +188,9 @@ $root.serial_v2.OpArg = class OpArg {
     }
 };
 
-$root.serial_v2.OpArg.prototype.arg_name = "";
+serial_v2.OpArg.prototype.arg_name = "";
 
-$root.serial_v2.Tensor = class Tensor {
+serial_v2.Tensor = class Tensor {
 
     constructor() {
         this.tensor_dim = [];
@@ -199,8 +198,8 @@ $root.serial_v2.Tensor = class Tensor {
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.Tensor();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.Tensor();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -217,7 +216,7 @@ $root.serial_v2.Tensor = class Tensor {
                     message.tensor_bit_width = reader.int32();
                     break;
                 case 10:
-                    reader.entry(message.tensor_attr, () => reader.string(), () => $root.serial_v2.AttrValue.decode(reader, reader.uint32()));
+                    reader.entry(message.tensor_attr, () => reader.string(), () => serial_v2.AttrValue.decode(reader, reader.uint32()));
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -228,7 +227,7 @@ $root.serial_v2.Tensor = class Tensor {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.Tensor();
+        const message = new serial_v2.Tensor();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -246,7 +245,7 @@ $root.serial_v2.Tensor = class Tensor {
                     message.tensor_bit_width = reader.int32();
                     break;
                 case "tensor_attr":
-                    reader.entry(message.tensor_attr, () => reader.string(), () => $root.serial_v2.AttrValue.decodeText(reader));
+                    reader.entry(message.tensor_attr, () => reader.string(), () => serial_v2.AttrValue.decodeText(reader));
                     break;
                 default:
                     reader.field(tag, message);
@@ -257,11 +256,11 @@ $root.serial_v2.Tensor = class Tensor {
     }
 };
 
-$root.serial_v2.Tensor.prototype.tensor_name = "";
-$root.serial_v2.Tensor.prototype.data_type = 0;
-$root.serial_v2.Tensor.prototype.tensor_bit_width = 0;
+serial_v2.Tensor.prototype.tensor_name = "";
+serial_v2.Tensor.prototype.data_type = 0;
+serial_v2.Tensor.prototype.tensor_bit_width = 0;
 
-$root.serial_v2.SubGraph = class SubGraph {
+serial_v2.SubGraph = class SubGraph {
 
     constructor() {
         this.op_name = [];
@@ -270,8 +269,8 @@ $root.serial_v2.SubGraph = class SubGraph {
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.SubGraph();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.SubGraph();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -282,10 +281,10 @@ $root.serial_v2.SubGraph = class SubGraph {
                     message.op_name.push(reader.string());
                     break;
                 case 5:
-                    reader.entry(message.subg_attr, () => reader.string(), () => $root.serial_v2.AttrValue.decode(reader, reader.uint32()));
+                    reader.entry(message.subg_attr, () => reader.string(), () => serial_v2.AttrValue.decode(reader, reader.uint32()));
                     break;
                 case 10:
-                    message.subg_child.push($root.serial_v2.SubGraph.decode(reader, reader.uint32()));
+                    message.subg_child.push(serial_v2.SubGraph.decode(reader, reader.uint32()));
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -296,7 +295,7 @@ $root.serial_v2.SubGraph = class SubGraph {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.SubGraph();
+        const message = new serial_v2.SubGraph();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -308,10 +307,10 @@ $root.serial_v2.SubGraph = class SubGraph {
                     reader.array(message.op_name, () => reader.string());
                     break;
                 case "subg_attr":
-                    reader.entry(message.subg_attr, () => reader.string(), () => $root.serial_v2.AttrValue.decodeText(reader));
+                    reader.entry(message.subg_attr, () => reader.string(), () => serial_v2.AttrValue.decodeText(reader));
                     break;
                 case "subg_child":
-                    message.subg_child.push($root.serial_v2.SubGraph.decodeText(reader));
+                    message.subg_child.push(serial_v2.SubGraph.decodeText(reader));
                     break;
                 default:
                     reader.field(tag, message);
@@ -322,9 +321,9 @@ $root.serial_v2.SubGraph = class SubGraph {
     }
 };
 
-$root.serial_v2.SubGraph.prototype.subgraph_name = "";
+serial_v2.SubGraph.prototype.subgraph_name = "";
 
-$root.serial_v2.OpDef = class OpDef {
+serial_v2.OpDef = class OpDef {
 
     constructor() {
         this.input_args = [];
@@ -332,8 +331,8 @@ $root.serial_v2.OpDef = class OpDef {
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.OpDef();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.OpDef();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -341,10 +340,10 @@ $root.serial_v2.OpDef = class OpDef {
                     message.name = reader.string();
                     break;
                 case 2:
-                    message.input_args.push($root.serial_v2.OpArgDef.decode(reader, reader.uint32()));
+                    message.input_args.push(serial_v2.OpArgDef.decode(reader, reader.uint32()));
                     break;
                 case 3:
-                    message.attrs.push($root.serial_v2.AttrDef.decode(reader, reader.uint32()));
+                    message.attrs.push(serial_v2.AttrDef.decode(reader, reader.uint32()));
                     break;
                 case 4:
                     message.annotation = reader.string();
@@ -358,7 +357,7 @@ $root.serial_v2.OpDef = class OpDef {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.OpDef();
+        const message = new serial_v2.OpDef();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -367,10 +366,10 @@ $root.serial_v2.OpDef = class OpDef {
                     message.name = reader.string();
                     break;
                 case "input_args":
-                    message.input_args.push($root.serial_v2.OpArgDef.decodeText(reader));
+                    message.input_args.push(serial_v2.OpArgDef.decodeText(reader));
                     break;
                 case "attrs":
-                    message.attrs.push($root.serial_v2.AttrDef.decodeText(reader));
+                    message.attrs.push(serial_v2.AttrDef.decodeText(reader));
                     break;
                 case "annotation":
                     message.annotation = reader.string();
@@ -384,17 +383,14 @@ $root.serial_v2.OpDef = class OpDef {
     }
 };
 
-$root.serial_v2.OpDef.prototype.name = "";
-$root.serial_v2.OpDef.prototype.annotation = "";
+serial_v2.OpDef.prototype.name = "";
+serial_v2.OpDef.prototype.annotation = "";
 
-$root.serial_v2.AttrDef = class AttrDef {
-
-    constructor() {
-    }
+serial_v2.AttrDef = class AttrDef {
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.AttrDef();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.AttrDef();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -405,7 +401,7 @@ $root.serial_v2.AttrDef = class AttrDef {
                     message.occur_type = reader.int32();
                     break;
                 case 4:
-                    message.default_value = $root.serial_v2.AttrValue.decode(reader, reader.uint32());
+                    message.default_value = serial_v2.AttrValue.decode(reader, reader.uint32());
                     break;
                 case 6:
                     message.list_length = reader.int32();
@@ -422,7 +418,7 @@ $root.serial_v2.AttrDef = class AttrDef {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.AttrDef();
+        const message = new serial_v2.AttrDef();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -431,10 +427,10 @@ $root.serial_v2.AttrDef = class AttrDef {
                     message.name = reader.string();
                     break;
                 case "occur_type":
-                    message.occur_type = reader.enum($root.serial_v2.AttrDef.OccurType);
+                    message.occur_type = reader.enum(serial_v2.AttrDef.OccurType);
                     break;
                 case "default_value":
-                    message.default_value = $root.serial_v2.AttrValue.decodeText(reader);
+                    message.default_value = serial_v2.AttrValue.decodeText(reader);
                     break;
                 case "list_length":
                     message.list_length = reader.int32();
@@ -451,25 +447,22 @@ $root.serial_v2.AttrDef = class AttrDef {
     }
 };
 
-$root.serial_v2.AttrDef.prototype.name = "";
-$root.serial_v2.AttrDef.prototype.occur_type = 0;
-$root.serial_v2.AttrDef.prototype.default_value = null;
-$root.serial_v2.AttrDef.prototype.list_length = 0;
-$root.serial_v2.AttrDef.prototype.annotation = "";
+serial_v2.AttrDef.prototype.name = "";
+serial_v2.AttrDef.prototype.occur_type = 0;
+serial_v2.AttrDef.prototype.default_value = null;
+serial_v2.AttrDef.prototype.list_length = 0;
+serial_v2.AttrDef.prototype.annotation = "";
 
-$root.serial_v2.AttrDef.OccurType = {
+serial_v2.AttrDef.OccurType = {
     "REQUIRED": 0,
     "OPTIONAL": 1
 };
 
-$root.serial_v2.OpArgDef = class OpArgDef {
-
-    constructor() {
-    }
+serial_v2.OpArgDef = class OpArgDef {
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.OpArgDef();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.OpArgDef();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -494,7 +487,7 @@ $root.serial_v2.OpArgDef = class OpArgDef {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.OpArgDef();
+        const message = new serial_v2.OpArgDef();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -503,7 +496,7 @@ $root.serial_v2.OpArgDef = class OpArgDef {
                     message.name = reader.string();
                     break;
                 case "occur_type":
-                    message.occur_type = reader.enum($root.serial_v2.OpArgDef.OccurType);
+                    message.occur_type = reader.enum(serial_v2.OpArgDef.OccurType);
                     break;
                 case "data_type":
                     message.data_type = reader.int32();
@@ -520,31 +513,28 @@ $root.serial_v2.OpArgDef = class OpArgDef {
     }
 };
 
-$root.serial_v2.OpArgDef.prototype.name = "";
-$root.serial_v2.OpArgDef.prototype.occur_type = 0;
-$root.serial_v2.OpArgDef.prototype.data_type = 0;
-$root.serial_v2.OpArgDef.prototype.annotation = "";
+serial_v2.OpArgDef.prototype.name = "";
+serial_v2.OpArgDef.prototype.occur_type = 0;
+serial_v2.OpArgDef.prototype.data_type = 0;
+serial_v2.OpArgDef.prototype.annotation = "";
 
-$root.serial_v2.OpArgDef.OccurType = {
+serial_v2.OpArgDef.OccurType = {
     "REQUIRED": 0,
     "OPTIONAL": 1,
     "REPEATED": 2,
     "REQUIRED_AND_REPEATED": 3
 };
 
-$root.serial_v2.AttrValue = class AttrValue {
-
-    constructor() {
-    }
+serial_v2.AttrValue = class AttrValue {
 
     get value() {
-        $root.serial_v2.AttrValue.valueSet = $root.serial_v2.AttrValue.valueSet || new Set([ "bool_value", "int32_value", "uint32_value", "int64_value", "uint64_value", "float_value", "double_value", "string_value", "bytes_value", "bool_vec_value", "int32_vec_value", "uint32_vec_value", "int64_vec_value", "uint64_vec_value", "float_vec_value", "double_vec_value", "string_vec_value", "bytes_vec_value", "map_string_2_int32_value", "map_string_2_uint32_value", "map_string_2_int64_value", "map_string_2_uint64_value", "map_string_2_string_value", "map_string_2_bytes_value", "map_string_2_int32_vec_value", "map_string_2_uint32_vec_value", "map_string_2_int64_vec_value", "map_string_2_uint64_vec_value", "map_string_2_string_vec_value"]);
-        return Object.keys(this).find((key) => $root.serial_v2.AttrValue.valueSet.has(key) && this[key] != null);
+        serial_v2.AttrValue.valueSet = serial_v2.AttrValue.valueSet || new Set(["bool_value", "int32_value", "uint32_value", "int64_value", "uint64_value", "float_value", "double_value", "string_value", "bytes_value", "bool_vec_value", "int32_vec_value", "uint32_vec_value", "int64_vec_value", "uint64_vec_value", "float_vec_value", "double_vec_value", "string_vec_value", "bytes_vec_value", "map_string_2_int32_value", "map_string_2_uint32_value", "map_string_2_int64_value", "map_string_2_uint64_value", "map_string_2_string_value", "map_string_2_bytes_value", "map_string_2_int32_vec_value", "map_string_2_uint32_vec_value", "map_string_2_int64_vec_value", "map_string_2_uint64_vec_value", "map_string_2_string_vec_value"]);
+        return Object.keys(this).find((key) => serial_v2.AttrValue.valueSet.has(key) && this[key] !== null);
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.AttrValue();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.AttrValue();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -573,67 +563,67 @@ $root.serial_v2.AttrValue = class AttrValue {
                     message.string_value = reader.string();
                     break;
                 case 12:
-                    message.bytes_value = $root.serial_v2.Bytes.decode(reader, reader.uint32());
+                    message.bytes_value = serial_v2.Bytes.decode(reader, reader.uint32());
                     break;
                 case 13:
-                    message.bool_vec_value = $root.serial_v2.BoolVec.decode(reader, reader.uint32());
+                    message.bool_vec_value = serial_v2.BoolVec.decode(reader, reader.uint32());
                     break;
                 case 14:
-                    message.int32_vec_value = $root.serial_v2.Int32Vec.decode(reader, reader.uint32());
+                    message.int32_vec_value = serial_v2.Int32Vec.decode(reader, reader.uint32());
                     break;
                 case 15:
-                    message.uint32_vec_value = $root.serial_v2.Uint32Vec.decode(reader, reader.uint32());
+                    message.uint32_vec_value = serial_v2.Uint32Vec.decode(reader, reader.uint32());
                     break;
                 case 16:
-                    message.int64_vec_value = $root.serial_v2.Int64Vec.decode(reader, reader.uint32());
+                    message.int64_vec_value = serial_v2.Int64Vec.decode(reader, reader.uint32());
                     break;
                 case 17:
-                    message.uint64_vec_value = $root.serial_v2.Uint64Vec.decode(reader, reader.uint32());
+                    message.uint64_vec_value = serial_v2.Uint64Vec.decode(reader, reader.uint32());
                     break;
                 case 18:
-                    message.float_vec_value = $root.serial_v2.FloatVec.decode(reader, reader.uint32());
+                    message.float_vec_value = serial_v2.FloatVec.decode(reader, reader.uint32());
                     break;
                 case 19:
-                    message.double_vec_value = $root.serial_v2.DoubleVec.decode(reader, reader.uint32());
+                    message.double_vec_value = serial_v2.DoubleVec.decode(reader, reader.uint32());
                     break;
                 case 20:
-                    message.string_vec_value = $root.serial_v2.StringVec.decode(reader, reader.uint32());
+                    message.string_vec_value = serial_v2.StringVec.decode(reader, reader.uint32());
                     break;
                 case 21:
-                    message.bytes_vec_value = $root.serial_v2.BytesVec.decode(reader, reader.uint32());
+                    message.bytes_vec_value = serial_v2.BytesVec.decode(reader, reader.uint32());
                     break;
                 case 22:
-                    message.map_string_2_int32_value = $root.serial_v2.MapString2Int32.decode(reader, reader.uint32());
+                    message.map_string_2_int32_value = serial_v2.MapString2Int32.decode(reader, reader.uint32());
                     break;
                 case 23:
-                    message.map_string_2_uint32_value = $root.serial_v2.MapString2Uint32.decode(reader, reader.uint32());
+                    message.map_string_2_uint32_value = serial_v2.MapString2Uint32.decode(reader, reader.uint32());
                     break;
                 case 24:
-                    message.map_string_2_int64_value = $root.serial_v2.MapString2Int64.decode(reader, reader.uint32());
+                    message.map_string_2_int64_value = serial_v2.MapString2Int64.decode(reader, reader.uint32());
                     break;
                 case 25:
-                    message.map_string_2_uint64_value = $root.serial_v2.MapString2Uint64.decode(reader, reader.uint32());
+                    message.map_string_2_uint64_value = serial_v2.MapString2Uint64.decode(reader, reader.uint32());
                     break;
                 case 26:
-                    message.map_string_2_string_value = $root.serial_v2.MapString2String.decode(reader, reader.uint32());
+                    message.map_string_2_string_value = serial_v2.MapString2String.decode(reader, reader.uint32());
                     break;
                 case 27:
-                    message.map_string_2_bytes_value = $root.serial_v2.MapString2Bytes.decode(reader, reader.uint32());
+                    message.map_string_2_bytes_value = serial_v2.MapString2Bytes.decode(reader, reader.uint32());
                     break;
                 case 28:
-                    message.map_string_2_int32_vec_value = $root.serial_v2.MapString2Int32Vec.decode(reader, reader.uint32());
+                    message.map_string_2_int32_vec_value = serial_v2.MapString2Int32Vec.decode(reader, reader.uint32());
                     break;
                 case 29:
-                    message.map_string_2_uint32_vec_value = $root.serial_v2.MapString2Uint32Vec.decode(reader, reader.uint32());
+                    message.map_string_2_uint32_vec_value = serial_v2.MapString2Uint32Vec.decode(reader, reader.uint32());
                     break;
                 case 30:
-                    message.map_string_2_int64_vec_value = $root.serial_v2.MapString2Int64Vec.decode(reader, reader.uint32());
+                    message.map_string_2_int64_vec_value = serial_v2.MapString2Int64Vec.decode(reader, reader.uint32());
                     break;
                 case 31:
-                    message.map_string_2_uint64_vec_value = $root.serial_v2.MapString2Uint64Vec.decode(reader, reader.uint32());
+                    message.map_string_2_uint64_vec_value = serial_v2.MapString2Uint64Vec.decode(reader, reader.uint32());
                     break;
                 case 32:
-                    message.map_string_2_string_vec_value = $root.serial_v2.MapString2StringVec.decode(reader, reader.uint32());
+                    message.map_string_2_string_vec_value = serial_v2.MapString2StringVec.decode(reader, reader.uint32());
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -644,7 +634,7 @@ $root.serial_v2.AttrValue = class AttrValue {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.AttrValue();
+        const message = new serial_v2.AttrValue();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -674,67 +664,67 @@ $root.serial_v2.AttrValue = class AttrValue {
                     message.string_value = reader.string();
                     break;
                 case "bytes_value":
-                    message.bytes_value = $root.serial_v2.Bytes.decodeText(reader);
+                    message.bytes_value = serial_v2.Bytes.decodeText(reader);
                     break;
                 case "bool_vec_value":
-                    message.bool_vec_value = $root.serial_v2.BoolVec.decodeText(reader);
+                    message.bool_vec_value = serial_v2.BoolVec.decodeText(reader);
                     break;
                 case "int32_vec_value":
-                    message.int32_vec_value = $root.serial_v2.Int32Vec.decodeText(reader);
+                    message.int32_vec_value = serial_v2.Int32Vec.decodeText(reader);
                     break;
                 case "uint32_vec_value":
-                    message.uint32_vec_value = $root.serial_v2.Uint32Vec.decodeText(reader);
+                    message.uint32_vec_value = serial_v2.Uint32Vec.decodeText(reader);
                     break;
                 case "int64_vec_value":
-                    message.int64_vec_value = $root.serial_v2.Int64Vec.decodeText(reader);
+                    message.int64_vec_value = serial_v2.Int64Vec.decodeText(reader);
                     break;
                 case "uint64_vec_value":
-                    message.uint64_vec_value = $root.serial_v2.Uint64Vec.decodeText(reader);
+                    message.uint64_vec_value = serial_v2.Uint64Vec.decodeText(reader);
                     break;
                 case "float_vec_value":
-                    message.float_vec_value = $root.serial_v2.FloatVec.decodeText(reader);
+                    message.float_vec_value = serial_v2.FloatVec.decodeText(reader);
                     break;
                 case "double_vec_value":
-                    message.double_vec_value = $root.serial_v2.DoubleVec.decodeText(reader);
+                    message.double_vec_value = serial_v2.DoubleVec.decodeText(reader);
                     break;
                 case "string_vec_value":
-                    message.string_vec_value = $root.serial_v2.StringVec.decodeText(reader);
+                    message.string_vec_value = serial_v2.StringVec.decodeText(reader);
                     break;
                 case "bytes_vec_value":
-                    message.bytes_vec_value = $root.serial_v2.BytesVec.decodeText(reader);
+                    message.bytes_vec_value = serial_v2.BytesVec.decodeText(reader);
                     break;
                 case "map_string_2_int32_value":
-                    message.map_string_2_int32_value = $root.serial_v2.MapString2Int32.decodeText(reader);
+                    message.map_string_2_int32_value = serial_v2.MapString2Int32.decodeText(reader);
                     break;
                 case "map_string_2_uint32_value":
-                    message.map_string_2_uint32_value = $root.serial_v2.MapString2Uint32.decodeText(reader);
+                    message.map_string_2_uint32_value = serial_v2.MapString2Uint32.decodeText(reader);
                     break;
                 case "map_string_2_int64_value":
-                    message.map_string_2_int64_value = $root.serial_v2.MapString2Int64.decodeText(reader);
+                    message.map_string_2_int64_value = serial_v2.MapString2Int64.decodeText(reader);
                     break;
                 case "map_string_2_uint64_value":
-                    message.map_string_2_uint64_value = $root.serial_v2.MapString2Uint64.decodeText(reader);
+                    message.map_string_2_uint64_value = serial_v2.MapString2Uint64.decodeText(reader);
                     break;
                 case "map_string_2_string_value":
-                    message.map_string_2_string_value = $root.serial_v2.MapString2String.decodeText(reader);
+                    message.map_string_2_string_value = serial_v2.MapString2String.decodeText(reader);
                     break;
                 case "map_string_2_bytes_value":
-                    message.map_string_2_bytes_value = $root.serial_v2.MapString2Bytes.decodeText(reader);
+                    message.map_string_2_bytes_value = serial_v2.MapString2Bytes.decodeText(reader);
                     break;
                 case "map_string_2_int32_vec_value":
-                    message.map_string_2_int32_vec_value = $root.serial_v2.MapString2Int32Vec.decodeText(reader);
+                    message.map_string_2_int32_vec_value = serial_v2.MapString2Int32Vec.decodeText(reader);
                     break;
                 case "map_string_2_uint32_vec_value":
-                    message.map_string_2_uint32_vec_value = $root.serial_v2.MapString2Uint32Vec.decodeText(reader);
+                    message.map_string_2_uint32_vec_value = serial_v2.MapString2Uint32Vec.decodeText(reader);
                     break;
                 case "map_string_2_int64_vec_value":
-                    message.map_string_2_int64_vec_value = $root.serial_v2.MapString2Int64Vec.decodeText(reader);
+                    message.map_string_2_int64_vec_value = serial_v2.MapString2Int64Vec.decodeText(reader);
                     break;
                 case "map_string_2_uint64_vec_value":
-                    message.map_string_2_uint64_vec_value = $root.serial_v2.MapString2Uint64Vec.decodeText(reader);
+                    message.map_string_2_uint64_vec_value = serial_v2.MapString2Uint64Vec.decodeText(reader);
                     break;
                 case "map_string_2_string_vec_value":
-                    message.map_string_2_string_vec_value = $root.serial_v2.MapString2StringVec.decodeText(reader);
+                    message.map_string_2_string_vec_value = serial_v2.MapString2StringVec.decodeText(reader);
                     break;
                 default:
                     reader.field(tag, message);
@@ -745,14 +735,11 @@ $root.serial_v2.AttrValue = class AttrValue {
     }
 };
 
-$root.serial_v2.Bytes = class Bytes {
-
-    constructor() {
-    }
+serial_v2.Bytes = class Bytes {
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.Bytes();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.Bytes();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -768,7 +755,7 @@ $root.serial_v2.Bytes = class Bytes {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.Bytes();
+        const message = new serial_v2.Bytes();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -785,17 +772,17 @@ $root.serial_v2.Bytes = class Bytes {
     }
 };
 
-$root.serial_v2.Bytes.prototype.value = new Uint8Array([]);
+serial_v2.Bytes.prototype.value = new Uint8Array([]);
 
-$root.serial_v2.BoolVec = class BoolVec {
+serial_v2.BoolVec = class BoolVec {
 
     constructor() {
         this.value = [];
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.BoolVec();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.BoolVec();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -811,7 +798,7 @@ $root.serial_v2.BoolVec = class BoolVec {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.BoolVec();
+        const message = new serial_v2.BoolVec();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -828,15 +815,15 @@ $root.serial_v2.BoolVec = class BoolVec {
     }
 };
 
-$root.serial_v2.Int32Vec = class Int32Vec {
+serial_v2.Int32Vec = class Int32Vec {
 
     constructor() {
         this.value = [];
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.Int32Vec();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.Int32Vec();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -852,7 +839,7 @@ $root.serial_v2.Int32Vec = class Int32Vec {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.Int32Vec();
+        const message = new serial_v2.Int32Vec();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -869,15 +856,15 @@ $root.serial_v2.Int32Vec = class Int32Vec {
     }
 };
 
-$root.serial_v2.Uint32Vec = class Uint32Vec {
+serial_v2.Uint32Vec = class Uint32Vec {
 
     constructor() {
         this.value = [];
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.Uint32Vec();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.Uint32Vec();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -893,7 +880,7 @@ $root.serial_v2.Uint32Vec = class Uint32Vec {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.Uint32Vec();
+        const message = new serial_v2.Uint32Vec();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -910,15 +897,15 @@ $root.serial_v2.Uint32Vec = class Uint32Vec {
     }
 };
 
-$root.serial_v2.Int64Vec = class Int64Vec {
+serial_v2.Int64Vec = class Int64Vec {
 
     constructor() {
         this.value = [];
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.Int64Vec();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.Int64Vec();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -934,7 +921,7 @@ $root.serial_v2.Int64Vec = class Int64Vec {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.Int64Vec();
+        const message = new serial_v2.Int64Vec();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -951,15 +938,15 @@ $root.serial_v2.Int64Vec = class Int64Vec {
     }
 };
 
-$root.serial_v2.Uint64Vec = class Uint64Vec {
+serial_v2.Uint64Vec = class Uint64Vec {
 
     constructor() {
         this.value = [];
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.Uint64Vec();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.Uint64Vec();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -975,7 +962,7 @@ $root.serial_v2.Uint64Vec = class Uint64Vec {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.Uint64Vec();
+        const message = new serial_v2.Uint64Vec();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -992,15 +979,15 @@ $root.serial_v2.Uint64Vec = class Uint64Vec {
     }
 };
 
-$root.serial_v2.FloatVec = class FloatVec {
+serial_v2.FloatVec = class FloatVec {
 
     constructor() {
         this.value = [];
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.FloatVec();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.FloatVec();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -1016,7 +1003,7 @@ $root.serial_v2.FloatVec = class FloatVec {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.FloatVec();
+        const message = new serial_v2.FloatVec();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -1033,15 +1020,15 @@ $root.serial_v2.FloatVec = class FloatVec {
     }
 };
 
-$root.serial_v2.DoubleVec = class DoubleVec {
+serial_v2.DoubleVec = class DoubleVec {
 
     constructor() {
         this.value = [];
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.DoubleVec();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.DoubleVec();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -1057,7 +1044,7 @@ $root.serial_v2.DoubleVec = class DoubleVec {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.DoubleVec();
+        const message = new serial_v2.DoubleVec();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -1074,15 +1061,15 @@ $root.serial_v2.DoubleVec = class DoubleVec {
     }
 };
 
-$root.serial_v2.StringVec = class StringVec {
+serial_v2.StringVec = class StringVec {
 
     constructor() {
         this.value = [];
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.StringVec();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.StringVec();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -1098,7 +1085,7 @@ $root.serial_v2.StringVec = class StringVec {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.StringVec();
+        const message = new serial_v2.StringVec();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -1115,20 +1102,20 @@ $root.serial_v2.StringVec = class StringVec {
     }
 };
 
-$root.serial_v2.BytesVec = class BytesVec {
+serial_v2.BytesVec = class BytesVec {
 
     constructor() {
         this.value = [];
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.BytesVec();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.BytesVec();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
                 case 1:
-                    message.value.push($root.serial_v2.Bytes.decode(reader, reader.uint32()));
+                    message.value.push(serial_v2.Bytes.decode(reader, reader.uint32()));
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -1139,13 +1126,13 @@ $root.serial_v2.BytesVec = class BytesVec {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.BytesVec();
+        const message = new serial_v2.BytesVec();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
             switch (tag) {
                 case "value":
-                    message.value.push($root.serial_v2.Bytes.decodeText(reader));
+                    message.value.push(serial_v2.Bytes.decodeText(reader));
                     break;
                 default:
                     reader.field(tag, message);
@@ -1156,15 +1143,15 @@ $root.serial_v2.BytesVec = class BytesVec {
     }
 };
 
-$root.serial_v2.MapString2Int32 = class MapString2Int32 {
+serial_v2.MapString2Int32 = class MapString2Int32 {
 
     constructor() {
         this.value = {};
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.MapString2Int32();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.MapString2Int32();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -1180,7 +1167,7 @@ $root.serial_v2.MapString2Int32 = class MapString2Int32 {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.MapString2Int32();
+        const message = new serial_v2.MapString2Int32();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -1197,15 +1184,15 @@ $root.serial_v2.MapString2Int32 = class MapString2Int32 {
     }
 };
 
-$root.serial_v2.MapString2Uint32 = class MapString2Uint32 {
+serial_v2.MapString2Uint32 = class MapString2Uint32 {
 
     constructor() {
         this.value = {};
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.MapString2Uint32();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.MapString2Uint32();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -1221,7 +1208,7 @@ $root.serial_v2.MapString2Uint32 = class MapString2Uint32 {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.MapString2Uint32();
+        const message = new serial_v2.MapString2Uint32();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -1238,15 +1225,15 @@ $root.serial_v2.MapString2Uint32 = class MapString2Uint32 {
     }
 };
 
-$root.serial_v2.MapString2Int64 = class MapString2Int64 {
+serial_v2.MapString2Int64 = class MapString2Int64 {
 
     constructor() {
         this.value = {};
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.MapString2Int64();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.MapString2Int64();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -1262,7 +1249,7 @@ $root.serial_v2.MapString2Int64 = class MapString2Int64 {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.MapString2Int64();
+        const message = new serial_v2.MapString2Int64();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -1279,15 +1266,15 @@ $root.serial_v2.MapString2Int64 = class MapString2Int64 {
     }
 };
 
-$root.serial_v2.MapString2Uint64 = class MapString2Uint64 {
+serial_v2.MapString2Uint64 = class MapString2Uint64 {
 
     constructor() {
         this.value = {};
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.MapString2Uint64();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.MapString2Uint64();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -1303,7 +1290,7 @@ $root.serial_v2.MapString2Uint64 = class MapString2Uint64 {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.MapString2Uint64();
+        const message = new serial_v2.MapString2Uint64();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -1320,20 +1307,20 @@ $root.serial_v2.MapString2Uint64 = class MapString2Uint64 {
     }
 };
 
-$root.serial_v2.MapString2Bytes = class MapString2Bytes {
+serial_v2.MapString2Bytes = class MapString2Bytes {
 
     constructor() {
         this.value = {};
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.MapString2Bytes();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.MapString2Bytes();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
                 case 1:
-                    reader.entry(message.value, () => reader.string(), () => $root.serial_v2.Bytes.decode(reader, reader.uint32()));
+                    reader.entry(message.value, () => reader.string(), () => serial_v2.Bytes.decode(reader, reader.uint32()));
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -1344,13 +1331,13 @@ $root.serial_v2.MapString2Bytes = class MapString2Bytes {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.MapString2Bytes();
+        const message = new serial_v2.MapString2Bytes();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
             switch (tag) {
                 case "value":
-                    reader.entry(message.value, () => reader.string(), () => $root.serial_v2.Bytes.decodeText(reader));
+                    reader.entry(message.value, () => reader.string(), () => serial_v2.Bytes.decodeText(reader));
                     break;
                 default:
                     reader.field(tag, message);
@@ -1361,15 +1348,15 @@ $root.serial_v2.MapString2Bytes = class MapString2Bytes {
     }
 };
 
-$root.serial_v2.MapString2String = class MapString2String {
+serial_v2.MapString2String = class MapString2String {
 
     constructor() {
         this.value = {};
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.MapString2String();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.MapString2String();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
@@ -1385,7 +1372,7 @@ $root.serial_v2.MapString2String = class MapString2String {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.MapString2String();
+        const message = new serial_v2.MapString2String();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
@@ -1402,20 +1389,20 @@ $root.serial_v2.MapString2String = class MapString2String {
     }
 };
 
-$root.serial_v2.MapString2Int32Vec = class MapString2Int32Vec {
+serial_v2.MapString2Int32Vec = class MapString2Int32Vec {
 
     constructor() {
         this.value = {};
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.MapString2Int32Vec();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.MapString2Int32Vec();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
                 case 1:
-                    reader.entry(message.value, () => reader.string(), () => $root.serial_v2.Int32Vec.decode(reader, reader.uint32()));
+                    reader.entry(message.value, () => reader.string(), () => serial_v2.Int32Vec.decode(reader, reader.uint32()));
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -1426,13 +1413,13 @@ $root.serial_v2.MapString2Int32Vec = class MapString2Int32Vec {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.MapString2Int32Vec();
+        const message = new serial_v2.MapString2Int32Vec();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
             switch (tag) {
                 case "value":
-                    reader.entry(message.value, () => reader.string(), () => $root.serial_v2.Int32Vec.decodeText(reader));
+                    reader.entry(message.value, () => reader.string(), () => serial_v2.Int32Vec.decodeText(reader));
                     break;
                 default:
                     reader.field(tag, message);
@@ -1443,20 +1430,20 @@ $root.serial_v2.MapString2Int32Vec = class MapString2Int32Vec {
     }
 };
 
-$root.serial_v2.MapString2Uint32Vec = class MapString2Uint32Vec {
+serial_v2.MapString2Uint32Vec = class MapString2Uint32Vec {
 
     constructor() {
         this.value = {};
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.MapString2Uint32Vec();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.MapString2Uint32Vec();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
                 case 1:
-                    reader.entry(message.value, () => reader.string(), () => $root.serial_v2.Uint32Vec.decode(reader, reader.uint32()));
+                    reader.entry(message.value, () => reader.string(), () => serial_v2.Uint32Vec.decode(reader, reader.uint32()));
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -1467,13 +1454,13 @@ $root.serial_v2.MapString2Uint32Vec = class MapString2Uint32Vec {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.MapString2Uint32Vec();
+        const message = new serial_v2.MapString2Uint32Vec();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
             switch (tag) {
                 case "value":
-                    reader.entry(message.value, () => reader.string(), () => $root.serial_v2.Uint32Vec.decodeText(reader));
+                    reader.entry(message.value, () => reader.string(), () => serial_v2.Uint32Vec.decodeText(reader));
                     break;
                 default:
                     reader.field(tag, message);
@@ -1484,20 +1471,20 @@ $root.serial_v2.MapString2Uint32Vec = class MapString2Uint32Vec {
     }
 };
 
-$root.serial_v2.MapString2Int64Vec = class MapString2Int64Vec {
+serial_v2.MapString2Int64Vec = class MapString2Int64Vec {
 
     constructor() {
         this.value = {};
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.MapString2Int64Vec();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.MapString2Int64Vec();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
                 case 1:
-                    reader.entry(message.value, () => reader.string(), () => $root.serial_v2.Int64Vec.decode(reader, reader.uint32()));
+                    reader.entry(message.value, () => reader.string(), () => serial_v2.Int64Vec.decode(reader, reader.uint32()));
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -1508,13 +1495,13 @@ $root.serial_v2.MapString2Int64Vec = class MapString2Int64Vec {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.MapString2Int64Vec();
+        const message = new serial_v2.MapString2Int64Vec();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
             switch (tag) {
                 case "value":
-                    reader.entry(message.value, () => reader.string(), () => $root.serial_v2.Int64Vec.decodeText(reader));
+                    reader.entry(message.value, () => reader.string(), () => serial_v2.Int64Vec.decodeText(reader));
                     break;
                 default:
                     reader.field(tag, message);
@@ -1525,20 +1512,20 @@ $root.serial_v2.MapString2Int64Vec = class MapString2Int64Vec {
     }
 };
 
-$root.serial_v2.MapString2Uint64Vec = class MapString2Uint64Vec {
+serial_v2.MapString2Uint64Vec = class MapString2Uint64Vec {
 
     constructor() {
         this.value = {};
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.MapString2Uint64Vec();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.MapString2Uint64Vec();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
                 case 1:
-                    reader.entry(message.value, () => reader.string(), () => $root.serial_v2.Uint64Vec.decode(reader, reader.uint32()));
+                    reader.entry(message.value, () => reader.string(), () => serial_v2.Uint64Vec.decode(reader, reader.uint32()));
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -1549,13 +1536,13 @@ $root.serial_v2.MapString2Uint64Vec = class MapString2Uint64Vec {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.MapString2Uint64Vec();
+        const message = new serial_v2.MapString2Uint64Vec();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
             switch (tag) {
                 case "value":
-                    reader.entry(message.value, () => reader.string(), () => $root.serial_v2.Uint64Vec.decodeText(reader));
+                    reader.entry(message.value, () => reader.string(), () => serial_v2.Uint64Vec.decodeText(reader));
                     break;
                 default:
                     reader.field(tag, message);
@@ -1566,20 +1553,20 @@ $root.serial_v2.MapString2Uint64Vec = class MapString2Uint64Vec {
     }
 };
 
-$root.serial_v2.MapString2BytesVec = class MapString2BytesVec {
+serial_v2.MapString2BytesVec = class MapString2BytesVec {
 
     constructor() {
         this.value = {};
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.MapString2BytesVec();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.MapString2BytesVec();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
                 case 1:
-                    reader.entry(message.value, () => reader.string(), () => $root.serial_v2.BytesVec.decode(reader, reader.uint32()));
+                    reader.entry(message.value, () => reader.string(), () => serial_v2.BytesVec.decode(reader, reader.uint32()));
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -1590,13 +1577,13 @@ $root.serial_v2.MapString2BytesVec = class MapString2BytesVec {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.MapString2BytesVec();
+        const message = new serial_v2.MapString2BytesVec();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
             switch (tag) {
                 case "value":
-                    reader.entry(message.value, () => reader.string(), () => $root.serial_v2.BytesVec.decodeText(reader));
+                    reader.entry(message.value, () => reader.string(), () => serial_v2.BytesVec.decodeText(reader));
                     break;
                 default:
                     reader.field(tag, message);
@@ -1607,20 +1594,20 @@ $root.serial_v2.MapString2BytesVec = class MapString2BytesVec {
     }
 };
 
-$root.serial_v2.MapString2StringVec = class MapString2StringVec {
+serial_v2.MapString2StringVec = class MapString2StringVec {
 
     constructor() {
         this.value = {};
     }
 
     static decode(reader, length) {
-        const message = new $root.serial_v2.MapString2StringVec();
-        const end = length !== undefined ? reader.position + length : reader.length;
+        const message = new serial_v2.MapString2StringVec();
+        const end = length === undefined ? reader.length : reader.position + length;
         while (reader.position < end) {
             const tag = reader.uint32();
             switch (tag >>> 3) {
                 case 1:
-                    reader.entry(message.value, () => reader.string(), () => $root.serial_v2.StringVec.decode(reader, reader.uint32()));
+                    reader.entry(message.value, () => reader.string(), () => serial_v2.StringVec.decode(reader, reader.uint32()));
                     break;
                 default:
                     reader.skipType(tag & 7);
@@ -1631,13 +1618,13 @@ $root.serial_v2.MapString2StringVec = class MapString2StringVec {
     }
 
     static decodeText(reader) {
-        const message = new $root.serial_v2.MapString2StringVec();
+        const message = new serial_v2.MapString2StringVec();
         reader.start();
         while (!reader.end()) {
             const tag = reader.tag();
             switch (tag) {
                 case "value":
-                    reader.entry(message.value, () => reader.string(), () => $root.serial_v2.StringVec.decodeText(reader));
+                    reader.entry(message.value, () => reader.string(), () => serial_v2.StringVec.decodeText(reader));
                     break;
                 default:
                     reader.field(tag, message);
