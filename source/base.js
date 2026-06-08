@@ -1415,7 +1415,7 @@ base.Metadata = class {
             'paddle', 'pdiparams', 'pdmodel', 'pdopt', 'pdparams', 'nb',
             'pkl', 'pickle', 'joblib', 'safetensors',
             'ptl', 't7',
-            'dlc', 'uff', 'armnn', 'kann', 'kgraph', 'tosa',
+            'dlc', 'uff', 'armnn', 'kann', 'kgraph', 'tosa', 'def', 'txt', 'bin', 'cbin',
             'ms', 'mindir', 'om',
             'mnn', 'ncnn', 'tm', 'mge', 'tmfile', 'tnnproto', 'xmodel', 'kmodel', 'rknn', 'espdl',
             'tar', 'zip'

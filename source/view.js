@@ -7307,6 +7307,7 @@ view.ModelFactoryService = class {
         this.register('./xgboost', ['.xgb', '.xgboost', '.json', '.model', '.bin', '.txt', '.ubj'], [], [/^{L\x00\x00/, /^binf/, /^bs64/, /^\s*booster\[0\]:/]);
         this.register('./tosa', ['.tosa', '.json'], [], [/^....TOSA/]);
         this.register('./transformers', ['.json']);
+        this.register('./compass', ['.def', '.txt', '.bin', '.cbin']);
         this.register('', ['.cambricon', '.vnnmodel', '.nnc']);
         /* eslint-enable no-control-regex */
     }
