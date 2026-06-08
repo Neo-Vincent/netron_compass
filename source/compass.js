@@ -1,22 +1,22 @@
 
-var compass = compass || {};
-var protobuf = protobuf || require('./protobuf');
+import * as base from './base.js';
 
+const compass = {};
 compass.ModelFactory = class {
 
     match(context) {
         const identifier = context.identifier;
         const extension = identifier.split('.').pop().toLowerCase();
         if (extension == 'def' || extension == 'txt') {
-            return 'compass.def';
+            return context.set('compass.def');
         }
         if (extension == 'bin' || extension == 'cbin') {
-            return 'compass.bin';
+            return context.set('compass.bin');
         }
         return undefined;
     }
 
-    async open(context, match) {
+    async open(context) {
         const metadata = await compass.Metadata.open(context);
         const identifier = context.identifier.toLowerCase();
         const openText = (param, bin) => {
@@ -24,17 +24,21 @@ compass.ModelFactory = class {
             return new compass.Model(metadata, reader.net);
         };
         let bin = null;
-        switch (match) {
+        let content = null;
+
+        switch (context.type) {
             case 'compass.def': {
                 if (identifier.endsWith('.def') || identifier.endsWith('.txt')) {
                     bin = context.identifier.substring(0, context.identifier.length - 3) + 'bin';
                 }
-                return context.request(bin, null).then((stream) => {
-                    const buffer = stream.read();
-                    return openText(context.stream.peek(), buffer);
-                }).catch(() => {
-                    return openText(context.stream.peek(), null);
-                });
+                let content = null;
+                const text = await context.read('text');
+                try {
+                    content = await context.fetch(bin);
+                    return openText(text, content);
+                } catch {
+                    return openText(text, null);
+                }
             }
             case 'compass.bin': {
                 if (identifier.endsWith('.bin')) {
@@ -44,15 +48,15 @@ compass.ModelFactory = class {
                     bin = context.identifier.substring(0, context.identifier.length - 4);
                 }
                 try {
-                    const stream = await context.request(bin + "def", null);
-                    const buffer = stream.read();
-                    return openText(buffer, context.stream.peek());
+                    const content = await context.fetch(bin + "def");
+                    const text = await content.read('text');
+                    return openText(text, context.stream.peek());
 
                 } catch (error) {
                     try {
-                        const stream = await context.request(bin + "txt", null);
-                        const buffer = stream.read();
-                        return openText(buffer, context.stream.peek());
+                        const stream = await context.fetch(bin + "txt");
+                        const text = await stream.read('text');
+                        return openText(text, context.stream.peek());
 
                     } catch (error) {
                         return openText(null, context.stream.peek());
@@ -74,6 +78,7 @@ compass.Model = class {
             new compass.Graph(metadata, param), ...this._subgraphs
         ];
         this.process_subgraph(metadata);
+        this.modules = this._graphs;
     }
 
     process_subgraph(metadata) {
@@ -616,17 +621,17 @@ compass.Utility = class {
 
 compass.Metadata = class {
 
-    static open(context) {
-        if (compass.Metadata._metadata) {
-            return Promise.resolve(compass.Metadata._metadata);
-        }
-        return context.request('compass-metadata.json', 'utf-8', null).then((data) => {
+    static async open(context) {
+        if (!compass.Metadata._metadata) {
+            let data = null;
+            try {
+                data = await context.asset('compass-metadata.json');
+            } catch {
+                // continue regardless of error
+            }
             compass.Metadata._metadata = new compass.Metadata(data);
-            return compass.Metadata._metadata;
-        }).catch(() => {
-            compass.Metadata._metadata = new compass.Metadata(null);
-            return compass.Metadata._metadata;
-        });
+        }
+        return compass.Metadata._metadata;
     }
 
     constructor(data) {
@@ -660,11 +665,11 @@ compass.Metadata = class {
 compass.TextParamReader = class {
 
     constructor(metadata, buffer, weights) {
-        const reader = text.Reader.open(buffer);
+        const reader = buffer;
         const sections = []
         let lines = {};
         for (; ;) {
-            const line = reader.read();
+            const line = reader.read('\n');
             if (line === undefined) {
                 if (Object.keys(lines).length != 0) {
                     sections.push(lines);
@@ -894,6 +899,4 @@ compass.Error = class extends Error {
     }
 };
 
-if (typeof module !== 'undefined' && typeof module.exports === 'object') {
-    module.exports.ModelFactory = compass.ModelFactory;
-}
+export const ModelFactory = compass.ModelFactory;
